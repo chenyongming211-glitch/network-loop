@@ -27,6 +27,12 @@ impl TryFrom<Cli> for ParsedCli {
 
     fn try_from(cli: Cli) -> Result<Self, Self::Error> {
         let (command, json) = match cli.command {
+            CliCommand::Preflight(args) => (
+                AgentCommand::Preflight {
+                    interface: InterfaceName::new(args.interface)?,
+                },
+                args.json,
+            ),
             CliCommand::Observe(args) => (
                 AgentCommand::Observe {
                     interface: InterfaceName::new(args.interface)?,

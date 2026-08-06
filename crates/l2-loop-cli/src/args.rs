@@ -13,11 +13,20 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum CliCommand {
+    Preflight(PreflightArgs),
     Observe(ObserveArgs),
     Status(StatusArgs),
     Probe(ProbeArgs),
     Police(PoliceArgs),
     Evidence(EvidenceArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct PreflightArgs {
+    #[arg(long)]
+    pub interface: String,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]

@@ -14,8 +14,6 @@ clap = { workspace = true, features = ["derive"] }
 l2-loop-agent = { path = "../l2-loop-agent" }
 l2-loop-core = { path = "../l2-loop-core" }
 humantime.workspace = true
-thiserror.workspace = true
-
-[dev-dependencies]
 serde_json.workspace = true
+thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt"] }
