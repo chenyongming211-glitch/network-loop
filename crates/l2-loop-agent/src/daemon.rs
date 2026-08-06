@@ -10,7 +10,7 @@ use std::{
 
 use thiserror::Error;
 use tokio::{
-    io::AsyncWriteExt,
+    io::{AsyncWrite, AsyncWriteExt},
     net::{UnixListener, UnixStream},
     sync::Semaphore,
     task::JoinSet,
@@ -97,6 +97,7 @@ impl BoundedUnixServer {
         tokio::pin!(shutdown);
 
         loop {
+            reap_finished_connections(&mut tasks);
             let permit = tokio::select! {
                 _ = &mut shutdown => break,
                 permit = semaphore.clone().acquire_owned() => {
@@ -142,8 +143,33 @@ where
             Err(_) => ControlResponse::error(ERROR_REQUEST_TIMEOUT, "request timed out"),
         };
     let frame = encode_bounded_response(response);
-    write_frame(&mut stream, &frame).await?;
-    stream.shutdown().await.map_err(TransportError::Io)
+    write_response_with_timeout(&mut stream, &frame, REQUEST_TIMEOUT).await
+}
+
+async fn write_response_with_timeout<W>(
+    writer: &mut W,
+    frame: &[u8],
+    timeout: Duration,
+) -> Result<(), TransportError>
+where
+    W: AsyncWrite + Unpin,
+{
+    match tokio::time::timeout(timeout, async {
+        write_frame(writer, frame).await?;
+        writer.shutdown().await.map_err(TransportError::Io)
+    })
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(TransportError::Io(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "response write timed out",
+        ))),
+    }
+}
+
+fn reap_finished_connections(tasks: &mut JoinSet<()>) {
+    while tasks.try_join_next().is_some() {}
 }
 
 async fn response_for<H, Fut>(stream: &mut UnixStream, handler: H) -> ControlResponse
