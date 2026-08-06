@@ -1,0 +1,18 @@
+# Rust build output
+/target/
+**/target/
+
+# Local development worktrees
+/.worktrees/
+/worktrees/
+
+# IDE and operating-system state
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+
+# Private investigation material retained only in the local workspace
+/docs/archive/
+/docs/conversation-record.md
+
