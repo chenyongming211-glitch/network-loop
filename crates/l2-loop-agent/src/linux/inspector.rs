@@ -787,18 +787,16 @@ async fn query_tc(
         };
         loop {
             match messages.try_next().await {
-                Ok(Some(message)) => {
-                    match tc_attachment(&message, direction) {
-                        ParsedTcAttachment::Known(attachment) => {
-                            observed.push(ObservedTcAttachment {
-                                attachment,
-                                owned: false,
-                            });
-                        }
-                        ParsedTcAttachment::NotBpf => {}
-                        ParsedTcAttachment::Unknown => return (observed, false),
+                Ok(Some(message)) => match tc_attachment(&message, direction) {
+                    ParsedTcAttachment::Known(attachment) => {
+                        observed.push(ObservedTcAttachment {
+                            attachment,
+                            owned: false,
+                        });
                     }
-                }
+                    ParsedTcAttachment::NotBpf => {}
+                    ParsedTcAttachment::Unknown => return (observed, false),
+                },
                 Ok(None) => break,
                 Err(_) => return (observed, false),
             }
