@@ -1,7 +1,11 @@
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
-#[command(name = "csmp-loopctl", version, about = "CSMP Loop Agent control client")]
+#[command(
+    name = "csmp-loopctl",
+    version,
+    about = "CSMP Loop Agent control client"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: CliCommand,

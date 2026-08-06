@@ -3,9 +3,7 @@ use csmp_loop_core::{
 };
 use thiserror::Error;
 
-use crate::args::{
-    Cli, CliCommand, EvidenceCommand, PoliceCommand, PolicyClassArg, ProbeScopeArg,
-};
+use crate::args::{Cli, CliCommand, EvidenceCommand, PoliceCommand, PolicyClassArg, ProbeScopeArg};
 
 #[derive(Debug)]
 pub struct ParsedCli {
@@ -62,10 +60,9 @@ impl TryFrom<Cli> for ParsedCli {
                     )?;
                     (AgentCommand::ApplyPolicy { request }, false)
                 }
-                PoliceCommand::Disable(args) => (
-                    AgentCommand::DisablePolicy { rule_id: args.rule },
-                    false,
-                ),
+                PoliceCommand::Disable(args) => {
+                    (AgentCommand::DisablePolicy { rule_id: args.rule }, false)
+                }
             },
             CliCommand::Evidence(args) => match args.command {
                 EvidenceCommand::List(args) => (
