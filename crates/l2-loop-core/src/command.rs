@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{InterfaceName, PolicyRequest, ProbeRequest};
+use crate::{InterfaceName, PolicyRequest, PreflightReport, ProbeRequest};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AgentCommand {
+    Preflight { interface: InterfaceName },
     Observe { interface: InterfaceName },
     Status { interface: Option<InterfaceName> },
     Probe { request: ProbeRequest },
@@ -17,6 +18,7 @@ pub enum AgentCommand {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AgentResult {
+    Preflight { report: PreflightReport },
     Accepted,
     Status { interfaces: Vec<InterfaceStatus> },
     Probe { returned_frames: u64 },
