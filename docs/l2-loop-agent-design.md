@@ -576,6 +576,10 @@ vlan_visibility=unknown
 
 ## 15. 证据包
 
+本节的落盘、告警、权限、容量和查询细节以
+[`2026-08-06-local-alert-evidence-output-design.md`](superpowers/specs/2026-08-06-local-alert-evidence-output-design.md)
+为准。证据存储是事件的权威记录；journald 只发布精简、可检索、尽力而为的结构化摘要；CLI 通过本地控制 socket 返回脱敏视图。
+
 每个事件保存：
 
 ```text
@@ -594,10 +598,12 @@ Top 指纹、重复率、首次位置
 自然探针路径
 主动探针 nonce、返回次数和延迟
 生效/建议的限速规则及 TTL
-有大小和时长上限的小型 PCAP
+有大小和时长上限的小型 PCAP（默认关闭，显式配置后启用）
 ```
 
-完整 payload 默认不进入长期指标。源 MAC、IP 和指纹不作为无界 Prometheus label。
+证据包采用版本化 manifest、完整性哈希和原子提交。默认总容量为 1 GiB、最多 1,000 个事件、保留 30 天；磁盘不足时先停止可选 PCAP，再淘汰最旧的已关闭事件，永不淘汰活跃事件。
+
+完整 payload、源 MAC、IP、指纹、原始拓扑和 PCAP 不进入 journald 或普通组可查询的 CLI 摘要。监控平台指标、Prometheus 和 Alertmanager 当前不在范围内。
 
 ## 16. CLI 草案
 
@@ -607,7 +613,7 @@ l2-loopctl observe --interface bond1
 
 # 状态与证据
 l2-loopctl status --interface bond1
-l2-loopctl evidence list
+l2-loopctl evidence list --limit 50
 l2-loopctl evidence show --id <event-id>
 
 # 人工单帧探针
@@ -624,7 +630,7 @@ l2-loopctl police apply \
 l2-loopctl police disable --rule <rule-id>
 ```
 
-命令名和参数已由 Rust 基础实现规范及 CLI 解析测试固定。
+现有命令名由 Rust 基础实现规范固定。证据列表将在首次发布前增加有界分页和 opaque cursor；响应始终受一兆字节协议帧限制。
 
 ## 17. 与现有 XDP Storm/DDoS 设计的关系
 
@@ -755,12 +761,12 @@ EXTERNAL_LOOP_CONFIRMED
 
 1. crate、进程和 systemd 布局；
 2. map ABI、generation 和持久化格式；
-3. 默认采样率、LRU 容量、PCAP 上限和保留周期；
+3. 默认采样率和 LRU 容量；PCAP 与证据保留边界已由本地告警和证据输出规范冻结；
 4. 动态基线算法及每类绝对安全上限；
 5. 各 bond mode 的 XDP/TC 挂载矩阵；
 6. Linux bridge 与 OVS 的 internal probe 安全注入点；
 7. 目标内核下 TC ingress/egress 与 XDP VLAN 元数据能力；
-8. 管理员授权、审计和 RBAC 模型；
+8. 主动探针和限速的管理员授权、审计与 RBAC 模型；只读状态和证据权限已由本地告警和证据输出规范冻结；
 9. 只读事件何时建议 ingress、egress 或本地端口止血。
 
 这些问题不改变已确认的产品边界：单节点、observe-first、证据分级、人工单帧探针、人工 TTL 限速。

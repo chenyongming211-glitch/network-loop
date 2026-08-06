@@ -17,6 +17,7 @@ It does not depend on Neutron, communicate across nodes, infer an interface auto
 
 - [Product and safety architecture](docs/l2-loop-agent-design.md)
 - [Rust foundation specification](docs/superpowers/specs/2026-08-06-l2-loop-rust-foundation-design.md)
+- [Local alert and evidence output specification](docs/superpowers/specs/2026-08-06-local-alert-evidence-output-design.md)
 - [Implementation plan](docs/superpowers/plans/2026-08-06-l2-loop-rust-foundation.md)
 
 ## Build policy
