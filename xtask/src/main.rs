@@ -10,7 +10,6 @@ fn main() -> ExitCode {
         }
     }
 }
-
 fn build_ebpf() -> ExitCode {
     let status = Command::new("cargo")
         .args([
@@ -35,4 +34,3 @@ fn build_ebpf() -> ExitCode {
         }
     }
 }
-
