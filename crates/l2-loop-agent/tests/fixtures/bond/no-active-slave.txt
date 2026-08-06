@@ -1,0 +1,5 @@
+Ethernet Channel Bonding Driver: fixture
+Bonding Mode: fault-tolerance (active-backup)
+Currently Active Slave: None
+Slave Interface: port-a
+Slave Interface: port-b

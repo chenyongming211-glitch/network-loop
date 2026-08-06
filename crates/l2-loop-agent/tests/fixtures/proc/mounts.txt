@@ -1,0 +1,3 @@
+sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+bpffs /sys/fs/bpf bpf rw,nosuid,nodev,noexec,relatime,mode=700 0 0
+bpffs /tmp/sys/fs/bpf bpf rw,nosuid,nodev,noexec,relatime,mode=700 0 0

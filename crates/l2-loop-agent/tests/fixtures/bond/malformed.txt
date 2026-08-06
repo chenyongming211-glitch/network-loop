@@ -1,0 +1,4 @@
+Ethernet Channel Bonding Driver: fixture
+Bonding Mode: balance-rr (round-robin)
+Currently Active Slave: port-a
+Slave Interface: port-a

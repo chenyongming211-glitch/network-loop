@@ -1,0 +1,2 @@
+Limit                     Soft Limit           Hard Limit           Units
+Max locked memory         65536                unlimited            bytes
