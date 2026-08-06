@@ -50,11 +50,7 @@ impl PreflightFinding {
         Self::new(code, FindingSeverity::Blocker, message)
     }
 
-    fn new(
-        code: impl Into<String>,
-        severity: FindingSeverity,
-        message: impl Into<String>,
-    ) -> Self {
+    fn new(code: impl Into<String>, severity: FindingSeverity, message: impl Into<String>) -> Self {
         Self {
             code: code.into(),
             severity,
