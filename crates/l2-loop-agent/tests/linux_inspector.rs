@@ -3,6 +3,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use l2_loop_agent::{
+    PlatformInspector,
     linux::{
         bpf_inventory::{BtfSnapshot, PinRootSnapshot},
         inspector::{
@@ -11,14 +12,12 @@ use l2_loop_agent::{
         },
         interface::{KernelLinkKind, LinkRecord},
     },
-    PlatformInspector,
 };
 use l2_loop_core::{
     AttachmentState, Direction, FindingSeverity, HookRole, InterfaceKind, InterfaceName,
-    PinRootState, PreflightDecision, TcAttachment, PF_INTERFACE_MISSING,
-    PF_INTERFACE_UNSUPPORTED, PF_KERNEL_CAPABILITY, PF_LIVE_INTERFACE, PF_MEMLOCK_TOO_LOW,
-    PF_PIN_ROOT_FOREIGN, PF_TC_HANDLE_COLLISION, PF_TC_STATE_UNKNOWN, PF_XDP_OCCUPIED,
-    PF_XDP_STATE_UNKNOWN,
+    PF_INTERFACE_MISSING, PF_INTERFACE_UNSUPPORTED, PF_KERNEL_CAPABILITY, PF_LIVE_INTERFACE,
+    PF_MEMLOCK_TOO_LOW, PF_PIN_ROOT_FOREIGN, PF_TC_HANDLE_COLLISION, PF_TC_STATE_UNKNOWN,
+    PF_XDP_OCCUPIED, PF_XDP_STATE_UNKNOWN, PinRootState, PreflightDecision, TcAttachment,
 };
 
 const REQUIRED_MEMLOCK_BYTES: u64 = 8 * 1024 * 1024;
@@ -209,11 +208,13 @@ fn assembles_bond_details_and_targets_only_the_active_slave() {
     let bond = report.interface.bond.unwrap();
     assert_eq!(bond.slaves.len(), 2);
     assert_eq!(bond.active_slave.unwrap().name, interface_name("eno1"));
-    assert!(report
-        .interface
-        .proposed_targets
-        .iter()
-        .all(|target| target.interface.name == interface_name("eno1")));
+    assert!(
+        report
+            .interface
+            .proposed_targets
+            .iter()
+            .all(|target| target.interface.name == interface_name("eno1"))
+    );
 }
 
 #[test]
@@ -228,11 +229,16 @@ fn uses_the_injected_ovs_query_without_a_shell_or_mutation_port() {
     let report = inspector.inspect(&requested).unwrap();
 
     assert_eq!(report.interface.kind, InterfaceKind::OvsInternal);
-    assert_eq!(report.interface.master.unwrap().name, interface_name("br-int"));
-    assert!(calls
-        .borrow()
-        .iter()
-        .all(|call| call.starts_with("read:") || call.starts_with("query:")));
+    assert_eq!(
+        report.interface.master.unwrap().name,
+        interface_name("br-int")
+    );
+    assert!(
+        calls
+            .borrow()
+            .iter()
+            .all(|call| call.starts_with("read:") || call.starts_with("query:"))
+    );
     assert!(calls.borrow().contains(&"query:ovs:ovs0".into()));
 }
 
@@ -254,8 +260,9 @@ impl Fixture {
                 architecture: "x86_64".into(),
                 release: "6.6.0-test".into(),
                 mounts: include_str!("fixtures/proc/mounts.txt").into(),
-                limits: "Max locked memory         unlimited            unlimited            bytes\n"
-                    .into(),
+                limits:
+                    "Max locked memory         unlimited            unlimited            bytes\n"
+                        .into(),
                 bpf_jit: true,
                 btf: BtfSnapshot {
                     exists: true,
