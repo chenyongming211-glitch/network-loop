@@ -91,15 +91,7 @@ fn converts_probe_and_policy_to_validated_domain_commands() {
 #[test]
 fn requires_explicit_interfaces_and_policy_limits() {
     assert!(Cli::try_parse_from(["csmp-loopctl", "observe"]).is_err());
-    assert!(
-        Cli::try_parse_from([
-            "csmp-loopctl",
-            "probe",
-            "--scope",
-            "external",
-        ])
-        .is_err()
-    );
+    assert!(Cli::try_parse_from(["csmp-loopctl", "probe", "--scope", "external",]).is_err());
     assert!(
         Cli::try_parse_from([
             "csmp-loopctl",
