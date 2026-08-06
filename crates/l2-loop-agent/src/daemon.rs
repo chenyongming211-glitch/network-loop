@@ -352,4 +352,33 @@ mod tests {
         fs::remove_file(&path).unwrap();
         fs::remove_dir(&root).unwrap();
     }
+
+    #[tokio::test]
+    async fn response_write_stops_at_its_deadline() {
+        let (mut writer, _reader) = tokio::io::duplex(1);
+
+        let error = write_response_with_timeout(
+            &mut writer,
+            &[0_u8; 128],
+            std::time::Duration::from_millis(10),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            TransportError::Io(error) if error.kind() == io::ErrorKind::TimedOut
+        ));
+    }
+
+    #[tokio::test]
+    async fn completed_connection_tasks_are_reaped() {
+        let mut tasks = JoinSet::new();
+        tasks.spawn(async {});
+        tokio::task::yield_now().await;
+
+        reap_finished_connections(&mut tasks);
+
+        assert!(tasks.is_empty());
+    }
 }
