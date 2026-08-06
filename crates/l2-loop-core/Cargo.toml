@@ -10,3 +10,6 @@ l2-loop-common = { path = "../l2-loop-common", features = ["user"] }
 serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 
+[dev-dependencies]
+serde_json.workspace = true
+
