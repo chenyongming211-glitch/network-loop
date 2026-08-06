@@ -77,7 +77,7 @@ numeric_enum! {
 
 impl TrafficClass {
     pub const fn supports_policing(self) -> bool {
-        !matches!(Self::All | Self::UnicastOrUnclassified, self)
+        !matches!(self, Self::All | Self::UnicastOrUnclassified)
     }
 }
 
