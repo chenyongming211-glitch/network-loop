@@ -5,6 +5,14 @@ use l2_loop_core::{AgentCommand, AgentResult};
 
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const MAX_PAYLOAD_LEN: usize = 1024 * 1024;
+pub const ERROR_EARLY_EOF: &str = "EARLY_EOF";
+pub const ERROR_INTERNAL: &str = "INTERNAL_ERROR";
+pub const ERROR_INVALID_REQUEST: &str = "INVALID_REQUEST";
+pub const ERROR_PAYLOAD_TOO_LARGE: &str = "PAYLOAD_TOO_LARGE";
+pub const ERROR_REQUEST_TIMEOUT: &str = "REQUEST_TIMEOUT";
+pub const ERROR_RESPONSE_TOO_LARGE: &str = "RESPONSE_TOO_LARGE";
+pub const ERROR_TRANSPORT: &str = "TRANSPORT_ERROR";
+pub const ERROR_UNSUPPORTED_PROTOCOL_VERSION: &str = "UNSUPPORTED_PROTOCOL_VERSION";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ControlRequest {
