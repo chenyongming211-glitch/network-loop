@@ -49,10 +49,14 @@ async fn serves_exactly_one_request_and_response_per_connection() {
     stream.write_all(&bytes).await.unwrap();
     let response = decode_response(&read_frame(&mut stream).await.unwrap()).unwrap();
     let mut trailing = [0_u8; 1];
-    let trailing_len = stream.read(&mut trailing).await.unwrap();
+    let connection_closed = match stream.read(&mut trailing).await {
+        Ok(0) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => true,
+        result => panic!("expected the server to close after one response, got {result:?}"),
+    };
 
     assert_eq!(response, ControlResponse::success(AgentResult::Accepted));
-    assert_eq!(trailing_len, 0);
+    assert!(connection_closed);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     server.stop().await;
 }
