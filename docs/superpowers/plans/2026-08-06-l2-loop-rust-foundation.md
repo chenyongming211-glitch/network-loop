@@ -1,4 +1,4 @@
-# CSMP Loop Rust Foundation Implementation Plan
+# L2 Loop Rust Foundation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use executing-plans to implement this plan task-by-task. Keep all compilation and test execution in GitHub Actions; do not run Cargo or a Rust compiler on the local development host.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust 2024, Aya 0.14.0, aya-ebpf 0.2.1, Clap 4.5, Serde/serde_json, Tokio, thiserror, GitHub Actions, nightly `bpfel-unknown-none`, and `bpf-linker`.
 
-**Design specification:** `docs/superpowers/specs/2026-08-06-csmp-loop-rust-foundation-design.md`
+**Design specification:** `docs/superpowers/specs/2026-08-06-l2-loop-rust-foundation-design.md`
 
 ---
 
@@ -29,17 +29,17 @@
 - Create: `rust-toolchain.toml`
 - Create: `.gitignore`
 - Create: `.github/workflows/ci.yml`
-- Create: `crates/csmp-loop-common/Cargo.toml`
-- Create: `crates/csmp-loop-core/Cargo.toml`
-- Create: `crates/csmp-loop-agent/Cargo.toml`
-- Create: `crates/csmp-loop-cli/Cargo.toml`
-- Create: `ebpf/csmp-loop-ebpf/Cargo.toml`
+- Create: `crates/l2-loop-common/Cargo.toml`
+- Create: `crates/l2-loop-core/Cargo.toml`
+- Create: `crates/l2-loop-agent/Cargo.toml`
+- Create: `crates/l2-loop-cli/Cargo.toml`
+- Create: `ebpf/l2-loop-ebpf/Cargo.toml`
 - Create: `xtask/Cargo.toml`
-- Create minimal crate roots: `crates/*/src/lib.rs`, `crates/csmp-loop-agent/src/main.rs`, `crates/csmp-loop-cli/src/main.rs`, `ebpf/csmp-loop-ebpf/src/main.rs`, `xtask/src/main.rs`
+- Create minimal crate roots: `crates/*/src/lib.rs`, `crates/l2-loop-agent/src/main.rs`, `crates/l2-loop-cli/src/main.rs`, `ebpf/l2-loop-ebpf/src/main.rs`, `xtask/src/main.rs`
 
 ### Step 1: Create manifests with centralized exact direct dependency versions
 
-Set workspace resolver `2`, edition `2024`, all six members, and default members excluding `csmp-loop-ebpf`. Keep `csmp-loop-common` dependency-free unless its `user` feature is enabled. User-space crates inherit dependency versions from `[workspace.dependencies]`.
+Set workspace resolver `2`, edition `2024`, all six members, and default members excluding `l2-loop-ebpf`. Keep `l2-loop-common` dependency-free unless its `user` feature is enabled. User-space crates inherit dependency versions from `[workspace.dependencies]`.
 
 ### Step 2: Add two independent CI jobs
 
@@ -85,11 +85,11 @@ Expected: GitHub Actions may fail because behavioral tests and implementations a
 
 **Files:**
 
-- Create: `crates/csmp-loop-common/src/abi.rs`
-- Create: `crates/csmp-loop-common/src/constants.rs`
-- Modify: `crates/csmp-loop-common/src/lib.rs`
-- Create: `crates/csmp-loop-common/tests/layout.rs`
-- Create: `crates/csmp-loop-common/tests/numeric_values.rs`
+- Create: `crates/l2-loop-common/src/abi.rs`
+- Create: `crates/l2-loop-common/src/constants.rs`
+- Modify: `crates/l2-loop-common/src/lib.rs`
+- Create: `crates/l2-loop-common/tests/layout.rs`
+- Create: `crates/l2-loop-common/tests/numeric_values.rs`
 
 ### Step 1: Write failing ABI layout tests
 
@@ -113,7 +113,7 @@ Add tests for `ABI_VERSION == 1`, VLAN sentinel `0xffff`, every fixed numeric va
 ### Step 2: Push and observe red CI
 
 ```bash
-git add crates/csmp-loop-common
+git add crates/l2-loop-common
 git commit -m "test: define shared ABI contract"
 git push
 ```
@@ -127,7 +127,7 @@ Add the exact `#[repr(C)]` structs and constants from the design specification. 
 ### Step 4: Push and observe green CI
 
 ```bash
-git add crates/csmp-loop-common
+git add crates/l2-loop-common
 git commit -m "feat: add versioned eBPF map ABI"
 git push
 ```
@@ -138,15 +138,15 @@ Expected: common layout and numeric tests pass in `userspace`.
 
 **Files:**
 
-- Create: `crates/csmp-loop-core/src/error.rs`
-- Create: `crates/csmp-loop-core/src/interface.rs`
-- Create: `crates/csmp-loop-core/src/policy.rs`
-- Create: `crates/csmp-loop-core/src/probe.rs`
-- Create: `crates/csmp-loop-core/src/command.rs`
-- Modify: `crates/csmp-loop-core/src/lib.rs`
-- Create: `crates/csmp-loop-core/tests/interface_lifecycle.rs`
-- Create: `crates/csmp-loop-core/tests/policy_validation.rs`
-- Create: `crates/csmp-loop-core/tests/probe_validation.rs`
+- Create: `crates/l2-loop-core/src/error.rs`
+- Create: `crates/l2-loop-core/src/interface.rs`
+- Create: `crates/l2-loop-core/src/policy.rs`
+- Create: `crates/l2-loop-core/src/probe.rs`
+- Create: `crates/l2-loop-core/src/command.rs`
+- Modify: `crates/l2-loop-core/src/lib.rs`
+- Create: `crates/l2-loop-core/tests/interface_lifecycle.rs`
+- Create: `crates/l2-loop-core/tests/policy_validation.rs`
+- Create: `crates/l2-loop-core/tests/probe_validation.rs`
 
 ### Step 1: Write failing state and validation tests
 
@@ -170,15 +170,15 @@ Implement typed enums with fallible conversion from ABI numeric values, `Interfa
 
 ### Step 4: Push and observe green CI
 
-Expected: all core tests pass with no Aya, Tokio, or operating-system dependency in `csmp-loop-core`.
+Expected: all core tests pass with no Aya, Tokio, or operating-system dependency in `l2-loop-core`.
 
 ## Task 4: Define and Test the Local Control Protocol
 
 **Files:**
 
-- Create: `crates/csmp-loop-agent/src/protocol.rs`
-- Create: `crates/csmp-loop-agent/tests/protocol_framing.rs`
-- Modify: `crates/csmp-loop-agent/src/lib.rs`
+- Create: `crates/l2-loop-agent/src/protocol.rs`
+- Create: `crates/l2-loop-agent/tests/protocol_framing.rs`
+- Modify: `crates/l2-loop-agent/src/lib.rs`
 
 ### Step 1: Write failing protocol tests
 
@@ -190,7 +190,7 @@ Expected failure: framing functions and wire types do not exist.
 
 ### Step 3: Implement the minimal protocol
 
-Implement pure encode/decode functions first. Keep socket I/O outside these functions. Translate wire requests to `csmp-loop-core` commands through fallible conversions.
+Implement pure encode/decode functions first. Keep socket I/O outside these functions. Translate wire requests to `l2-loop-core` commands through fallible conversions.
 
 ### Step 4: Push and observe green CI
 
@@ -200,11 +200,11 @@ Expected: protocol tests pass without binding a Unix socket.
 
 **Files:**
 
-- Create: `crates/csmp-loop-cli/src/args.rs`
-- Create: `crates/csmp-loop-cli/src/convert.rs`
-- Modify: `crates/csmp-loop-cli/src/lib.rs`
-- Modify: `crates/csmp-loop-cli/src/main.rs`
-- Create: `crates/csmp-loop-cli/tests/cli.rs`
+- Create: `crates/l2-loop-cli/src/args.rs`
+- Create: `crates/l2-loop-cli/src/convert.rs`
+- Modify: `crates/l2-loop-cli/src/lib.rs`
+- Modify: `crates/l2-loop-cli/src/main.rs`
+- Create: `crates/l2-loop-cli/tests/cli.rs`
 
 ### Step 1: Write failing parser tests
 
@@ -226,12 +226,12 @@ Expected: parser and conversion tests pass, and unsafe repetition arguments rema
 
 **Files:**
 
-- Create: `crates/csmp-loop-agent/src/ports.rs`
-- Create: `crates/csmp-loop-agent/src/service.rs`
-- Create: `crates/csmp-loop-agent/src/error.rs`
-- Modify: `crates/csmp-loop-agent/src/lib.rs`
-- Modify: `crates/csmp-loop-agent/src/main.rs`
-- Create: `crates/csmp-loop-agent/tests/service.rs`
+- Create: `crates/l2-loop-agent/src/ports.rs`
+- Create: `crates/l2-loop-agent/src/service.rs`
+- Create: `crates/l2-loop-agent/src/error.rs`
+- Modify: `crates/l2-loop-agent/src/lib.rs`
+- Modify: `crates/l2-loop-agent/src/main.rs`
+- Create: `crates/l2-loop-agent/tests/service.rs`
 
 ### Step 1: Write failing mock-driven service tests
 
@@ -260,9 +260,9 @@ Expected: service tests pass with deterministic fakes and no privileged operatio
 
 **Files:**
 
-- Create: `ebpf/csmp-loop-ebpf/src/maps.rs`
-- Create: `ebpf/csmp-loop-ebpf/src/programs.rs`
-- Modify: `ebpf/csmp-loop-ebpf/src/main.rs`
+- Create: `ebpf/l2-loop-ebpf/src/maps.rs`
+- Create: `ebpf/l2-loop-ebpf/src/programs.rs`
+- Modify: `ebpf/l2-loop-ebpf/src/main.rs`
 - Create: `xtask/src/inspect.rs`
 - Create: `xtask/tests/contract.rs`
 
@@ -285,7 +285,7 @@ Declare:
 - `PROBE_STATS`
 - `RATE_POLICY`
 
-Add `csmp_xdp_ingress`, `csmp_tc_egress`, `csmp_tc_path_ingress`, and `csmp_tc_path_egress`. Each program calls a shared inner function and converts every success or error path to `XDP_PASS` or `TC_ACT_OK`. Do not parse packets or mutate counters yet.
+Add `l2_loop_xdp_ingress`, `l2_loop_tc_egress`, `l2_loop_tc_path_ingress`, and `l2_loop_tc_path_egress`. Each program calls a shared inner function and converts every success or error path to `XDP_PASS` or `TC_ACT_OK`. Do not parse packets or mutate counters yet.
 
 ### Step 4: Push and observe green CI
 
@@ -323,7 +323,7 @@ Expected: xtask unit tests pass and the eBPF job continues to build through `car
 **Files:**
 
 - Modify only files required by observed CI failures
-- Update: `docs/superpowers/specs/2026-08-06-csmp-loop-rust-foundation-design.md` only if an approved contract correction is necessary
+- Update: `docs/superpowers/specs/2026-08-06-l2-loop-rust-foundation-design.md` only if an approved contract correction is necessary
 
 ### Step 1: Run the complete GitHub workflow from a clean commit
 
@@ -340,7 +340,7 @@ Use repository search to confirm:
 
 ```powershell
 rg -n "XDP_DROP|TC_ACT_SHOT|--count|--repeat|--interval" crates ebpf xtask
-rg -n "csmp_xdp_ingress|csmp_tc_egress|csmp_tc_path_ingress|csmp_tc_path_egress" ebpf xtask
+rg -n "l2_loop_xdp_ingress|l2_loop_tc_egress|l2_loop_tc_path_ingress|l2_loop_tc_path_egress" ebpf xtask
 rg -n "IFACE_CONFIG|HOOK_STATS|FINGERPRINTS|PROBE_REGISTRY|PROBE_STATS|RATE_POLICY" ebpf xtask
 ```
 

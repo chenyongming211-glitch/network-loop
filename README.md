@@ -1,6 +1,6 @@
-# CSMP Loop Agent
+# 二层环路检测 Agent
 
-CSMP Loop Agent is a single-node Rust and eBPF service for observing, diagnosing, and temporarily containing Layer 2 loops on an explicitly selected physical interface.
+L2 Loop Detection Agent is a single-node Rust and eBPF service for observing, diagnosing, and temporarily containing Layer 2 loops on an explicitly selected physical interface.
 
 The first release is observe-first:
 
@@ -15,9 +15,9 @@ It does not depend on Neutron, communicate across nodes, infer an interface auto
 
 ## Design documents
 
-- [Product and safety architecture](docs/csmp-physical-loop-agent-design.md)
-- [Rust foundation specification](docs/superpowers/specs/2026-08-06-csmp-loop-rust-foundation-design.md)
-- [Implementation plan](docs/superpowers/plans/2026-08-06-csmp-loop-rust-foundation.md)
+- [Product and safety architecture](docs/l2-loop-agent-design.md)
+- [Rust foundation specification](docs/superpowers/specs/2026-08-06-l2-loop-rust-foundation-design.md)
+- [Implementation plan](docs/superpowers/plans/2026-08-06-l2-loop-rust-foundation.md)
 
 ## Build policy
 
@@ -31,7 +31,7 @@ The first implementation slice now contains:
 - ABI v1 map keys, values, constants, and layout tests;
 - validated domain state, probe, and temporary-policy models;
 - a versioned local control protocol;
-- the complete safe `csmp-loopctl` command grammar;
+- the complete safe `l2-loopctl` command grammar;
 - user-space adapter traits and transactional hook orchestration;
 - four fail-open Aya program entry points and six fixed public maps.
 

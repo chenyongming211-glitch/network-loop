@@ -1,4 +1,4 @@
-# CSMP 单节点物理 Agent 二层环路检测与抑制设计
+# 二层环路检测 Agent 设计方案
 
 日期：2026-08-06  
 状态：设计基线；Rust/eBPF 基础契约已实现，真实采集与挂载尚未实现
@@ -7,7 +7,7 @@
 
 ## 1. 设计结论
 
-CSMP 将实现一个常驻 Rust 物理 Agent。管理员显式指定物理接口后，Agent 持续观察物理入口、物理出口、NIC/内核资源和本地二层拓扑。
+二层环路检测 Agent 将实现为常驻 Rust 服务。管理员显式指定物理接口后，Agent 持续观察物理入口、物理出口、NIC/内核资源和本地二层拓扑。
 
 首期工作模式为：
 
@@ -103,7 +103,7 @@ flowchart LR
 ### 5.1 显式接口
 
 ```bash
-csmp-loopctl observe --interface bond1
+l2-loopctl observe --interface bond1
 ```
 
 Agent 不自动推断 OVS uplink。配置必须显式列出可观察接口和可执行限速的接口。
@@ -443,7 +443,7 @@ scope
 ### 11.2 外部探针
 
 ```bash
-csmp-loopctl probe \
+l2-loopctl probe \
   --interface bond1 \
   --vlan <VID> \
   --scope external \
@@ -472,7 +472,7 @@ csmp-loopctl probe \
 ### 11.3 内部探针
 
 ```bash
-csmp-loopctl probe \
+l2-loopctl probe \
   --interface bond1 \
   --vlan <VID> \
   --scope internal \
@@ -603,25 +603,25 @@ Top 指纹、重复率、首次位置
 
 ```bash
 # 开始观察
-csmp-loopctl observe --interface bond1
+l2-loopctl observe --interface bond1
 
 # 状态与证据
-csmp-loopctl status --interface bond1
-csmp-loopctl evidence list
-csmp-loopctl evidence show --id <event-id>
+l2-loopctl status --interface bond1
+l2-loopctl evidence list
+l2-loopctl evidence show --id <event-id>
 
 # 人工单帧探针
-csmp-loopctl probe \
+l2-loopctl probe \
   --interface bond1 --vlan <VID> --scope external \
   --timeout 2s
 
 # 人工带 TTL 限速
-csmp-loopctl police apply \
+l2-loopctl police apply \
   --interface bond1 --vlan <VID> \
   --class ipv6-multicast --pps <limit> --ttl 10m
 
 # 提前撤销
-csmp-loopctl police disable --rule <rule-id>
+l2-loopctl police disable --rule <rule-id>
 ```
 
 命令名和参数已由 Rust 基础实现规范及 CLI 解析测试固定。

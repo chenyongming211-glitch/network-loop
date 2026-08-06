@@ -1,10 +1,10 @@
 # Development and CI
 
-All compilation and automated verification for CSMP Loop Agent runs in GitHub Actions. Do not run Cargo, rustc, Clippy, rustfmt, `bpf-linker`, or an eBPF compiler from the local authoring workspace.
+All compilation and automated verification for L2 Loop Detection Agent runs in GitHub Actions. Do not run Cargo, rustc, Clippy, rustfmt, `bpf-linker`, or an eBPF compiler from the local authoring workspace.
 
 ## Workflow
 
-The `CI` workflow runs for `main`, `agent/**`, and pull requests.
+This single-developer repository commits and pushes directly to `main`. The `CI` workflow runs for pushes to `main` and for pull requests submitted by external contributors.
 
 ### Userspace job
 
@@ -39,4 +39,4 @@ The resulting object targets `bpfel-unknown-none`. This job proves that all decl
 
 ## Review evidence
 
-Each pull request handoff must include the GitHub Actions run URL and commit SHA. A local static inspection is useful for scope review but is never reported as compilation success.
+Each development handoff must include the GitHub Actions run URL and commit SHA for `main`. A local static inspection is useful for scope review but is never reported as compilation success.

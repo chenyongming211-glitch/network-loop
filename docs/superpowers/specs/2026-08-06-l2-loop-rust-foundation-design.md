@@ -1,12 +1,12 @@
-# CSMP Loop Rust Foundation Design
+# L2 Loop Detection Agent Rust Foundation Design
 
 **Date:** 2026-08-06  
 **Status:** Approved for implementation  
-**Parent design:** `docs/csmp-physical-loop-agent-design.md`
+**Parent design:** `docs/l2-loop-agent-design.md`
 
 ## 1. Objective
 
-This phase establishes the executable contract for the CSMP physical-loop agent before hardware-facing logic is added. It fixes the Rust workspace, eBPF program inventory, map ABI, user-space module boundaries, local daemon protocol, and CLI grammar.
+This phase establishes the executable contract for the L2 Loop Detection Agent before hardware-facing logic is added. It fixes the Rust workspace, eBPF program inventory, map ABI, user-space module boundaries, local daemon protocol, and CLI grammar.
 
 The result is an observe-first foundation whose compilation and automated tests run exclusively in GitHub Actions. The current Windows development host is used only for authoring and non-compiling static checks.
 
@@ -40,27 +40,27 @@ Those capabilities must build on the contracts fixed here rather than redefining
 The project uses an Aya-based, multi-crate Rust workspace:
 
 ```text
-csmp-loop/
+l2-loop/
 ├── Cargo.toml
 ├── rust-toolchain.toml
 ├── crates/
-│   ├── csmp-loop-common/
-│   ├── csmp-loop-core/
-│   ├── csmp-loop-agent/
-│   └── csmp-loop-cli/
+│   ├── l2-loop-common/
+│   ├── l2-loop-core/
+│   ├── l2-loop-agent/
+│   └── l2-loop-cli/
 ├── ebpf/
-│   └── csmp-loop-ebpf/
+│   └── l2-loop-ebpf/
 ├── xtask/
 └── docs/
 ```
 
-All crates are workspace members. The root `default-members` list excludes `csmp-loop-ebpf`, so user-space and eBPF jobs remain separable in GitHub Actions. The Linux eBPF build is an explicit `cargo xtask build-ebpf` operation that invokes nightly Rust with `rust-src` and `bpf-linker`.
+All crates are workspace members. The root `default-members` list excludes `l2-loop-ebpf`, so user-space and eBPF jobs remain separable in GitHub Actions. The Linux eBPF build is an explicit `cargo xtask build-ebpf` operation that invokes nightly Rust with `rust-src` and `bpf-linker`.
 
 This separation is intentional: shared packet-independent contracts have a fast stable-toolchain CI job, while kernel-specific compilation remains a separately verified Linux CI target. No local compilation command is part of the development workflow.
 
 ## 4. Crate Responsibilities
 
-### 4.1 `csmp-loop-common`
+### 4.1 `l2-loop-common`
 
 A `#![no_std]` crate containing only eBPF/user-space ABI types, constants, numeric enums, and conversion validation.
 
@@ -73,7 +73,7 @@ Rules:
 - the optional `user` feature provides the required `aya::Pod` implementations;
 - ABI layout tests run in user space and assert exact size and alignment.
 
-### 4.2 `csmp-loop-core`
+### 4.2 `l2-loop-core`
 
 A stable, pure Rust library with no Aya, Tokio, operating-system, or CLI dependencies. It owns:
 
@@ -86,9 +86,9 @@ A stable, pure Rust library with no Aya, Tokio, operating-system, or CLI depende
 
 This is the primary location for deterministic unit tests.
 
-### 4.3 `csmp-loop-agent`
+### 4.3 `l2-loop-agent`
 
-A library plus the `csmp-loopd` binary. The library owns application orchestration and Linux adapters behind traits:
+A library plus the `l2-loopd` binary. The library owns application orchestration and Linux adapters behind traits:
 
 - `InterfaceResolver` resolves an explicit interface name to ifindex and identity;
 - `HookManager` loads, attaches, detaches, and reports Aya links;
@@ -98,17 +98,17 @@ A library plus the `csmp-loopd` binary. The library owns application orchestrati
 - `Clock` provides monotonic and wall-clock time;
 - `ControlServer` serves the local daemon protocol.
 
-The binary is a thin composition root. Domain decisions stay in `csmp-loop-core`; raw ABI conversions stay at the adapter boundary.
+The binary is a thin composition root. Domain decisions stay in `l2-loop-core`; raw ABI conversions stay at the adapter boundary.
 
-### 4.4 `csmp-loop-cli`
+### 4.4 `l2-loop-cli`
 
-A library plus the `csmp-loopctl` binary. The library exposes its Clap parser and conversion from CLI arguments to domain commands so parsing can be unit-tested without running a daemon.
+A library plus the `l2-loopctl` binary. The library exposes its Clap parser and conversion from CLI arguments to domain commands so parsing can be unit-tested without running a daemon.
 
 The binary connects to the local control socket, sends one request, renders the response, and maps typed failures to stable exit codes.
 
-### 4.5 `csmp-loop-ebpf`
+### 4.5 `l2-loop-ebpf`
 
-A `#![no_std]`, `#![no_main]` Aya eBPF crate. It imports ABI types from `csmp-loop-common` without the `user` feature. Program bodies initially return pass/continue after the minimum safe lookup scaffolding; packet parsing and enforcement are later slices.
+A `#![no_std]`, `#![no_main]` Aya eBPF crate. It imports ABI types from `l2-loop-common` without the `user` feature. Program bodies initially return pass/continue after the minimum safe lookup scaffolding; packet parsing and enforcement are later slices.
 
 ### 4.6 `xtask`
 
@@ -127,10 +127,10 @@ The following program names are public attachment contracts:
 
 | Program | Aya type | Intended attachment | Phase-one behavior |
 |---|---|---|---|
-| `csmp_xdp_ingress` | XDP | selected physical NIC ingress | return `XDP_PASS` |
-| `csmp_tc_egress` | TC classifier | selected physical NIC egress | return `TC_ACT_OK` |
-| `csmp_tc_path_ingress` | TC classifier | temporary candidate-path ingress | return `TC_ACT_OK` |
-| `csmp_tc_path_egress` | TC classifier | temporary candidate-path egress | return `TC_ACT_OK` |
+| `l2_loop_xdp_ingress` | XDP | selected physical NIC ingress | return `XDP_PASS` |
+| `l2_loop_tc_egress` | TC classifier | selected physical NIC egress | return `TC_ACT_OK` |
+| `l2_loop_tc_path_ingress` | TC classifier | temporary candidate-path ingress | return `TC_ACT_OK` |
+| `l2_loop_tc_path_egress` | TC classifier | temporary candidate-path egress | return `TC_ACT_OK` |
 
 Ingress and egress path programs remain separate even when they share internal functions. Attachment direction cannot be inferred reliably from a shared program instance, and the distinction must be unambiguous in evidence.
 
@@ -145,13 +145,13 @@ Every user-space operation that changes interface configuration or policy create
 Map pinning root:
 
 ```text
-/sys/fs/bpf/csmp-loop
+/sys/fs/bpf/l2-loop
 ```
 
 Pinned map directories are versioned:
 
 ```text
-/sys/fs/bpf/csmp-loop/v1/<ifindex>/
+/sys/fs/bpf/l2-loop/v1/<ifindex>/
 ```
 
 An ABI version mismatch prevents map reuse and program attachment. The daemon reports the mismatch rather than attempting an in-place reinterpretation.
@@ -415,23 +415,23 @@ There is no automatic transition from observation to policing.
 The daemon listens on:
 
 ```text
-/run/csmp-loop/agent.sock
+/run/l2-loop/agent.sock
 ```
 
 Each connection carries one request and one response. Frames use a four-byte unsigned big-endian payload length followed by UTF-8 JSON. The maximum payload length is 1 MiB. Both request and response contain `protocol_version: 1`.
 
 Request and response bodies are serde tagged enums using the `kind` field. Unknown protocol versions, unknown command kinds, oversized frames, invalid UTF-8, and malformed JSON are rejected without changing daemon state.
 
-Read-only operations may be granted to the `csmp-loop` operating-system group through socket permissions. Probe and policing operations require an authorized local principal. The daemon runs as root on supported 4.18-era kernels because those kernels predate the finer-grained `CAP_BPF` capability.
+Read-only operations may be granted to the `l2-loop` operating-system group through socket permissions. Probe and policing operations require an authorized local principal. The daemon runs as root on supported 4.18-era kernels because those kernels predate the finer-grained `CAP_BPF` capability.
 
 ## 12. CLI Contract
 
-The executable is `csmp-loopctl`.
+The executable is `l2-loopctl`.
 
 ### Observe
 
 ```text
-csmp-loopctl observe --interface <IFACE>
+l2-loopctl observe --interface <IFACE>
 ```
 
 Starts or verifies observe mode for one explicit interface. Interface auto-discovery is not accepted.
@@ -439,7 +439,7 @@ Starts or verifies observe mode for one explicit interface. Interface auto-disco
 ### Status
 
 ```text
-csmp-loopctl status [--interface <IFACE>] [--json]
+l2-loopctl status [--interface <IFACE>] [--json]
 ```
 
 Without `--interface`, lists all interfaces managed by this daemon. Human-readable output is the default; `--json` emits the versioned response object.
@@ -447,7 +447,7 @@ Without `--interface`, lists all interfaces managed by this daemon. Human-readab
 ### Probe
 
 ```text
-csmp-loopctl probe --interface <IFACE> --scope <external|internal> [--vlan <1-4094>] [--timeout <DURATION>]
+l2-loopctl probe --interface <IFACE> --scope <external|internal> [--vlan <1-4094>] [--timeout <DURATION>]
 ```
 
 One invocation sends exactly one frame. There is no count, repeat, interval, broadcast loop, or scheduled mode. The default timeout is two seconds and the accepted range is 100 milliseconds through 30 seconds.
@@ -455,7 +455,7 @@ One invocation sends exactly one frame. There is no count, repeat, interval, bro
 ### Apply Temporary Policing
 
 ```text
-csmp-loopctl police apply --interface <IFACE> [--vlan <1-4094>] --class <broadcast|ipv4-multicast|ipv6-multicast|other-multicast|link-local-control> [--pps <N>] [--bps <N>] --ttl <DURATION>
+l2-loopctl police apply --interface <IFACE> [--vlan <1-4094>] --class <broadcast|ipv4-multicast|ipv6-multicast|other-multicast|link-local-control> [--pps <N>] [--bps <N>] --ttl <DURATION>
 ```
 
 At least one of `--pps` or `--bps` is required and non-zero. TTL is required and accepted from one second through 24 hours. This command never creates a permanent rule.
@@ -463,14 +463,14 @@ At least one of `--pps` or `--bps` is required and non-zero. TTL is required and
 ### Disable Policing
 
 ```text
-csmp-loopctl police disable --rule <RULE_ID>
+l2-loopctl police disable --rule <RULE_ID>
 ```
 
 ### Evidence
 
 ```text
-csmp-loopctl evidence list [--interface <IFACE>] [--json]
-csmp-loopctl evidence show --id <EVIDENCE_ID> [--json]
+l2-loopctl evidence list [--interface <IFACE>] [--json]
+l2-loopctl evidence show --id <EVIDENCE_ID> [--json]
 ```
 
 The CLI returns exit code `0` on success, `2` for local argument validation, `3` when the daemon is unavailable, `4` for authorization failure, `5` for a rejected state transition, and `1` for other failures.
@@ -479,11 +479,11 @@ The CLI returns exit code `0` on success, `2` for local argument validation, `3`
 
 | Purpose | Path |
 |---|---|
-| Configuration | `/etc/csmp-loop/agent.toml` |
-| Runtime socket | `/run/csmp-loop/agent.sock` |
-| Persistent state | `/var/lib/csmp-loop/` |
-| Evidence bundles | `/var/lib/csmp-loop/evidence/` |
-| Pinned maps | `/sys/fs/bpf/csmp-loop/v1/<ifindex>/` |
+| Configuration | `/etc/l2-loop/agent.toml` |
+| Runtime socket | `/run/l2-loop/agent.sock` |
+| Persistent state | `/var/lib/l2-loop/` |
+| Evidence bundles | `/var/lib/l2-loop/evidence/` |
+| Pinned maps | `/sys/fs/bpf/l2-loop/v1/<ifindex>/` |
 
 The daemon creates runtime and state directories with restrictive ownership. Evidence filenames use daemon-generated identifiers, never raw user input.
 
@@ -545,4 +545,4 @@ The project uses Rust edition 2024, stable Rust for user space, and nightly Rust
 
 - Aya Book, development environment: <https://aya-rs.dev/book/start/development>
 - Official Aya template workspace: <https://github.com/aya-rs/aya-template>
-- Parent product and safety design: `docs/csmp-physical-loop-agent-design.md`
+- Parent product and safety design: `docs/l2-loop-agent-design.md`
