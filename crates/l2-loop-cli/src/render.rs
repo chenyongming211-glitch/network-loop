@@ -68,9 +68,7 @@ fn render_report(report: &PreflightReport, format: OutputFormat) -> RenderedOutp
     let stdout = match rendered {
         Ok(stdout) => stdout,
         Err(_) => {
-            return RenderedOutput::failure(format!(
-                "{ERROR_INTERNAL}: response rendering failed"
-            ));
+            return RenderedOutput::failure(format!("{ERROR_INTERNAL}: response rendering failed"));
         }
     };
     let exit_code = match report.decision {
@@ -132,7 +130,9 @@ fn scalar_text(value: &Value) -> String {
         Value::String(value) if !value.is_empty() && !value.chars().any(char::is_control) => {
             value.clone()
         }
-        Value::String(value) => serde_json::to_string(value).expect("JSON strings are serializable"),
+        Value::String(value) => {
+            serde_json::to_string(value).expect("JSON strings are serializable")
+        }
         _ => value.to_string(),
     }
 }

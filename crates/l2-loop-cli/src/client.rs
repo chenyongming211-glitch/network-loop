@@ -2,9 +2,7 @@ use std::{io, path::PathBuf};
 
 use l2_loop_agent::{
     daemon::DEFAULT_SOCKET_PATH,
-    protocol::{
-        ControlRequest, ControlResponse, ProtocolError, decode_response, encode_request,
-    },
+    protocol::{ControlRequest, ControlResponse, ProtocolError, decode_response, encode_request},
     transport::{TransportError, read_frame, write_frame},
 };
 use l2_loop_core::AgentCommand;
