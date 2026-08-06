@@ -257,12 +257,17 @@ fn inspect_interface<C: CommandSource>(
             ifindex: link.ifindex,
         }),
     };
+    let target_live = target.as_ref().is_some_and(|target| {
+        links.iter().any(|candidate| {
+            candidate.ifindex == target.ifindex && (candidate.admin_up || candidate.oper_up)
+        })
+    });
     let proposed_targets = target.map_or_else(Vec::new, attachment_targets);
     let isolated = matches!(kind, InterfaceKind::Veth | InterfaceKind::Tap)
         && !link.admin_up
         && !link.oper_up
         && master.is_none();
-    let live_shared = link.admin_up || link.oper_up || master.is_some();
+    let live_shared = link.admin_up || link.oper_up || master.is_some() || target_live;
     if live_shared {
         findings.push(PreflightFinding::blocker(
             PF_LIVE_INTERFACE,
@@ -546,9 +551,10 @@ fn kernel_link_kind(info: &[LinkInfo]) -> Option<KernelLinkKind> {
 fn read_tun_mode(path: &Path) -> Option<TunMode> {
     let value = fs::read_to_string(path).ok()?;
     let value = value.trim();
-    let flags = u32::from_str_radix(value.strip_prefix("0x").unwrap_or(value), 16)
-        .or_else(|_| value.parse())
-        .ok()?;
+    let flags = match value.strip_prefix("0x") {
+        Some(hexadecimal) => u32::from_str_radix(hexadecimal, 16).ok()?,
+        None => value.parse().ok()?,
+    };
     if flags & 0x0002 != 0 {
         Some(TunMode::Tap)
     } else if flags & 0x0001 != 0 {
@@ -699,6 +705,7 @@ fn xdp_states(message: &LinkMessage) -> (AttachmentState, AttachmentState) {
     let mut program_id = None;
     let mut driver_id = None;
     let mut generic_id = None;
+    let mut hardware_id = None;
     for attribute in &message.attributes {
         if let LinkAttribute::Xdp(attributes) = attribute {
             for xdp in attributes {
@@ -707,6 +714,7 @@ fn xdp_states(message: &LinkMessage) -> (AttachmentState, AttachmentState) {
                     LinkXdp::ProgId(value) if *value != 0 => program_id = Some(*value),
                     LinkXdp::DrvProgId(value) if *value != 0 => driver_id = Some(*value),
                     LinkXdp::SkbProgId(value) if *value != 0 => generic_id = Some(*value),
+                    LinkXdp::HwProgId(value) if *value != 0 => hardware_id = Some(*value),
                     _ => {}
                 }
             }
@@ -714,6 +722,10 @@ fn xdp_states(message: &LinkMessage) -> (AttachmentState, AttachmentState) {
     }
     let mut native = driver_id.map_or(AttachmentState::Empty, occupied);
     let mut generic = generic_id.map_or(AttachmentState::Empty, occupied);
+    if hardware_id.is_some() {
+        native = AttachmentState::Unknown;
+        generic = AttachmentState::Unknown;
+    }
     if let Some(attached) = attached {
         use rtnetlink::packet_route::link::XdpAttached;
         match attached {
@@ -738,6 +750,9 @@ fn xdp_states(message: &LinkMessage) -> (AttachmentState, AttachmentState) {
             }
             _ => {}
         }
+    } else if program_id.is_some() && driver_id.is_none() && generic_id.is_none() {
+        native = AttachmentState::Unknown;
+        generic = AttachmentState::Unknown;
     }
     (native, generic)
 }
@@ -773,11 +788,15 @@ async fn query_tc(
         loop {
             match messages.try_next().await {
                 Ok(Some(message)) => {
-                    if let Some(attachment) = tc_attachment(&message, direction) {
-                        observed.push(ObservedTcAttachment {
-                            attachment,
-                            owned: false,
-                        });
+                    match tc_attachment(&message, direction) {
+                        ParsedTcAttachment::Known(attachment) => {
+                            observed.push(ObservedTcAttachment {
+                                attachment,
+                                owned: false,
+                            });
+                        }
+                        ParsedTcAttachment::NotBpf => {}
+                        ParsedTcAttachment::Unknown => return (observed, false),
                     }
                 }
                 Ok(None) => break,
@@ -788,13 +807,19 @@ async fn query_tc(
     (observed, true)
 }
 
-fn tc_attachment(message: &TcMessage, direction: Direction) -> Option<TcAttachment> {
+enum ParsedTcAttachment {
+    NotBpf,
+    Known(TcAttachment),
+    Unknown,
+}
+
+fn tc_attachment(message: &TcMessage, direction: Direction) -> ParsedTcAttachment {
     let is_bpf = message
         .attributes
         .iter()
         .any(|attribute| matches!(attribute, TcAttribute::Kind(kind) if kind == "bpf"));
     if !is_bpf {
-        return None;
+        return ParsedTcAttachment::NotBpf;
     }
     let program_id = message.attributes.iter().find_map(|attribute| {
         let TcAttribute::Options(options) = attribute else {
@@ -804,9 +829,12 @@ fn tc_attachment(message: &TcMessage, direction: Direction) -> Option<TcAttachme
             TcOption::Bpf(TcFilterBpfOption::ProgId(program_id)) => Some(*program_id),
             _ => None,
         })
-    })?;
+    });
+    let Some(program_id) = program_id else {
+        return ParsedTcAttachment::Unknown;
+    };
 
-    Some(TcAttachment {
+    ParsedTcAttachment::Known(TcAttachment {
         direction,
         priority: (message.header.info >> 16) as u16,
         handle: message.header.handle.into(),
@@ -837,7 +865,7 @@ fn bpf_syscall_available() -> bool {
             0,
         )
     };
-    result != -1 || nix::errno::Errno::last() != nix::errno::Errno::ENOSYS
+    result != -1 || nix::errno::Errno::last() == nix::errno::Errno::EINVAL
 }
 
 fn run_async<T, F, Fut>(operation: F) -> Result<T, InspectorError>

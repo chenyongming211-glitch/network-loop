@@ -218,6 +218,25 @@ fn assembles_bond_details_and_targets_only_the_active_slave() {
 }
 
 #[test]
+fn treats_an_up_active_bond_slave_as_live() {
+    let mut fixture = Fixture::ready("bond0");
+    fixture.links = vec![
+        link("bond0", 10, Some(KernelLinkKind::Bond)),
+        physical_link("port-a", 11),
+        physical_link("port-b", 12),
+    ];
+    fixture.links[2].oper_up = true;
+    fixture.files.bond = Some(include_str!("fixtures/bond/active-backup.txt").into());
+    let requested = fixture.requested.clone();
+    let mut inspector = fixture.inspector();
+
+    let report = inspector.inspect(&requested).unwrap();
+
+    assert!(report.interface.live_shared);
+    assert_has_blocker(&report, PF_LIVE_INTERFACE);
+}
+
+#[test]
 fn uses_the_injected_ovs_query_without_a_shell_or_mutation_port() {
     let mut fixture = Fixture::ready("ovs0");
     fixture.links[0].kind = Some(KernelLinkKind::OpenVSwitch);
