@@ -1,8 +1,11 @@
 # Local Alert and Evidence Output Design
 
-**Date:** 2026-08-06  
-**Status:** Approved design; implementation plan not yet written  
-**Scope:** Local alert publication, bounded evidence persistence, and local CLI queries  
+**Date:** 2026-08-06
+
+**Status:** Approved design; implementation plan not yet written
+
+**Scope:** Local alert publication, bounded evidence persistence, and local CLI queries
+
 **Supersedes:** The alert and evidence-output details in `docs/l2-loop-agent-design.md` and placeholder evidence result shapes in the Rust foundation specification where they conflict with this document
 
 ## 1. Decision
