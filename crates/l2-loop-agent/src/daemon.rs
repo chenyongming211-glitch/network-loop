@@ -240,6 +240,8 @@ async fn clear_stale_socket(path: &Path) -> Result<(), DaemonError> {
     if !metadata.file_type().is_socket() {
         return Err(DaemonError::SocketPathNotSocket);
     }
+    let device = metadata.dev();
+    let inode = metadata.ino();
 
     match UnixStream::connect(path).await {
         Ok(_) => return Err(DaemonError::SocketInUse),
@@ -249,6 +251,30 @@ async fn clear_stale_socket(path: &Path) -> Result<(), DaemonError> {
                 io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound
             ) => {}
         Err(_) => return Err(DaemonError::SocketInUse),
+    }
+    remove_stale_socket_if_unchanged(path, device, inode)
+}
+
+fn remove_stale_socket_if_unchanged(
+    path: &Path,
+    expected_device: u64,
+    expected_inode: u64,
+) -> Result<(), DaemonError> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(source) => {
+            return Err(DaemonError::Io {
+                operation: "reinspect stale socket",
+                source,
+            });
+        }
+    };
+    if !metadata.file_type().is_socket()
+        || metadata.dev() != expected_device
+        || metadata.ino() != expected_inode
+    {
+        return Err(DaemonError::SocketInUse);
     }
     fs::remove_file(path).map_err(|source| DaemonError::Io {
         operation: "remove stale socket",
