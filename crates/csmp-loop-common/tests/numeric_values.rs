@@ -64,4 +64,3 @@ fn visibility_and_scope_values_are_stable() {
     assert_eq!(probe_scope::EXTERNAL, 1);
     assert_eq!(probe_scope::INTERNAL, 2);
 }
-

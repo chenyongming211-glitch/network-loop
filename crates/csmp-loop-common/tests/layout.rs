@@ -45,4 +45,3 @@ fn constructors_zero_reserved_fields() {
     assert_eq!(probe.flags, 0);
     assert_eq!(probe.reserved, [0; 12]);
 }
-
