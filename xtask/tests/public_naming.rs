@@ -27,8 +27,8 @@ fn tracked_repository_is_free_of_retired_identifier() {
             matches.push(format!("path: {relative}"));
         }
 
-        let contents =
-            fs::read(&path).unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        let contents = fs::read(&path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
         if String::from_utf8_lossy(&contents)
             .to_ascii_lowercase()
             .contains(&forbidden)
