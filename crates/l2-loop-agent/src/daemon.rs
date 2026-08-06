@@ -1,6 +1,6 @@
 use std::{
-    future::Future,
     fs,
+    future::Future,
     io,
     os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
@@ -18,10 +18,9 @@ use tokio::{
 
 use crate::{
     protocol::{
-        ControlRequest, ControlResponse, ERROR_EARLY_EOF, ERROR_INTERNAL,
-        ERROR_INVALID_REQUEST, ERROR_PAYLOAD_TOO_LARGE, ERROR_REQUEST_TIMEOUT,
-        ERROR_RESPONSE_TOO_LARGE, ERROR_TRANSPORT, ERROR_UNSUPPORTED_PROTOCOL_VERSION,
-        ProtocolError, decode_request, encode_response,
+        ControlRequest, ControlResponse, ERROR_EARLY_EOF, ERROR_INTERNAL, ERROR_INVALID_REQUEST,
+        ERROR_PAYLOAD_TOO_LARGE, ERROR_REQUEST_TIMEOUT, ERROR_RESPONSE_TOO_LARGE, ERROR_TRANSPORT,
+        ERROR_UNSUPPORTED_PROTOCOL_VERSION, ProtocolError, decode_request, encode_response,
     },
     transport::{TransportError, read_frame, write_frame},
 };
@@ -87,11 +86,7 @@ impl BoundedUnixServer {
         })
     }
 
-    pub async fn serve<H, Fut, S>(
-        self,
-        handler: H,
-        shutdown: S,
-    ) -> Result<(), DaemonError>
+    pub async fn serve<H, Fut, S>(self, handler: H, shutdown: S) -> Result<(), DaemonError>
     where
         H: Fn(ControlRequest) -> Fut + Clone + Send + Sync + 'static,
         Fut: Future<Output = ControlResponse> + Send + 'static,
@@ -136,20 +131,16 @@ impl BoundedUnixServer {
     }
 }
 
-async fn serve_connection<H, Fut>(
-    mut stream: UnixStream,
-    handler: H,
-) -> Result<(), TransportError>
+async fn serve_connection<H, Fut>(mut stream: UnixStream, handler: H) -> Result<(), TransportError>
 where
     H: Fn(ControlRequest) -> Fut,
     Fut: Future<Output = ControlResponse>,
 {
-    let response = match tokio::time::timeout(REQUEST_TIMEOUT, response_for(&mut stream, handler))
-        .await
-    {
-        Ok(response) => response,
-        Err(_) => ControlResponse::error(ERROR_REQUEST_TIMEOUT, "request timed out"),
-    };
+    let response =
+        match tokio::time::timeout(REQUEST_TIMEOUT, response_for(&mut stream, handler)).await {
+            Ok(response) => response,
+            Err(_) => ControlResponse::error(ERROR_REQUEST_TIMEOUT, "request timed out"),
+        };
     let frame = encode_bounded_response(response);
     write_frame(&mut stream, &frame).await?;
     stream.shutdown().await.map_err(TransportError::Io)
