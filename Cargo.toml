@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/csmp-loop-common",
+    "crates/csmp-loop-core",
+    "crates/csmp-loop-agent",
+    "crates/csmp-loop-cli",
+    "ebpf/csmp-loop-ebpf",
+    "xtask",
+]
+default-members = [
+    "crates/csmp-loop-common",
+    "crates/csmp-loop-core",
+    "crates/csmp-loop-agent",
+    "crates/csmp-loop-cli",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/chenyongming211-glitch/network-loop"
+
+[workspace.dependencies]
+aya = "=0.14.0"
+aya-ebpf = "=0.2.1"
+aya-log = "=0.3.0"
+aya-log-ebpf = "=0.2.0"
+clap = "=4.5.20"
+serde = "=1.0.210"
+serde_json = "=1.0.128"
+thiserror = "=1.0.64"
+tokio = "=1.40.0"
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = "abort"
+

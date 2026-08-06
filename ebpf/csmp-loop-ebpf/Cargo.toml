@@ -1,0 +1,16 @@
+[package]
+name = "csmp-loop-ebpf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "csmp-loop-ebpf"
+path = "src/main.rs"
+
+[dependencies]
+aya-ebpf.workspace = true
+aya-log-ebpf.workspace = true
+csmp-loop-common = { path = "../../crates/csmp-loop-common" }
+

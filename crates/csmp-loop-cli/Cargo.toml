@@ -1,0 +1,16 @@
+[package]
+name = "csmp-loop-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "csmp-loopctl"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+csmp-loop-agent = { path = "../csmp-loop-agent" }
+csmp-loop-core = { path = "../csmp-loop-core" }
+
