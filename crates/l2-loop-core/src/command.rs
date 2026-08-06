@@ -17,6 +17,8 @@ pub enum AgentCommand {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+// Keep the approved flat domain API; control results are short-lived and concurrency is bounded.
+#[allow(clippy::large_enum_variant)]
 pub enum AgentResult {
     Preflight { report: PreflightReport },
     Accepted,
