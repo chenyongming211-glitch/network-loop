@@ -13,4 +13,5 @@ path = "src/main.rs"
 clap = { workspace = true, features = ["derive"] }
 csmp-loop-agent = { path = "../csmp-loop-agent" }
 csmp-loop-core = { path = "../csmp-loop-core" }
-
+humantime.workspace = true
+thiserror.workspace = true
