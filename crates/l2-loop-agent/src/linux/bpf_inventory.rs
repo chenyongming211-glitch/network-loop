@@ -79,10 +79,7 @@ pub const fn classify_pin_root(snapshot: PinRootSnapshot) -> PinRootState {
     }
 }
 
-pub fn summarize_foreign_top_level_roots<I, S>(
-    roots: I,
-    owned_root: &str,
-) -> ForeignPinSummary
+pub fn summarize_foreign_top_level_roots<I, S>(roots: I, owned_root: &str) -> ForeignPinSummary
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,

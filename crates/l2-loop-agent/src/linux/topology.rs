@@ -19,7 +19,10 @@ pub fn ovs_vsctl_args(interface: &InterfaceName) -> [&str; 3] {
 
 pub fn parse_ovs_bridge_name(output: &[u8]) -> Result<Option<InterfaceName>, OvsOutputError> {
     let output = str::from_utf8(output).map_err(|_| OvsOutputError::InvalidUtf8)?;
-    let mut names = output.lines().map(str::trim).filter(|line| !line.is_empty());
+    let mut names = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty());
     let Some(name) = names.next() else {
         return Ok(None);
     };

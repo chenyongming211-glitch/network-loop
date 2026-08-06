@@ -69,13 +69,16 @@ pub fn parse_bond_snapshot(
 
     let mut slaves = Vec::with_capacity(slave_names.len());
     for name in &slave_names {
-        let link = links.iter().find(|link| link.name == *name).ok_or_else(|| {
-            if *name == active_name {
-                BondSnapshotError::ActiveSlaveMissingFromLinks
-            } else {
-                BondSnapshotError::SlaveMissingFromLinks
-            }
-        })?;
+        let link = links
+            .iter()
+            .find(|link| link.name == *name)
+            .ok_or_else(|| {
+                if *name == active_name {
+                    BondSnapshotError::ActiveSlaveMissingFromLinks
+                } else {
+                    BondSnapshotError::SlaveMissingFromLinks
+                }
+            })?;
         slaves.push(InterfaceRef {
             name: name.clone(),
             ifindex: link.ifindex,
