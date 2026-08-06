@@ -280,7 +280,10 @@ async fn exchange(path: &Path, frame: &[u8]) -> ControlResponse {
 }
 
 fn request_frame() -> Vec<u8> {
-    encode_request(&ControlRequest::new(AgentCommand::Status { interface: None })).unwrap()
+    encode_request(&ControlRequest::new(AgentCommand::Status {
+        interface: None,
+    }))
+    .unwrap()
 }
 
 fn raw_frame(payload: &[u8]) -> Vec<u8> {
