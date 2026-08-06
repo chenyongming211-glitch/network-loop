@@ -1,12 +1,18 @@
 use std::time::SystemTime;
 
-use l2_loop_core::{HookRole, InterfaceName, PolicyRequest, ProbeRequest};
+use l2_loop_core::{HookRole, InterfaceName, PolicyRequest, PreflightReport, ProbeRequest};
 use thiserror::Error;
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum PortError {
     #[error("adapter error: {0}")]
     Adapter(String),
+    #[error("invalid preflight report: {0}")]
+    InvalidReport(String),
+}
+
+pub trait PlatformInspector {
+    fn inspect(&mut self, interface: &InterfaceName) -> Result<PreflightReport, PortError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
