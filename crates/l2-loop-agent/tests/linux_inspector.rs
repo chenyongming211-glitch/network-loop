@@ -347,7 +347,7 @@ impl FileSource for FakeFileSource {
     ) -> Result<HostFileSnapshot, InspectorError> {
         self.calls
             .borrow_mut()
-            .push(format!("read:files:{interface}"));
+            .push(format!("read:files:{}", interface.as_str()));
         Ok(self.snapshot.clone())
     }
 }
@@ -383,7 +383,7 @@ impl CommandSource for FakeCommandSource {
     ) -> Result<Option<InterfaceName>, InspectorError> {
         self.calls
             .borrow_mut()
-            .push(format!("query:ovs:{interface}"));
+            .push(format!("query:ovs:{}", interface.as_str()));
         self.ovs_bridge.clone()
     }
 }
