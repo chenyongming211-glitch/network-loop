@@ -24,13 +24,8 @@ fn rejects_missing_or_unsafe_preflight_interfaces() {
     assert!(Cli::try_parse_from(["l2-loopctl", "preflight"]).is_err());
 
     for interface in ["eth 0", "eth/0", "eth\0x", "1234567890123456"] {
-        let cli = Cli::try_parse_from([
-            "l2-loopctl",
-            "preflight",
-            "--interface",
-            interface,
-        ])
-        .unwrap();
+        let cli =
+            Cli::try_parse_from(["l2-loopctl", "preflight", "--interface", interface]).unwrap();
         assert!(
             ParsedCli::try_from(cli).is_err(),
             "accepted unsafe interface {interface:?}"
@@ -40,10 +35,7 @@ fn rejects_missing_or_unsafe_preflight_interfaces() {
 
 #[test]
 fn binary_uses_exit_code_two_for_usage_and_local_validation_errors() {
-    for args in [
-        vec!["preflight"],
-        vec!["preflight", "--interface", "eth 0"],
-    ] {
+    for args in [vec!["preflight"], vec!["preflight", "--interface", "eth 0"]] {
         let status = std::process::Command::new(env!("CARGO_BIN_EXE_l2-loopctl"))
             .args(args)
             .status()

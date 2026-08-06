@@ -141,6 +141,9 @@ fn assert_no_prohibited_fields(output: &str) {
         "packet",
         "customer",
     ] {
-        assert!(!lower.contains(key), "output exposed prohibited field {key}");
+        assert!(
+            !lower.contains(key),
+            "output exposed prohibited field {key}"
+        );
     }
 }
