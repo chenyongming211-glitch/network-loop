@@ -5,8 +5,7 @@ use csmp_loop_agent::protocol::{
     decode_response, encode_request, encode_response,
 };
 use csmp_loop_core::{
-    AgentCommand, AgentResult, InterfaceName, PolicyRequest, ProbeRequest, ProbeScope,
-    TrafficClass,
+    AgentCommand, AgentResult, InterfaceName, PolicyRequest, ProbeRequest, ProbeScope, TrafficClass,
 };
 
 #[test]
