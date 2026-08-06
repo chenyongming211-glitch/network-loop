@@ -105,7 +105,10 @@ impl HookManager for FakeHooks {
         if self.fail_on == Some(role) {
             Err(PortError::Adapter("attach failed".into()))
         } else {
-            Ok(HookHandle { id: role.into(), role })
+            Ok(HookHandle {
+                id: role.into(),
+                role,
+            })
         }
     }
 
