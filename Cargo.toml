@@ -1,18 +1,18 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/csmp-loop-common",
-    "crates/csmp-loop-core",
-    "crates/csmp-loop-agent",
-    "crates/csmp-loop-cli",
-    "ebpf/csmp-loop-ebpf",
+    "crates/l2-loop-common",
+    "crates/l2-loop-core",
+    "crates/l2-loop-agent",
+    "crates/l2-loop-cli",
+    "ebpf/l2-loop-ebpf",
     "xtask",
 ]
 default-members = [
-    "crates/csmp-loop-common",
-    "crates/csmp-loop-core",
-    "crates/csmp-loop-agent",
-    "crates/csmp-loop-cli",
+    "crates/l2-loop-common",
+    "crates/l2-loop-core",
+    "crates/l2-loop-agent",
+    "crates/l2-loop-cli",
     "xtask",
 ]
 

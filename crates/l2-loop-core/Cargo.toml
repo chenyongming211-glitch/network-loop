@@ -1,0 +1,12 @@
+[package]
+name = "l2-loop-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+l2-loop-common = { path = "../l2-loop-common", features = ["user"] }
+serde = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
+

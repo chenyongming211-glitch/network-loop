@@ -1,0 +1,16 @@
+[package]
+name = "l2-loop-ebpf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "l2-loop-ebpf"
+path = "src/main.rs"
+
+[dependencies]
+aya-ebpf.workspace = true
+aya-log-ebpf.workspace = true
+l2-loop-common = { path = "../../crates/l2-loop-common" }
+

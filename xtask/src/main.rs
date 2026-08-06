@@ -21,7 +21,7 @@ fn build_ebpf() -> ExitCode {
             "--target",
             "bpfel-unknown-none",
             "--package",
-            "csmp-loop-ebpf",
+            "l2-loop-ebpf",
         ])
         .status();
 

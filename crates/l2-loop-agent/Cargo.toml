@@ -1,0 +1,19 @@
+[package]
+name = "l2-loop-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "l2-loopd"
+path = "src/main.rs"
+
+[dependencies]
+l2-loop-common = { path = "../l2-loop-common", features = ["user"] }
+l2-loop-core = { path = "../l2-loop-core" }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread"] }
+

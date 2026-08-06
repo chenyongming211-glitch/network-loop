@@ -1,0 +1,17 @@
+[package]
+name = "l2-loop-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "l2-loopctl"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+l2-loop-agent = { path = "../l2-loop-agent" }
+l2-loop-core = { path = "../l2-loop-core" }
+humantime.workspace = true
+thiserror.workspace = true

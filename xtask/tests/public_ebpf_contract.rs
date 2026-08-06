@@ -1,5 +1,5 @@
-const MAP_SOURCE: &str = include_str!("../../ebpf/csmp-loop-ebpf/src/maps.rs");
-const PROGRAM_SOURCE: &str = include_str!("../../ebpf/csmp-loop-ebpf/src/programs.rs");
+const MAP_SOURCE: &str = include_str!("../../ebpf/l2-loop-ebpf/src/maps.rs");
+const PROGRAM_SOURCE: &str = include_str!("../../ebpf/l2-loop-ebpf/src/programs.rs");
 
 #[test]
 fn declares_every_public_map_name() {
@@ -21,10 +21,10 @@ fn declares_every_public_map_name() {
 #[test]
 fn declares_every_public_program_name() {
     for name in [
-        "csmp_xdp_ingress",
-        "csmp_tc_egress",
-        "csmp_tc_path_ingress",
-        "csmp_tc_path_egress",
+        "l2_loop_xdp_ingress",
+        "l2_loop_tc_egress",
+        "l2_loop_tc_path_ingress",
+        "l2_loop_tc_path_egress",
     ] {
         assert!(
             PROGRAM_SOURCE.contains(&format!("fn {name}(")),
