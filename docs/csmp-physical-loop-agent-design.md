@@ -1,7 +1,7 @@
 # CSMP 单节点物理 Agent 二层环路检测与抑制设计
 
 日期：2026-08-06  
-状态：设计基线，尚未实现  
+状态：设计基线；Rust/eBPF 基础契约已实现，真实采集与挂载尚未实现
 实现语言：Rust + eBPF/XDP/TC  
 范围：独立物理 Agent，不依赖 Neutron，不进行跨节点通信
 
@@ -103,7 +103,7 @@ flowchart LR
 ### 5.1 显式接口
 
 ```bash
-csmp-phy-agent observe --interface bond1
+csmp-loopctl observe --interface bond1
 ```
 
 Agent 不自动推断 OVS uplink。配置必须显式列出可观察接口和可执行限速的接口。
@@ -443,11 +443,10 @@ scope
 ### 11.2 外部探针
 
 ```bash
-csmp-phy-agent loop-probe \
+csmp-loopctl probe \
   --interface bond1 \
   --vlan <VID> \
   --scope external \
-  --count 1 \
   --timeout 2s
 ```
 
@@ -473,11 +472,10 @@ csmp-phy-agent loop-probe \
 ### 11.3 内部探针
 
 ```bash
-csmp-phy-agent loop-probe \
+csmp-loopctl probe \
   --interface bond1 \
   --vlan <VID> \
   --scope internal \
-  --count 1 \
   --timeout 2s
 ```
 
@@ -605,28 +603,28 @@ Top 指纹、重复率、首次位置
 
 ```bash
 # 开始观察
-csmp-phy-agent observe --interface bond1
+csmp-loopctl observe --interface bond1
 
 # 状态与证据
-csmp-phy-agent status --interface bond1
-csmp-phy-agent evidence list
-csmp-phy-agent evidence show <event-id>
+csmp-loopctl status --interface bond1
+csmp-loopctl evidence list
+csmp-loopctl evidence show --id <event-id>
 
 # 人工单帧探针
-csmp-phy-agent loop-probe \
+csmp-loopctl probe \
   --interface bond1 --vlan <VID> --scope external \
-  --count 1 --timeout 2s
+  --timeout 2s
 
 # 人工带 TTL 限速
-csmp-phy-agent police \
+csmp-loopctl police apply \
   --interface bond1 --vlan <VID> \
   --class ipv6-multicast --pps <limit> --ttl 10m
 
 # 提前撤销
-csmp-phy-agent police disable --rule <rule-id>
+csmp-loopctl police disable --rule <rule-id>
 ```
 
-命令名和参数是设计草案，最终以实现规范为准。
+命令名和参数已由 Rust 基础实现规范及 CLI 解析测试固定。
 
 ## 17. 与现有 XDP Storm/DDoS 设计的关系
 
