@@ -290,3 +290,43 @@ impl Drop for OwnedSocketPath {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        os::unix::net::UnixListener as StdUnixListener,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
+    use super::*;
+
+    #[test]
+    fn never_unlinks_a_replacement_at_a_stale_socket_path() {
+        static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "l2-loop-stale-replacement-{}-{id}",
+            std::process::id()
+        ));
+        fs::create_dir(&root).unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        let path = root.join("agent.sock");
+        let listener = StdUnixListener::bind(&path).unwrap();
+        let stale_metadata = fs::symlink_metadata(&path).unwrap();
+        drop(listener);
+
+        fs::remove_file(&path).unwrap();
+        fs::write(&path, b"replacement must survive").unwrap();
+
+        let result = remove_stale_socket_if_unchanged(
+            &path,
+            stale_metadata.dev(),
+            stale_metadata.ino(),
+        );
+
+        assert!(matches!(result, Err(DaemonError::SocketInUse)));
+        assert_eq!(fs::read(&path).unwrap(), b"replacement must survive");
+        fs::remove_file(&path).unwrap();
+        fs::remove_dir(&root).unwrap();
+    }
+}
