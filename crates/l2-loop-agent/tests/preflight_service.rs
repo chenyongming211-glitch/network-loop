@@ -4,10 +4,10 @@ use l2_loop_agent::{PlatformInspector, PortError, PreflightService};
 use l2_loop_core::{
     AgentResult, AttachmentState, BpfInspection, FindingSeverity, InterfaceInspection,
     InterfaceKind, InterfaceName, InterfaceRef, KernelInspection, MemlockInspection,
-    PF_BOND_NO_ACTIVE_SLAVE, PF_INTERFACE_MISSING, PF_INTERFACE_UNSUPPORTED,
-    PF_KERNEL_CAPABILITY, PF_LIVE_INTERFACE, PF_MEMLOCK_TOO_LOW, PF_PIN_ROOT_FOREIGN,
-    PF_TC_HANDLE_COLLISION, PF_TC_STATE_UNKNOWN, PF_XDP_OCCUPIED, PF_XDP_STATE_UNKNOWN,
-    PinRootState, PreflightDecision, PreflightFinding, PreflightReport,
+    PF_BOND_NO_ACTIVE_SLAVE, PF_INTERFACE_MISSING, PF_INTERFACE_UNSUPPORTED, PF_KERNEL_CAPABILITY,
+    PF_LIVE_INTERFACE, PF_MEMLOCK_TOO_LOW, PF_PIN_ROOT_FOREIGN, PF_TC_HANDLE_COLLISION,
+    PF_TC_STATE_UNKNOWN, PF_XDP_OCCUPIED, PF_XDP_STATE_UNKNOWN, PinRootState, PreflightDecision,
+    PreflightFinding, PreflightReport,
 };
 
 #[test]
@@ -146,7 +146,10 @@ fn rejects_structurally_contradictory_reports() {
             isolated_and_live,
             "interface cannot be both isolated and live/shared",
         ),
-        (bond_without_details, "bond interface is missing bond details"),
+        (
+            bond_without_details,
+            "bond interface is missing bond details",
+        ),
         (empty_code, "finding code must not be empty"),
         (empty_message, "finding message must not be empty"),
     ] {
