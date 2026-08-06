@@ -33,7 +33,9 @@ impl ControlResponse {
     pub fn success(result: AgentResult) -> Self {
         Self {
             protocol_version: PROTOCOL_VERSION,
-            body: ResponseBody::Success { result },
+            body: ResponseBody::Success {
+                result: Box::new(result),
+            },
         }
     }
 
@@ -51,7 +53,7 @@ impl ControlResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ResponseBody {
-    Success { result: AgentResult },
+    Success { result: Box<AgentResult> },
     Error { code: String, message: String },
 }
 
