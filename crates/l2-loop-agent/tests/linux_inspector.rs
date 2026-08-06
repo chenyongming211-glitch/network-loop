@@ -196,8 +196,8 @@ fn assembles_bond_details_and_targets_only_the_active_slave() {
     let mut fixture = Fixture::ready("bond0");
     fixture.links = vec![
         link("bond0", 10, Some(KernelLinkKind::Bond)),
-        physical_link("eno1", 11),
-        physical_link("eno2", 12),
+        physical_link("port-a", 11),
+        physical_link("port-b", 12),
     ];
     fixture.files.bond = Some(include_str!("fixtures/bond/active-backup.txt").into());
     let requested = fixture.requested.clone();
@@ -207,13 +207,13 @@ fn assembles_bond_details_and_targets_only_the_active_slave() {
 
     let bond = report.interface.bond.unwrap();
     assert_eq!(bond.slaves.len(), 2);
-    assert_eq!(bond.active_slave.unwrap().name, interface_name("eno1"));
+    assert_eq!(bond.active_slave.unwrap().name, interface_name("port-b"));
     assert!(
         report
             .interface
             .proposed_targets
             .iter()
-            .all(|target| target.interface.name == interface_name("eno1"))
+            .all(|target| target.interface.name == interface_name("port-b"))
     );
 }
 

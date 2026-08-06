@@ -2,6 +2,7 @@
 
 pub mod bond;
 pub mod bpf_inventory;
+pub mod inspector;
 pub mod interface;
 pub mod limits;
 pub mod topology;
