@@ -10,10 +10,14 @@ name = "l2-loopd"
 path = "src/main.rs"
 
 [dependencies]
+futures-util.workspace = true
 l2-loop-common = { path = "../l2-loop-common", features = ["user"] }
 l2-loop-core = { path = "../l2-loop-core" }
+netlink-packet-route.workspace = true
+nix.workspace = true
+rtnetlink.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 
