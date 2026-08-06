@@ -32,13 +32,7 @@ fn rejects_missing_or_zero_rate_limits() {
 #[test]
 fn rejects_aggregate_and_unicast_classes() {
     assert!(policy(Some(10), None, TrafficClass::All, 60).is_err());
-    assert!(policy(
-        Some(10),
-        None,
-        TrafficClass::UnicastOrUnclassified,
-        60
-    )
-    .is_err());
+    assert!(policy(Some(10), None, TrafficClass::UnicastOrUnclassified, 60).is_err());
 }
 
 #[test]
@@ -51,15 +45,17 @@ fn policy_ttl_is_bounded() {
 
 #[test]
 fn explicit_interface_and_vlan_are_validated() {
-    assert!(PolicyRequest::new(
-        "",
-        None,
-        TrafficClass::L2Broadcast,
-        Some(10),
-        None,
-        Duration::from_secs(60)
-    )
-    .is_err());
+    assert!(
+        PolicyRequest::new(
+            "",
+            None,
+            TrafficClass::L2Broadcast,
+            Some(10),
+            None,
+            Duration::from_secs(60)
+        )
+        .is_err()
+    );
 
     assert!(policy_with_vlan(0).is_err());
     assert!(policy_with_vlan(1).is_ok());

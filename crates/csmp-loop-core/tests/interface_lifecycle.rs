@@ -8,14 +8,20 @@ fn accepts_every_documented_lifecycle_transition() {
         .transition(InterfaceState::Observing)
         .unwrap();
     let policing = observing.transition(InterfaceState::Policing).unwrap();
-    assert_eq!(policing.transition(InterfaceState::Observing).unwrap(), observing);
+    assert_eq!(
+        policing.transition(InterfaceState::Observing).unwrap(),
+        observing
+    );
 
     for active in [
         InterfaceState::Attaching,
         InterfaceState::Observing,
         InterfaceState::Policing,
     ] {
-        assert_eq!(active.transition(InterfaceState::Error).unwrap(), InterfaceState::Error);
+        assert_eq!(
+            active.transition(InterfaceState::Error).unwrap(),
+            InterfaceState::Error
+        );
     }
 
     assert_eq!(
