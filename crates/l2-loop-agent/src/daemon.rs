@@ -318,11 +318,8 @@ mod tests {
         fs::remove_file(&path).unwrap();
         fs::write(&path, b"replacement must survive").unwrap();
 
-        let result = remove_stale_socket_if_unchanged(
-            &path,
-            stale_metadata.dev(),
-            stale_metadata.ino(),
-        );
+        let result =
+            remove_stale_socket_if_unchanged(&path, stale_metadata.dev(), stale_metadata.ino());
 
         assert!(matches!(result, Err(DaemonError::SocketInUse)));
         assert_eq!(fs::read(&path).unwrap(), b"replacement must survive");
