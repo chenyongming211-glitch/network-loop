@@ -1,6 +1,56 @@
 use clap::Parser;
 use l2_loop_cli::{Cli, ParsedCli};
-use l2_loop_core::{AgentCommand, ProbeScope, TrafficClass};
+use l2_loop_core::{AgentCommand, InterfaceName, ProbeScope, TrafficClass};
+
+#[test]
+fn parses_text_and_json_preflight_without_putting_format_in_the_command() {
+    for (extra, expected_json) in [(&[][..], false), (&["--json"][..], true)] {
+        let mut args = vec!["l2-loopctl", "preflight", "--interface", "eth0"];
+        args.extend_from_slice(extra);
+        let parsed = ParsedCli::try_from(Cli::try_parse_from(args).unwrap()).unwrap();
+
+        assert_eq!(
+            parsed.command,
+            AgentCommand::Preflight {
+                interface: InterfaceName::new("eth0").unwrap(),
+            }
+        );
+        assert_eq!(parsed.json, expected_json);
+    }
+}
+
+#[test]
+fn rejects_missing_or_unsafe_preflight_interfaces() {
+    assert!(Cli::try_parse_from(["l2-loopctl", "preflight"]).is_err());
+
+    for interface in ["eth 0", "eth/0", "eth\0x", "1234567890123456"] {
+        let cli = Cli::try_parse_from([
+            "l2-loopctl",
+            "preflight",
+            "--interface",
+            interface,
+        ])
+        .unwrap();
+        assert!(
+            ParsedCli::try_from(cli).is_err(),
+            "accepted unsafe interface {interface:?}"
+        );
+    }
+}
+
+#[test]
+fn binary_uses_exit_code_two_for_usage_and_local_validation_errors() {
+    for args in [
+        vec!["preflight"],
+        vec!["preflight", "--interface", "eth 0"],
+    ] {
+        let status = std::process::Command::new(env!("CARGO_BIN_EXE_l2-loopctl"))
+            .args(args)
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(2));
+    }
+}
 
 #[test]
 fn parses_every_canonical_command() {
