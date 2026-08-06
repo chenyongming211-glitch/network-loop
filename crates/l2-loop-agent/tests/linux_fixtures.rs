@@ -5,12 +5,8 @@ use l2_loop_agent::linux::bpf_inventory::{
     BtfSnapshot, ForeignPinSummary, PinRootSnapshot, bpffs_mounted_at_standard_path,
     classify_pin_root, summarize_foreign_top_level_roots,
 };
-use l2_loop_agent::linux::interface::{
-    KernelLinkKind, LinkRecord, TunMode, classify_interface,
-};
-use l2_loop_agent::linux::limits::{
-    artifact_architecture_matches, parse_memlock_limits,
-};
+use l2_loop_agent::linux::interface::{KernelLinkKind, LinkRecord, TunMode, classify_interface};
+use l2_loop_agent::linux::limits::{artifact_architecture_matches, parse_memlock_limits};
 use l2_loop_agent::linux::topology::{ovs_vsctl_args, parse_ovs_bridge_name};
 use l2_loop_core::{InterfaceKind, InterfaceName, PF_BOND_NO_ACTIVE_SLAVE, PinRootState};
 
@@ -48,13 +44,7 @@ fn classifies_supported_and_unsupported_link_records() {
             InterfaceKind::Tap,
         ),
         (
-            link(
-                "ovs0",
-                6,
-                Some(KernelLinkKind::OpenVSwitch),
-                None,
-                false,
-            ),
+            link("ovs0", 6, Some(KernelLinkKind::OpenVSwitch), None, false),
             InterfaceKind::OvsInternal,
         ),
         (
@@ -80,7 +70,12 @@ fn classifies_supported_and_unsupported_link_records() {
     ];
 
     for (record, expected) in cases {
-        assert_eq!(classify_interface(&record), expected, "{}", record.name.as_str());
+        assert_eq!(
+            classify_interface(&record),
+            expected,
+            "{}",
+            record.name.as_str()
+        );
     }
 }
 
@@ -124,10 +119,7 @@ fn missing_or_disappearing_active_bond_slave_has_stable_blocker() {
     let partial_links = [link("port-a", 11, None, None, true)];
     let disappeared =
         parse_bond_snapshot(ACTIVE_BACKUP, &partial_links).expect_err("active slave disappeared");
-    assert_eq!(
-        disappeared.blocker_code(),
-        Some(PF_BOND_NO_ACTIVE_SLAVE)
-    );
+    assert_eq!(disappeared.blocker_code(), Some(PF_BOND_NO_ACTIVE_SLAVE));
 }
 
 #[test]
@@ -165,24 +157,30 @@ fn rejects_an_artifact_built_for_another_architecture() {
 
 #[test]
 fn btf_readability_requires_a_readable_regular_file() {
-    assert!(BtfSnapshot {
-        exists: true,
-        regular_file: true,
-        readable: true,
-    }
-    .is_readable());
-    assert!(!BtfSnapshot {
-        exists: true,
-        regular_file: false,
-        readable: true,
-    }
-    .is_readable());
-    assert!(!BtfSnapshot {
-        exists: false,
-        regular_file: false,
-        readable: false,
-    }
-    .is_readable());
+    assert!(
+        BtfSnapshot {
+            exists: true,
+            regular_file: true,
+            readable: true,
+        }
+        .is_readable()
+    );
+    assert!(
+        !BtfSnapshot {
+            exists: true,
+            regular_file: false,
+            readable: true,
+        }
+        .is_readable()
+    );
+    assert!(
+        !BtfSnapshot {
+            exists: false,
+            regular_file: false,
+            readable: false,
+        }
+        .is_readable()
+    );
 }
 
 #[test]
@@ -201,10 +199,8 @@ fn classifies_all_pin_root_states() {
 
 #[test]
 fn foreign_pin_roots_are_reduced_to_counts_and_never_retained() {
-    let summary = summarize_foreign_top_level_roots(
-        ["l2-loop", "unrelated-a", "unrelated-b"],
-        "l2-loop",
-    );
+    let summary =
+        summarize_foreign_top_level_roots(["l2-loop", "unrelated-a", "unrelated-b"], "l2-loop");
 
     assert_eq!(
         summary,
