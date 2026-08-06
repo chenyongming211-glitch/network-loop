@@ -11,11 +11,9 @@ impl InterfaceName {
         let value = value.into();
         let valid = !value.is_empty()
             && value.len() <= 15
-            && value
-                .bytes()
-                .all(|byte| {
-                    byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':')
-                });
+            && value.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':')
+            });
 
         if valid {
             Ok(Self(value))
@@ -66,7 +64,10 @@ impl InterfaceState {
                     | (Self::Attaching, Self::Observing)
                     | (Self::Observing, Self::Policing)
                     | (Self::Policing, Self::Observing)
-                    | (Self::Attaching | Self::Observing | Self::Policing, Self::Error)
+                    | (
+                        Self::Attaching | Self::Observing | Self::Policing,
+                        Self::Error
+                    )
                     | (Self::Error, Self::Detached)
             );
 
