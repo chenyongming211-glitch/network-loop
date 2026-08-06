@@ -19,8 +19,7 @@ pub static FINGERPRINTS: LruHashMap<FingerprintKey, FingerprintValue> =
     LruHashMap::with_max_entries(8192, 0);
 
 #[map]
-pub static PROBE_REGISTRY: HashMap<ProbeKey, ProbeRegistration> =
-    HashMap::with_max_entries(128, 0);
+pub static PROBE_REGISTRY: HashMap<ProbeKey, ProbeRegistration> = HashMap::with_max_entries(128, 0);
 
 #[map]
 pub static PROBE_STATS: PerCpuHashMap<ProbeKey, CounterValue> =
