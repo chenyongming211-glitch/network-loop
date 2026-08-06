@@ -10,11 +10,10 @@ use futures_util::TryStreamExt;
 use l2_loop_core::{
     AttachmentState, AttachmentTarget, BondInspection, BondMode, BpfInspection, Direction,
     HookRole, InterfaceInspection, InterfaceKind, InterfaceName, InterfaceRef, KernelInspection,
-    MemlockInspection, PinRootState, PreflightFinding, PreflightReport, TcAttachment,
-    PF_BOND_NO_ACTIVE_SLAVE,
-    PF_INTERFACE_MISSING, PF_INTERFACE_UNSUPPORTED, PF_KERNEL_CAPABILITY, PF_LIVE_INTERFACE,
-    PF_MEMLOCK_TOO_LOW, PF_PIN_ROOT_FOREIGN, PF_TC_HANDLE_COLLISION, PF_TC_STATE_UNKNOWN,
-    PF_XDP_OCCUPIED, PF_XDP_STATE_UNKNOWN,
+    MemlockInspection, PF_BOND_NO_ACTIVE_SLAVE, PF_INTERFACE_MISSING, PF_INTERFACE_UNSUPPORTED,
+    PF_KERNEL_CAPABILITY, PF_LIVE_INTERFACE, PF_MEMLOCK_TOO_LOW, PF_PIN_ROOT_FOREIGN,
+    PF_TC_HANDLE_COLLISION, PF_TC_STATE_UNKNOWN, PF_XDP_OCCUPIED, PF_XDP_STATE_UNKNOWN,
+    PinRootState, PreflightFinding, PreflightReport, TcAttachment,
 };
 use rtnetlink::packet_route::{
     link::{InfoKind, LinkAttribute, LinkFlags, LinkInfo, LinkMessage, LinkXdp, State},
@@ -27,9 +26,9 @@ use crate::{PlatformInspector, PortError};
 use super::{
     bond::parse_bond_snapshot,
     bpf_inventory::{
-        bpffs_mounted_at_standard_path, classify_pin_root, BtfSnapshot, PinRootSnapshot,
+        BtfSnapshot, PinRootSnapshot, bpffs_mounted_at_standard_path, classify_pin_root,
     },
-    interface::{classify_interface, KernelLinkKind, LinkRecord, TunMode},
+    interface::{KernelLinkKind, LinkRecord, TunMode, classify_interface},
     limits::{artifact_architecture_matches, parse_memlock_limits},
     topology::{ovs_vsctl_args, parse_ovs_bridge_name},
 };
@@ -139,13 +138,8 @@ where
             .read_host_files(requested)
             .map_err(adapter_error)?;
         let mut findings = Vec::new();
-        let interface = inspect_interface(
-            requested,
-            &links,
-            &files,
-            &mut self.commands,
-            &mut findings,
-        );
+        let interface =
+            inspect_interface(requested, &links, &files, &mut self.commands, &mut findings);
         let mut ifindexes = interface
             .proposed_targets
             .iter()
@@ -222,7 +216,11 @@ fn inspect_interface<C: CommandSource>(
     }
 
     let bond = if kind == InterfaceKind::Bond {
-        match files.bond.as_deref().map(|snapshot| parse_bond_snapshot(snapshot, links)) {
+        match files
+            .bond
+            .as_deref()
+            .map(|snapshot| parse_bond_snapshot(snapshot, links))
+        {
             Some(Ok(bond)) => Some(bond),
             Some(Err(error)) => {
                 let (code, message) = if error.blocker_code().is_some() {
@@ -313,10 +311,7 @@ fn missing_interface(requested: &InterfaceName) -> InterfaceInspection {
     }
 }
 
-fn resolve_kernel_master(
-    link: &LinkRecord,
-    links: &[LinkRecord],
-) -> (Option<InterfaceRef>, bool) {
+fn resolve_kernel_master(link: &LinkRecord, links: &[LinkRecord]) -> (Option<InterfaceRef>, bool) {
     let Some(master_ifindex) = link.master_ifindex else {
         return (None, false);
     };
@@ -467,15 +462,13 @@ fn inspect_host(
     (kernel, bpf)
 }
 
-fn has_tc_collision(
-    ingress: &[ObservedTcAttachment],
-    egress: &[ObservedTcAttachment],
-) -> bool {
-    ingress.iter().any(|observed| {
-        !observed.owned && observed.attachment.handle == RESERVED_TC_INGRESS_HANDLE
-    }) || egress.iter().any(|observed| {
-        !observed.owned && observed.attachment.handle == RESERVED_TC_EGRESS_HANDLE
-    })
+fn has_tc_collision(ingress: &[ObservedTcAttachment], egress: &[ObservedTcAttachment]) -> bool {
+    ingress
+        .iter()
+        .any(|observed| !observed.owned && observed.attachment.handle == RESERVED_TC_INGRESS_HANDLE)
+        || egress.iter().any(|observed| {
+            !observed.owned && observed.attachment.handle == RESERVED_TC_EGRESS_HANDLE
+        })
 }
 
 #[derive(Debug, Default)]
@@ -591,10 +584,8 @@ impl FileSource for SystemFileSource {
             readable: File::open(btf_path).is_ok(),
         };
         let pin_root = read_pin_root(Path::new(AGENT_PIN_ROOT));
-        let bond = fs::read_to_string(
-            PathBuf::from("/proc/net/bonding").join(interface.as_str()),
-        )
-        .ok();
+        let bond =
+            fs::read_to_string(PathBuf::from("/proc/net/bonding").join(interface.as_str())).ok();
 
         Ok(HostFileSnapshot {
             architecture: std::env::consts::ARCH.into(),
@@ -663,12 +654,10 @@ impl BpfQuery for SystemBpfQuery {
                 .map_err(|_| InspectorError::new("failed to open Linux BPF query"))?;
             tokio::spawn(connection);
 
-            let (xdp_native, xdp_generic, xdp_known) =
-                query_xdp(&handle, &ifindexes).await;
+            let (xdp_native, xdp_generic, xdp_known) = query_xdp(&handle, &ifindexes).await;
             let (tc_ingress, ingress_known) =
                 query_tc(&handle, &ifindexes, Direction::Ingress).await;
-            let (tc_egress, egress_known) =
-                query_tc(&handle, &ifindexes, Direction::Egress).await;
+            let (tc_egress, egress_known) = query_tc(&handle, &ifindexes, Direction::Egress).await;
             let tc_clsact = query_qdisc_capability(&handle, &ifindexes).await;
             let tc_state_known = ingress_known && egress_known;
 
@@ -762,8 +751,9 @@ fn merge_attachment_state(left: AttachmentState, right: AttachmentState) -> Atta
         (AttachmentState::Unknown, _) | (_, AttachmentState::Unknown) => AttachmentState::Unknown,
         (AttachmentState::Occupied { program_id }, _)
         | (_, AttachmentState::Occupied { program_id }) => AttachmentState::Occupied { program_id },
-        (AttachmentState::Owned { program_id }, _)
-        | (_, AttachmentState::Owned { program_id }) => AttachmentState::Owned { program_id },
+        (AttachmentState::Owned { program_id }, _) | (_, AttachmentState::Owned { program_id }) => {
+            AttachmentState::Owned { program_id }
+        }
         _ => AttachmentState::Empty,
     }
 }
