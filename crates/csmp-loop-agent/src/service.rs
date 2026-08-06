@@ -1,6 +1,4 @@
-use csmp_loop_core::{
-    DomainError, HookRole, InterfaceName, InterfaceState, PolicyRequest,
-};
+use csmp_loop_core::{DomainError, HookRole, InterfaceName, InterfaceState, PolicyRequest};
 use thiserror::Error;
 
 use crate::ports::{HookHandle, HookManager, InterfaceResolver, PortError};
@@ -52,10 +50,7 @@ where
             Ok(identity) => identity,
             Err(error) => return self.fail(error),
         };
-        let ingress = match self
-            .hooks
-            .attach(&identity, HookRole::ExternalXdpIngress)
-        {
+        let ingress = match self.hooks.attach(&identity, HookRole::ExternalXdpIngress) {
             Ok(handle) => handle,
             Err(error) => return self.fail(error),
         };
@@ -101,11 +96,7 @@ where
         Ok(())
     }
 
-    fn verify_both(
-        &mut self,
-        ingress: HookHandle,
-        egress: HookHandle,
-    ) -> Result<(), PortError> {
+    fn verify_both(&mut self, ingress: HookHandle, egress: HookHandle) -> Result<(), PortError> {
         self.hooks.verify(ingress)?;
         self.hooks.verify(egress)
     }

@@ -1,7 +1,7 @@
 //! User-space daemon library for CSMP Loop Agent.
 
-pub mod protocol;
 mod ports;
+pub mod protocol;
 mod service;
 
 pub use ports::*;
