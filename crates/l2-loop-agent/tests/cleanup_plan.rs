@@ -117,7 +117,7 @@ fn foreign_pin_paths_are_never_cleanup_candidates() {
         !plan
             .operations
             .iter()
-            .any(|operation| matches!(operation, CleanupOperation::UnpinMap(pin) if pin.path == PathBuf::from("/sys/fs/bpf/foreign/root")))
+            .any(|operation| matches!(operation, CleanupOperation::UnpinMap(pin) if pin.path == std::path::Path::new("/sys/fs/bpf/foreign/root")))
     );
 }
 
