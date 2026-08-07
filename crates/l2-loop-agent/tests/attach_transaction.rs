@@ -240,11 +240,11 @@ fn stable_adapter_codes_survive_transaction_rollback() {
         .unwrap_err();
 
     assert_eq!(error.code(), PF_TC_STATE_UNKNOWN);
-    assert!(shared.events().ends_with(&[
-        "attach_tc_explicit",
-        "detach_xdp_exact",
-        "unload_exact",
-    ]));
+    assert!(
+        shared
+            .events()
+            .ends_with(&["attach_tc_explicit", "detach_xdp_exact", "unload_exact",])
+    );
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
