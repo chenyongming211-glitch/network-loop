@@ -2,8 +2,8 @@ use l2_loop_agent::protocol::{ControlResponse, ERROR_INTERNAL};
 use l2_loop_cli::{EXIT_BLOCKED, EXIT_FAILURE, EXIT_SUCCESS, OutputFormat, render_response};
 use l2_loop_core::{
     AgentResult, AttachmentState, BpfInspection, InterfaceInspection, InterfaceKind, InterfaceName,
-    InterfaceRef, KernelInspection, MemlockInspection, PinRootState, PreflightFinding,
-    PreflightReport,
+    InterfaceRef, KernelInspection, MemlockInspection, PF_LIVE_INTERFACE, PinRootState,
+    PreflightFinding, PreflightReport,
 };
 
 #[test]
@@ -84,6 +84,16 @@ fn maps_ready_warning_blocked_and_internal_responses_to_stable_exit_codes() {
     assert_eq!(
         unexpected.stderr,
         "INTERNAL_ERROR: daemon returned an unexpected result"
+    );
+
+    let isolated_blocked = render_response(
+        ControlResponse::error(PF_LIVE_INTERFACE, "isolated attachment was blocked"),
+        OutputFormat::Text,
+    );
+    assert_eq!(isolated_blocked.exit_code, EXIT_BLOCKED);
+    assert_eq!(
+        isolated_blocked.stderr,
+        "PF_LIVE_INTERFACE: isolated attachment was blocked"
     );
 }
 

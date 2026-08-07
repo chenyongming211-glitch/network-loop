@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use l2_loop_cli::{Cli, ParsedCli};
 use l2_loop_core::{AgentCommand, InterfaceName, ProbeScope, TrafficClass};
 
@@ -87,6 +87,85 @@ fn parses_every_canonical_command() {
         ],
     ] {
         Cli::try_parse_from(args).unwrap();
+    }
+}
+
+#[test]
+fn parses_only_explicit_generated_isolated_verification_commands() {
+    let attach = ParsedCli::try_from(
+        Cli::try_parse_from([
+            "l2-loopctl",
+            "isolated-attach",
+            "--interface",
+            "veth-test",
+            "--run-id",
+            "0123456789abcdef0123456789abcdef",
+        ])
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        attach.command,
+        AgentCommand::IsolatedAttach {
+            interface: InterfaceName::new("veth-test").unwrap(),
+            run_id: "0123456789abcdef0123456789abcdef".to_owned(),
+        }
+    );
+
+    let detach = ParsedCli::try_from(
+        Cli::try_parse_from([
+            "l2-loopctl",
+            "isolated-detach",
+            "--run-id",
+            "0123456789abcdef0123456789abcdef",
+        ])
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        detach.command,
+        AgentCommand::IsolatedDetach {
+            run_id: "0123456789abcdef0123456789abcdef".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn isolated_help_is_explicit_and_unsafe_generic_controls_do_not_exist() {
+    let help = Cli::command().render_long_help().to_string();
+    assert!(help.contains("generated isolated verification only"));
+    for forbidden in [
+        "\n  attach ",
+        "\n  force ",
+        "\n  replace ",
+        "\n  adopt ",
+        "cleanup-all",
+        "discover-interface",
+    ] {
+        assert!(!help.contains(forbidden), "unsafe help surface: {forbidden}");
+    }
+}
+
+#[test]
+fn rejects_invalid_isolated_run_ids_and_missing_explicit_interfaces() {
+    for args in [
+        vec![
+            "l2-loopctl",
+            "isolated-attach",
+            "--run-id",
+            "0123456789abcdef0123456789abcdef",
+        ],
+        vec![
+            "l2-loopctl",
+            "isolated-detach",
+            "--run-id",
+            "../unsafe",
+        ],
+    ] {
+        match Cli::try_parse_from(args) {
+            Ok(cli) => assert!(ParsedCli::try_from(cli).is_err()),
+            Err(_) => {}
+        }
     }
 }
 
