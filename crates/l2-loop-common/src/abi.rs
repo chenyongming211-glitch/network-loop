@@ -41,10 +41,23 @@ impl InterfaceConfig {
 pub struct StatsKey {
     pub interface_generation: u64,
     pub ifindex: u32,
-    pub direction: u8,
+    pub hook_role: u8,
     pub traffic_class: u8,
     pub verdict: u8,
     pub reason: u8,
+}
+
+impl StatsKey {
+    pub const fn total(interface_generation: u64, ifindex: u32, hook_role: u8) -> Self {
+        Self {
+            interface_generation,
+            ifindex,
+            hook_role,
+            traffic_class: crate::traffic_class::ALL,
+            verdict: crate::verdict::PASS,
+            reason: crate::observation_reason::NONE,
+        }
+    }
 }
 
 #[repr(C)]
