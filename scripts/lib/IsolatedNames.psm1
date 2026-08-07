@@ -1,5 +1,42 @@
 Set-StrictMode -Version Latest
 
+function ConvertTo-WindowsNativeArgument {
+    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Argument)
+
+    if ($Argument.Length -eq 0) {
+        return '""'
+    }
+    if ($Argument -notmatch '[\s"]') {
+        return $Argument
+    }
+
+    $Builder = [System.Text.StringBuilder]::new()
+    $null = $Builder.Append('"')
+    $Backslashes = 0
+    foreach ($Character in $Argument.ToCharArray()) {
+        if ($Character -eq [char]92) {
+            $Backslashes++
+            continue
+        }
+        if ($Character -eq [char]34) {
+            $null = $Builder.Append((('\' * (($Backslashes * 2) + 1)) -join ''))
+            $null = $Builder.Append('"')
+            $Backslashes = 0
+            continue
+        }
+        if ($Backslashes -ne 0) {
+            $null = $Builder.Append((('\' * $Backslashes) -join ''))
+            $Backslashes = 0
+        }
+        $null = $Builder.Append($Character)
+    }
+    if ($Backslashes -ne 0) {
+        $null = $Builder.Append((('\' * ($Backslashes * 2)) -join ''))
+    }
+    $null = $Builder.Append('"')
+    $Builder.ToString()
+}
+
 function Assert-IsolatedRunId {
     param([Parameter(Mandatory)] [AllowEmptyString()] [string] $RunId)
 
@@ -86,6 +123,7 @@ function Assert-CleanupTarget {
 }
 
 Export-ModuleMember -Function @(
+    'ConvertTo-WindowsNativeArgument',
     'Assert-IsolatedRunId',
     'New-IsolatedNames',
     'Get-SshArguments',

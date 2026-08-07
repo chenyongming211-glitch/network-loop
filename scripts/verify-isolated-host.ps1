@@ -40,8 +40,15 @@ function Invoke-ExactProcess {
     $StartInfo.RedirectStandardOutput = $true
     $StartInfo.RedirectStandardError = $true
     $StartInfo.RedirectStandardInput = $null -ne $StandardInput
-    foreach ($Argument in $ArgumentList) {
-        $null = $StartInfo.ArgumentList.Add($Argument)
+    if ($null -ne $StartInfo.PSObject.Properties['ArgumentList']) {
+        foreach ($Argument in $ArgumentList) {
+            $null = $StartInfo.ArgumentList.Add($Argument)
+        }
+    }
+    else {
+        $StartInfo.Arguments = (($ArgumentList | ForEach-Object {
+            ConvertTo-WindowsNativeArgument -Argument $_
+        }) -join ' ')
     }
 
     $Process = [System.Diagnostics.Process]::new()
@@ -56,7 +63,7 @@ function Invoke-ExactProcess {
     $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
     $StderrTask = $Process.StandardError.ReadToEndAsync()
     if (-not $Process.WaitForExit($TimeoutSeconds * 1000)) {
-        $Process.Kill($true)
+        try { $Process.Kill($true) } catch { $Process.Kill() }
         throw "$FilePath exceeded the bounded timeout"
     }
     $Stdout = $StdoutTask.GetAwaiter().GetResult()
@@ -74,7 +81,7 @@ function Invoke-ExactProcess {
 function Assert-NoSymlink {
     param([Parameter(Mandatory)] [System.IO.FileSystemInfo] $Item)
 
-    if ($null -ne $Item.LinkType) {
+    if (($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw 'symbolic links are forbidden for local acceptance inputs'
     }
 }
