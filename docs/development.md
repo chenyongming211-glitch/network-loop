@@ -29,6 +29,32 @@ cargo xtask build-ebpf
 
 The resulting object targets `bpfel-unknown-none`. This job proves that all declared maps and pass-through programs compile; it does not attach them to a runner interface.
 
+### Bundle job
+
+After Userspace and eBPF both pass, the Bundle job builds `l2-loopd` and `l2-loopctl` for `x86_64-unknown-linux-musl`, combines them with the exact eBPF object from the same workflow run, and publishes:
+
+```text
+l2-loop-linux-x86_64-<full-commit-sha>
+├── l2-loopd
+├── l2-loopctl
+├── l2-loop-ebpf.o
+├── manifest.json
+└── SHA256SUMS
+```
+
+`manifest.json` records the full commit SHA, workspace package version, both target triples, and the three executable/object filenames. `SHA256SUMS` is lexically ordered and covers the other four files. The workflow runs `sha256sum --check SHA256SUMS` before upload.
+
+Download an artifact without compiling locally:
+
+```powershell
+$L2LoopCommit = git rev-parse HEAD
+$L2LoopRun = gh run list --branch main --commit $L2LoopCommit --limit 1 --json databaseId --jq '.[0].databaseId'
+gh run download $L2LoopRun --name "l2-loop-linux-x86_64-$L2LoopCommit" --dir ".artifacts/$L2LoopCommit"
+Get-ChildItem ".artifacts/$L2LoopCommit"
+```
+
+Keep `.artifacts/` local and ignored. After transfer to Linux, verify `SHA256SUMS` before setting mode `0755` on `l2-loopd` and `l2-loopctl`; GitHub artifact extraction does not preserve executable permission bits.
+
 ## Current safety boundary
 
 - No implementation attaches to a live NIC.
@@ -52,7 +78,7 @@ The command sends one protocol-v1 request and reads one response. `--json` affec
 
 SIGINT and SIGTERM use graceful shutdown. Cleanup verifies the socket device and inode before unlinking it, so a replacement path is preserved.
 
-Do not compile these binaries locally. Until the release bundle workflow is added, GitHub Actions provides verification rather than a deployable artifact.
+Do not compile these binaries locally. Deploy only the bundle from the exact green GitHub commit being accepted.
 
 ## Review evidence
 

@@ -58,3 +58,58 @@ jobs:
 
       - name: Build eBPF object
         run: cargo xtask build-ebpf
+
+      - name: Upload eBPF object for bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: l2-loop-ebpf-object-${{ github.sha }}
+          path: target/bpfel-unknown-none/release/l2-loop-ebpf
+          if-no-files-found: error
+          retention-days: 1
+
+  bundle:
+    name: Bundle
+    needs:
+      - userspace
+      - ebpf
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install stable Rust with MUSL target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Build MUSL userspace binaries
+        run: >-
+          cargo build --release --target x86_64-unknown-linux-musl
+          --package l2-loop-agent --package l2-loop-cli
+
+      - name: Download eBPF object
+        uses: actions/download-artifact@v4
+        with:
+          name: l2-loop-ebpf-object-${{ github.sha }}
+          path: .artifacts/ebpf
+
+      - name: Create release bundle
+        run: >-
+          cargo xtask bundle
+          --commit-sha "${{ github.sha }}"
+          --daemon target/x86_64-unknown-linux-musl/release/l2-loopd
+          --cli target/x86_64-unknown-linux-musl/release/l2-loopctl
+          --ebpf .artifacts/ebpf/l2-loop-ebpf
+          --output .artifacts/bundle
+
+      - name: Verify bundle checksums
+        working-directory: .artifacts/bundle
+        run: sha256sum --check SHA256SUMS
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: l2-loop-linux-x86_64-${{ github.sha }}
+          path: .artifacts/bundle/
+          if-no-files-found: error
+          retention-days: 14

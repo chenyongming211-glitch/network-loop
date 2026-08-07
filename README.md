@@ -24,6 +24,8 @@ It does not depend on Neutron, communicate across nodes, infer an interface auto
 
 Compilation, tests, Clippy, formatting checks, and eBPF builds run only in GitHub Actions. The local workspace is used for authoring and static inspection.
 
+Successful CI runs publish a five-file `l2-loop-linux-x86_64-<full-commit-sha>` artifact containing the two static MUSL userspace binaries, the eBPF object, `manifest.json`, and `SHA256SUMS`. The full commit SHA in both the artifact name and manifest identifies the exact source revision.
+
 ## Read-only preflight
 
 The current daemon serves a bounded local Unix control socket at `/run/l2-loop/agent.sock`. Preflight always requires an explicit Linux interface name:
