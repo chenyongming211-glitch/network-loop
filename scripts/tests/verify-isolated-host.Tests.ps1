@@ -115,15 +115,14 @@ foreach ($Forbidden in @(
     'ethtool',
     'ovs-',
     'ip link set master',
-    'bond',
-    '10.58.',
-    'csmpops'
+    'bond'
 )) {
     Assert-True (-not $Harness.Contains($Forbidden)) "harness contains forbidden text: $Forbidden"
 }
 
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)(Remove-Item|rm|unlink)[^\r\n]*[\*\?]')) 'cleanup uses a wildcard target'
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)ssh[^\r\n]*\$\(')) 'SSH command uses command substitution/interpolation'
+Assert-True (-not [regex]::IsMatch($Harness, '\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')) 'harness contains a hard-coded IPv4 target'
 
 if ($script:Failures -ne 0) {
     throw "$script:Failures isolated host harness safety assertion(s) failed"
