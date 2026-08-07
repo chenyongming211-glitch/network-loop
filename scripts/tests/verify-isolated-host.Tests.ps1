@@ -36,6 +36,18 @@ function Assert-Throws {
 }
 
 $RunId = '0123456789abcdef0123456789abcdef'
+$NativeArguments = @(
+    @{ Input = 'alpha'; Expected = 'alpha' },
+    @{ Input = ''; Expected = '""' },
+    @{ Input = 'two words'; Expected = '"two words"' },
+    @{ Input = 'quote"value'; Expected = '"quote\"value"' },
+    @{ Input = 'C:\path with space\'; Expected = '"C:\path with space\\"' }
+)
+foreach ($Case in $NativeArguments) {
+    $Actual = ConvertTo-WindowsNativeArgument -Argument $Case.Input
+    Assert-True ($Actual -ceq $Case.Expected) "Windows native argv escaping changed for: $($Case.Input)"
+}
+
 $Names = New-IsolatedNames -RunId $RunId
 $NamesAgain = New-IsolatedNames -RunId $RunId
 Assert-True ($Names.Namespace -ceq $NamesAgain.Namespace) 'namespace name is not deterministic'

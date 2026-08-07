@@ -25,6 +25,17 @@ jobs:
         shell: pwsh
         run: pwsh -NoProfile -File scripts/tests/verify-isolated-host.Tests.ps1
 
+  windows-script-tests:
+    name: Windows PowerShell safety
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Test isolated host harness with Windows PowerShell
+        shell: powershell
+        run: powershell -NoProfile -File scripts/tests/verify-isolated-host.Tests.ps1
+
   userspace:
     name: Userspace
     runs-on: ubuntu-latest
