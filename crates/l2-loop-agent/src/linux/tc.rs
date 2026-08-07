@@ -23,7 +23,8 @@ pub const TC_PRIORITY_FIRST: u16 = 49_600;
 pub const TC_PRIORITY_LAST: u16 = 49_699;
 
 const ETH_P_ALL: u16 = 0x0003;
-const TC_ATTACH_FAILED: &str = "TC_ATTACH_FAILED";
+const TC_CLSACT_CREATE_FAILED: &str = "TC_CLSACT_CREATE_FAILED";
+const TC_FILTER_CREATE_FAILED: &str = "TC_FILTER_CREATE_FAILED";
 const TC_VERIFY_FAILED: &str = "TC_VERIFY_FAILED";
 const TC_DETACH_FAILED: &str = "TC_DETACH_FAILED";
 
@@ -270,7 +271,7 @@ impl<I: TcIo> SafeTc<I> {
                 }
                 Err(TcIoError::IdentityMismatch | TcIoError::Failed(_)) => {
                     return Err(TcError::new(
-                        TC_ATTACH_FAILED,
+                        TC_CLSACT_CREATE_FAILED,
                         "exclusive clsact creation failed",
                     ));
                 }
@@ -290,7 +291,7 @@ impl<I: TcIo> SafeTc<I> {
             }
             Err(TcIoError::IdentityMismatch | TcIoError::Failed(_)) => {
                 return Err(TcError::new(
-                    TC_ATTACH_FAILED,
+                    TC_FILTER_CREATE_FAILED,
                     "exclusive TC filter creation failed",
                 ));
             }
@@ -395,7 +396,7 @@ impl<I: TcIo> SafeTcPort for SafeTc<I> {
 }
 
 fn tc_port_error(error: TcError) -> PortError {
-    PortError::Adapter(format!("{}: {}", error.code(), error.evidence()))
+    PortError::coded_adapter(error.code(), error.evidence())
 }
 
 fn empty_plan(inventory: &TcInventory, hook: TcHook) -> Result<(u16, bool), TcError> {

@@ -148,14 +148,16 @@ where
         {
             Ok(owned) => Some(owned),
             Err(error) => {
-                return Err(self.rollback(XDP_ATTACH_FAILED, error, rollback, ifindex, 0));
+                let code = error.stable_code().unwrap_or(XDP_ATTACH_FAILED);
+                return Err(self.rollback(code, error, rollback, ifindex, 0));
             }
         };
         if let Err(error) = self
             .xdp
             .verify_exact(rollback.xdp.as_ref().expect("owned XDP is present"))
         {
-            return Err(self.rollback(XDP_VERIFY_FAILED, error, rollback, ifindex, 0));
+            let code = error.stable_code().unwrap_or(XDP_VERIFY_FAILED);
+            return Err(self.rollback(code, error, rollback, ifindex, 0));
         }
 
         rollback.tc = match self
@@ -163,13 +165,17 @@ where
             .attach_explicit(ifindex, TcHook::Egress, loaded.tc_egress)
         {
             Ok(owned) => Some(owned),
-            Err(error) => return Err(self.rollback(TC_ATTACH_FAILED, error, rollback, ifindex, 0)),
+            Err(error) => {
+                let code = error.stable_code().unwrap_or(TC_ATTACH_FAILED);
+                return Err(self.rollback(code, error, rollback, ifindex, 0));
+            }
         };
         if let Err(error) = self
             .tc
             .verify_exact(rollback.tc.as_ref().expect("owned TC is present"))
         {
-            return Err(self.rollback(TC_VERIFY_FAILED, error, rollback, ifindex, 0));
+            let code = error.stable_code().unwrap_or(TC_VERIFY_FAILED);
+            return Err(self.rollback(code, error, rollback, ifindex, 0));
         }
 
         let generation = self.generation.saturating_add(1).max(1);

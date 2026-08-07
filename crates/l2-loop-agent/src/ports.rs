@@ -13,8 +13,29 @@ use crate::{
 pub enum PortError {
     #[error("adapter error: {0}")]
     Adapter(String),
+    #[error("adapter error: {code}: {evidence}")]
+    CodedAdapter {
+        code: &'static str,
+        evidence: String,
+    },
     #[error("invalid preflight report: {0}")]
     InvalidReport(String),
+}
+
+impl PortError {
+    pub fn coded_adapter(code: &'static str, evidence: impl Into<String>) -> Self {
+        Self::CodedAdapter {
+            code,
+            evidence: evidence.into(),
+        }
+    }
+
+    pub const fn stable_code(&self) -> Option<&'static str> {
+        match self {
+            Self::CodedAdapter { code, .. } => Some(code),
+            Self::Adapter(_) | Self::InvalidReport(_) => None,
+        }
+    }
 }
 
 pub trait PlatformInspector {
