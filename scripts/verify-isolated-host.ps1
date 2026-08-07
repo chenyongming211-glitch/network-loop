@@ -304,6 +304,7 @@ case "$phase" in
         ;;
     launch)
         cd "$root"
+        ulimit -l unlimited
         ./l2-loopd >daemon.log 2>&1 &
         printf '%s\n' "$!" >daemon.pid
         tries=0
