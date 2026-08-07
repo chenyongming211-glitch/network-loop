@@ -60,7 +60,7 @@ jobs:
         run: cargo xtask build-ebpf
 
       - name: Upload eBPF object for bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: l2-loop-ebpf-object-${{ github.sha }}
           path: target/bpfel-unknown-none/release/l2-loop-ebpf
@@ -88,7 +88,7 @@ jobs:
           --package l2-loop-agent --package l2-loop-cli
 
       - name: Download eBPF object
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: l2-loop-ebpf-object-${{ github.sha }}
           path: .artifacts/ebpf
@@ -107,7 +107,7 @@ jobs:
         run: sha256sum --check SHA256SUMS
 
       - name: Upload release bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: l2-loop-linux-x86_64-${{ github.sha }}
           path: .artifacts/bundle/

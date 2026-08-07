@@ -98,11 +98,7 @@ pub fn render_manifest(manifest: &BundleManifest) -> Result<String, BundleError>
 }
 
 pub fn render_sha256sums(checksums: &BTreeMap<String, String>) -> Result<String, BundleError> {
-    if !checksums
-        .keys()
-        .map(String::as_str)
-        .eq(CHECKSUM_FILES)
-    {
+    if !checksums.keys().map(String::as_str).eq(CHECKSUM_FILES) {
         return Err(BundleError::UnexpectedChecksumFiles);
     }
 
@@ -182,7 +178,8 @@ fn copy_file(source: &Path, destination: &Path) -> Result<(), BundleError> {
 }
 
 fn sha256_file(path: &Path) -> Result<String, BundleError> {
-    let mut file = File::open(path).map_err(|source| io_error("opening bundle file", path, source))?;
+    let mut file =
+        File::open(path).map_err(|source| io_error("opening bundle file", path, source))?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
     loop {
