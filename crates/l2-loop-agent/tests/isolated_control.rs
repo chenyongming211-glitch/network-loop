@@ -200,11 +200,7 @@ impl IsolatedControl for FakeControl {
 struct FailingControl;
 
 impl IsolatedControl for FailingControl {
-    fn attach(
-        &mut self,
-        _: &InterfaceName,
-        _: &RunId,
-    ) -> Result<(), IsolatedControlError> {
+    fn attach(&mut self, _: &InterfaceName, _: &RunId) -> Result<(), IsolatedControlError> {
         Err(IsolatedControlError::internal("BPF_LOAD_FAILED"))
     }
 
