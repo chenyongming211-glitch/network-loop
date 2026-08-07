@@ -103,6 +103,25 @@ async fn blocked_non_veth_or_shared_targets_return_the_preflight_blocker() {
     }
 }
 
+#[tokio::test]
+async fn internal_attachment_failures_preserve_only_the_stable_stage_code() {
+    let dispatcher = DaemonDispatcher::with_isolated_control(
+        PreflightService::new(FakeInspector::ready()),
+        FailingControl,
+    );
+    let response = dispatcher
+        .dispatch(ControlRequest::new(AgentCommand::IsolatedAttach {
+            interface: InterfaceName::new("veth-test").unwrap(),
+            run_id: RUN_ID.to_owned(),
+        }))
+        .await;
+
+    assert_eq!(
+        error(&response),
+        ("BPF_LOAD_FAILED", "isolated control failed")
+    );
+}
+
 #[derive(Clone)]
 struct FakeInspector {
     report: PreflightReport,
@@ -174,6 +193,26 @@ impl IsolatedControl for FakeControl {
 
     fn shutdown(&mut self) -> Result<(), IsolatedControlError> {
         self.calls.lock().unwrap().push("shutdown".to_owned());
+        Ok(())
+    }
+}
+
+struct FailingControl;
+
+impl IsolatedControl for FailingControl {
+    fn attach(
+        &mut self,
+        _: &InterfaceName,
+        _: &RunId,
+    ) -> Result<(), IsolatedControlError> {
+        Err(IsolatedControlError::internal("BPF_LOAD_FAILED"))
+    }
+
+    fn detach(&mut self, _: &RunId) -> Result<(), IsolatedControlError> {
+        Ok(())
+    }
+
+    fn shutdown(&mut self) -> Result<(), IsolatedControlError> {
         Ok(())
     }
 }
