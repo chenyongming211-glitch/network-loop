@@ -1,8 +1,4 @@
-use std::{
-    ffi::OsStr,
-    fs, io,
-    path::Path,
-};
+use std::{ffi::OsStr, fs, io, path::Path};
 
 use aya::maps::{MapData, PerCpuHashMap};
 use l2_loop_common::{CounterValue, StatsKey, hook_role};
@@ -126,7 +122,9 @@ pub fn verify_owned_hooks(
     let observed = snapshot
         .interfaces
         .iter()
-        .find(|candidate| candidate.name == interface.as_str() && candidate.ifindex == record.ifindex)
+        .find(|candidate| {
+            candidate.name == interface.as_str() && candidate.ifindex == record.ifindex
+        })
         .ok_or(HostAcceptanceError::HookMismatch)?;
     let xdp = record.xdp.ok_or(HostAcceptanceError::HookMismatch)?;
     if xdp.ifindex != record.ifindex || !snapshot.program_ids.contains(&xdp.program_id) {
@@ -215,8 +213,8 @@ pub fn load_exact_journal(path: &Path) -> Result<OwnershipRecord, HostAcceptance
         .and_then(OsStr::to_str)
         .and_then(|value| RunId::parse(value).ok())
         .ok_or(HostAcceptanceError::InvalidJournal)?;
-    let expected = JournalPath::new(run_id.clone())
-        .map_err(|_| HostAcceptanceError::InvalidJournal)?;
+    let expected =
+        JournalPath::new(run_id.clone()).map_err(|_| HostAcceptanceError::InvalidJournal)?;
     if expected.path() != path {
         return Err(HostAcceptanceError::InvalidJournal);
     }
@@ -305,7 +303,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::ownership::{OwnedTc, OwnedXdp, OWNERSHIP_SCHEMA_VERSION};
+    use crate::ownership::{OWNERSHIP_SCHEMA_VERSION, OwnedTc, OwnedXdp};
 
     #[test]
     fn exact_owned_hook_identity_is_accepted() {
