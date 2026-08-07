@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-use crate::ownership::{
-    OwnedTc, OwnedXdp, OwnershipRecord, TcKernelIdentity, XdpKernelIdentity,
-};
+use crate::ownership::{OwnedTc, OwnedXdp, OwnershipRecord, TcKernelIdentity, XdpKernelIdentity};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IfaceConfigIdentity {
@@ -48,10 +46,7 @@ pub struct CleanupSnapshot {
     pub owned_program_map_ids: Vec<(u32, Vec<u32>)>,
 }
 
-pub fn plan_owned_cleanup(
-    record: &OwnershipRecord,
-    snapshot: &CleanupSnapshot,
-) -> CleanupPlan {
+pub fn plan_owned_cleanup(record: &OwnershipRecord, snapshot: &CleanupSnapshot) -> CleanupPlan {
     let mut operations = Vec::new();
     let mut retained = Vec::new();
 
@@ -112,11 +107,7 @@ pub fn plan_owned_cleanup(
         if snapshot.tc.contains(&TcKernelIdentity::from(*owned)) {
             operations.push(CleanupOperation::DetachTc(*owned));
         } else {
-            retain(
-                &mut retained,
-                "TC hook",
-                "fresh TC identity mismatch",
-            );
+            retain(&mut retained, "TC hook", "fresh TC identity mismatch");
         }
     }
 
@@ -124,11 +115,7 @@ pub fn plan_owned_cleanup(
         if snapshot.xdp == Some(XdpKernelIdentity::from(owned)) {
             operations.push(CleanupOperation::DetachXdp(owned));
         } else {
-            retain(
-                &mut retained,
-                "XDP hook",
-                "fresh XDP identity mismatch",
-            );
+            retain(&mut retained, "XDP hook", "fresh XDP identity mismatch");
         }
     }
 
@@ -143,10 +130,7 @@ pub trait CleanupIo {
     fn execute_exact(&mut self, operation: &CleanupOperation) -> Result<(), String>;
 }
 
-pub fn execute_cleanup_plan<I: CleanupIo>(
-    io: &mut I,
-    plan: CleanupPlan,
-) -> CleanupPlan {
+pub fn execute_cleanup_plan<I: CleanupIo>(io: &mut I, plan: CleanupPlan) -> CleanupPlan {
     let mut completed = Vec::new();
     let mut retained = plan.retained;
     for operation in plan.operations {

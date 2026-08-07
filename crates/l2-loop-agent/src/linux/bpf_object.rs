@@ -6,19 +6,15 @@ use std::{
 };
 
 use aya::{
+    Ebpf,
     maps::{Map, MapInfo},
     programs::{Program, SchedClassifier, Xdp},
-    Ebpf,
 };
 use l2_loop_common::ABI_VERSION;
 use thiserror::Error;
 
 use crate::{
-    linux::{
-        cleanup::PinIdentity,
-        tc::LoadedTc,
-        xdp::LoadedXdp,
-    },
+    linux::{cleanup::PinIdentity, tc::LoadedTc, xdp::LoadedXdp},
     ownership::TestPinRoot,
     ports::{BpfObjectLoader, LoadedBpfObject, PortError},
 };
@@ -99,9 +95,7 @@ pub fn expected_object_description() -> ObjectDescription {
     }
 }
 
-pub fn validate_object_description(
-    actual: &ObjectDescription,
-) -> Result<(), ObjectContractError> {
+pub fn validate_object_description(actual: &ObjectDescription) -> Result<(), ObjectContractError> {
     let expected = expected_object_description();
     if actual.abi_version != expected.abi_version {
         return Err(ObjectContractError::AbiVersion);
@@ -186,10 +180,7 @@ pub(super) struct ActiveAyaObject {
 }
 
 impl BpfObjectLoader for AyaBpfObjectLoader {
-    fn load_and_validate_abi(
-        &mut self,
-        pins: &TestPinRoot,
-    ) -> Result<LoadedBpfObject, PortError> {
+    fn load_and_validate_abi(&mut self, pins: &TestPinRoot) -> Result<LoadedBpfObject, PortError> {
         let mut state = self.runtime.state.lock().map_err(lock_error)?;
         if state.active.is_some() {
             return Err(adapter("an Aya object is already active"));

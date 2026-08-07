@@ -57,7 +57,9 @@ impl MapPublisher for AyaMapPublisher {
             .insert(
                 keys[0],
                 PerCpuValues::try_from(vec![zero; cpu_count]).map_err(|error| {
-                    adapter(format!("failed to allocate per-CPU counter values: {error}"))
+                    adapter(format!(
+                        "failed to allocate per-CPU counter values: {error}"
+                    ))
                 })?,
                 BPF_NOEXIST,
             )
@@ -65,7 +67,9 @@ impl MapPublisher for AyaMapPublisher {
         if let Err(error) = stats.insert(
             keys[1],
             PerCpuValues::try_from(vec![zero; cpu_count]).map_err(|error| {
-                adapter(format!("failed to allocate per-CPU counter values: {error}"))
+                adapter(format!(
+                    "failed to allocate per-CPU counter values: {error}"
+                ))
             })?,
             BPF_NOEXIST,
         ) {
@@ -192,10 +196,7 @@ fn stats_keys(ifindex: u32, generation: u64) -> [StatsKey; 2] {
     ]
 }
 
-fn verify_loaded(
-    active: &LoadedBpfObject,
-    requested: &LoadedBpfObject,
-) -> Result<(), PortError> {
+fn verify_loaded(active: &LoadedBpfObject, requested: &LoadedBpfObject) -> Result<(), PortError> {
     if active == requested {
         Ok(())
     } else {
