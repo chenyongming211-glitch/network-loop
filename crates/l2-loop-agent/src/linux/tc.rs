@@ -623,7 +623,7 @@ async fn query_filters(
     Ok(filter_slots_from_messages(ifindex, hook, raw.iter()))
 }
 
-fn filter_slots_from_messages<'a>(
+pub(crate) fn filter_slots_from_messages<'a>(
     ifindex: u32,
     hook: TcHook,
     messages: impl IntoIterator<Item = &'a TcMessage>,

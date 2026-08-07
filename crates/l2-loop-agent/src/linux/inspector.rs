@@ -17,11 +17,11 @@ use l2_loop_core::{
 };
 use rtnetlink::packet_route::{
     link::{InfoKind, LinkAttribute, LinkFlags, LinkInfo, LinkMessage, LinkXdp, State},
-    tc::{TcAttribute, TcFilterBpfOption, TcMessage, TcOption},
+    tc::TcMessage,
 };
 use thiserror::Error;
 
-use crate::{PlatformInspector, PortError};
+use crate::{PlatformInspector, PortError, ownership::TcHook};
 
 use super::{
     bond::parse_bond_snapshot,
@@ -30,6 +30,7 @@ use super::{
     },
     interface::{KernelLinkKind, LinkRecord, TunMode, classify_interface},
     limits::{artifact_architecture_matches, parse_memlock_limits},
+    tc::{TcFilterSlot, filter_slots_from_messages},
     topology::{ovs_vsctl_args, parse_ovs_bridge_name},
 };
 
@@ -785,59 +786,49 @@ async fn query_tc(
             Direction::Ingress => request.ingress().execute(),
             Direction::Egress => request.egress().execute(),
         };
+        let mut raw = Vec::new();
         loop {
             match messages.try_next().await {
-                Ok(Some(message)) => match tc_attachment(&message, direction) {
-                    ParsedTcAttachment::Known(attachment) => {
-                        observed.push(ObservedTcAttachment {
-                            attachment,
-                            owned: false,
-                        });
-                    }
-                    ParsedTcAttachment::NotBpf => {}
-                    ParsedTcAttachment::Unknown => return (observed, false),
-                },
+                Ok(Some(message)) => raw.push(message),
                 Ok(None) => break,
                 Err(_) => return (observed, false),
             }
+        }
+        let (attachments, known) = observed_tc_from_messages(*ifindex, direction, raw.iter());
+        observed.extend(attachments);
+        if !known {
+            return (observed, false);
         }
     }
     (observed, true)
 }
 
-enum ParsedTcAttachment {
-    NotBpf,
-    Known(TcAttachment),
-    Unknown,
-}
-
-fn tc_attachment(message: &TcMessage, direction: Direction) -> ParsedTcAttachment {
-    let is_bpf = message
-        .attributes
-        .iter()
-        .any(|attribute| matches!(attribute, TcAttribute::Kind(kind) if kind == "bpf"));
-    if !is_bpf {
-        return ParsedTcAttachment::NotBpf;
-    }
-    let program_id = message.attributes.iter().find_map(|attribute| {
-        let TcAttribute::Options(options) = attribute else {
-            return None;
-        };
-        options.iter().find_map(|option| match option {
-            TcOption::Bpf(TcFilterBpfOption::ProgId(program_id)) => Some(*program_id),
-            _ => None,
-        })
-    });
-    let Some(program_id) = program_id else {
-        return ParsedTcAttachment::Unknown;
+fn observed_tc_from_messages<'a>(
+    ifindex: u32,
+    direction: Direction,
+    messages: impl IntoIterator<Item = &'a TcMessage>,
+) -> (Vec<ObservedTcAttachment>, bool) {
+    let hook = match direction {
+        Direction::Ingress => TcHook::Ingress,
+        Direction::Egress => TcHook::Egress,
     };
-
-    ParsedTcAttachment::Known(TcAttachment {
-        direction,
-        priority: (message.header.info >> 16) as u16,
-        handle: message.header.handle.into(),
-        program_id,
-    })
+    let mut observed = Vec::new();
+    for slot in filter_slots_from_messages(ifindex, hook, messages) {
+        match slot {
+            TcFilterSlot::Bpf(identity) => observed.push(ObservedTcAttachment {
+                attachment: TcAttachment {
+                    direction,
+                    priority: identity.priority,
+                    handle: identity.handle,
+                    program_id: identity.program_id,
+                },
+                owned: false,
+            }),
+            TcFilterSlot::Other { .. } => {}
+            TcFilterSlot::Unknown(_) => return (observed, false),
+        }
+    }
+    (observed, true)
 }
 
 async fn query_qdisc_capability(handle: &rtnetlink::Handle, ifindexes: &[u32]) -> bool {
@@ -900,7 +891,7 @@ impl LinuxInspector<SystemLinkSource, SystemFileSource, SystemBpfQuery, SystemCo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rtnetlink::packet_route::tc::TcHandle;
+    use rtnetlink::packet_route::tc::{TcAttribute, TcFilterBpfOption, TcHandle, TcOption};
 
     #[test]
     fn host_inventory_accepts_a_backed_tc_filter_summary() {
