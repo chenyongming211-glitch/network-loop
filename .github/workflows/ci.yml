@@ -14,6 +14,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  script-tests:
+    name: Script safety
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Test isolated host harness safety
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/tests/verify-isolated-host.Tests.ps1
+
   userspace:
     name: Userspace
     runs-on: ubuntu-latest
