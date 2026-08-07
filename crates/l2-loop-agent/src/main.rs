@@ -59,10 +59,11 @@ async fn run() -> Result<(), DaemonError> {
         PreflightService::new(SystemLinuxInspector::system()),
         TransactionIsolatedControl::new(transaction),
     );
-    server
+    let request_dispatcher = dispatcher.clone();
+    let serve_result = server
         .serve(
             move |request| {
-                let dispatcher = dispatcher.clone();
+                let dispatcher = request_dispatcher.clone();
                 async move { dispatcher.dispatch(request).await }
             },
             async move {
@@ -72,5 +73,8 @@ async fn run() -> Result<(), DaemonError> {
                 }
             },
         )
-        .await
+        .await;
+    let cleanup_result = dispatcher.shutdown_isolated().await;
+    serve_result?;
+    cleanup_result.map_err(|_| DaemonError::IsolatedCleanup)
 }

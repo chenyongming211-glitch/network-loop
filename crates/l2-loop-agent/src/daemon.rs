@@ -133,6 +133,20 @@ where
             }
         }
     }
+
+    pub async fn shutdown_isolated(&self) -> Result<(), IsolatedControlError> {
+        let Some(isolated) = self.isolated.clone() else {
+            return Ok(());
+        };
+        tokio::task::spawn_blocking(move || {
+            let mut control = isolated
+                .lock()
+                .map_err(|_| IsolatedControlError::internal("ISOLATED_CONTROL_LOCK"))?;
+            control.shutdown()
+        })
+        .await
+        .map_err(|_| IsolatedControlError::internal("ISOLATED_CONTROL_JOIN"))?
+    }
 }
 
 pub trait IsolatedControl: Send {
@@ -143,6 +157,8 @@ pub trait IsolatedControl: Send {
     ) -> Result<(), IsolatedControlError>;
 
     fn detach(&mut self, run_id: &RunId) -> Result<(), IsolatedControlError>;
+
+    fn shutdown(&mut self) -> Result<(), IsolatedControlError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -227,6 +243,14 @@ impl IsolatedControl for TransactionIsolatedControl {
         self.active = None;
         Ok(())
     }
+
+    fn shutdown(&mut self) -> Result<(), IsolatedControlError> {
+        let Some((run_id, _)) = self.active.as_ref() else {
+            return Ok(());
+        };
+        let run_id = run_id.clone();
+        self.detach(&run_id)
+    }
 }
 
 fn attachment_control_error(error: crate::AttachmentError) -> IsolatedControlError {
@@ -273,6 +297,8 @@ pub enum DaemonError {
     SocketPathNotSocket,
     #[error("control socket is already in use")]
     SocketInUse,
+    #[error("exact isolated cleanup failed during daemon shutdown")]
+    IsolatedCleanup,
     #[error("control socket operation failed: {operation}")]
     Io {
         operation: &'static str,
