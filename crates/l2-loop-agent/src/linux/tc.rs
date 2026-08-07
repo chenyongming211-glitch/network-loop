@@ -758,4 +758,35 @@ mod tests {
 
         assert_eq!(observed.finish(), TcClsactState::Present);
     }
+
+    #[test]
+    fn filter_inventory_ignores_only_a_summary_backed_by_a_concrete_filter() {
+        let summary = encode_filter_identity(17, TcHook::Egress, TC_PRIORITY_FIRST, 0);
+        let mut concrete = encode_filter_identity(
+            17,
+            TcHook::Egress,
+            TC_PRIORITY_FIRST,
+            TC_EGRESS_HANDLE,
+        );
+        concrete
+            .attributes
+            .push(TcAttribute::Options(vec![TcOption::Bpf(
+                TcFilterBpfOption::ProgId(101),
+            )]));
+
+        assert_eq!(
+            filter_slots_from_messages(17, TcHook::Egress, [&summary, &concrete]),
+            vec![TcFilterSlot::Bpf(TcKernelIdentity {
+                ifindex: 17,
+                hook: TcHook::Egress,
+                priority: TC_PRIORITY_FIRST,
+                handle: TC_EGRESS_HANDLE,
+                program_id: 101,
+            })],
+        );
+        assert_eq!(
+            filter_slots_from_messages(17, TcHook::Egress, [&summary]),
+            vec![TcFilterSlot::Unknown(TcHook::Egress)],
+        );
+    }
 }
