@@ -551,28 +551,15 @@ async fn query_inventory(ifindex: u32) -> Result<TcInventory, TcIoError> {
     tokio::spawn(connection);
 
     let mut qdiscs = handle.qdisc().get().index(ifindex as i32).execute();
-    let mut clsact_count = 0usize;
+    let mut clsact = ClsactAccumulator::new(ifindex);
     while let Some(message) = qdiscs
         .try_next()
         .await
         .map_err(|_| failed("failed to query TC qdisc state"))?
     {
-        if message.header.index != ifindex as i32 {
-            return Err(failed("TC qdisc query returned a different interface"));
-        }
-        if message
-            .attributes
-            .iter()
-            .any(|attribute| matches!(attribute, TcAttribute::Kind(kind) if kind == "clsact"))
-        {
-            clsact_count += 1;
-        }
+        clsact.observe(&message);
     }
-    let clsact = match clsact_count {
-        0 => TcClsactState::Absent,
-        1 => TcClsactState::Present,
-        _ => TcClsactState::Unknown,
-    };
+    let clsact = clsact.finish();
     if clsact != TcClsactState::Present {
         return Ok(TcInventory::empty(clsact));
     }
@@ -580,6 +567,39 @@ async fn query_inventory(ifindex: u32) -> Result<TcInventory, TcIoError> {
     let mut filters = query_filters(&handle, ifindex, TcHook::Ingress).await?;
     filters.extend(query_filters(&handle, ifindex, TcHook::Egress).await?);
     Ok(TcInventory::new(clsact, filters))
+}
+
+struct ClsactAccumulator {
+    ifindex: i32,
+    count: usize,
+}
+
+impl ClsactAccumulator {
+    fn new(ifindex: u32) -> Self {
+        Self {
+            ifindex: ifindex as i32,
+            count: 0,
+        }
+    }
+
+    fn observe(&mut self, message: &TcMessage) {
+        if message.header.index == self.ifindex
+            && message
+                .attributes
+                .iter()
+                .any(|attribute| matches!(attribute, TcAttribute::Kind(kind) if kind == "clsact"))
+        {
+            self.count += 1;
+        }
+    }
+
+    const fn finish(self) -> TcClsactState {
+        match self.count {
+            0 => TcClsactState::Absent,
+            1 => TcClsactState::Present,
+            _ => TcClsactState::Unknown,
+        }
+    }
 }
 
 async fn query_filters(
@@ -727,11 +747,15 @@ mod tests {
         foreign
             .attributes
             .push(TcAttribute::Kind("clsact".to_owned()));
-        let target = TcMessage::with_index(17);
+        let mut target = TcMessage::with_index(17);
+        target
+            .attributes
+            .push(TcAttribute::Kind("clsact".to_owned()));
 
-        assert_eq!(
-            clsact_state_from_messages(17, [&foreign, &target]).unwrap(),
-            TcClsactState::Absent,
-        );
+        let mut observed = ClsactAccumulator::new(17);
+        observed.observe(&foreign);
+        observed.observe(&target);
+
+        assert_eq!(observed.finish(), TcClsactState::Present);
     }
 }
