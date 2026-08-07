@@ -716,3 +716,22 @@ where
     .join()
     .map_err(|_| failed("TC worker stopped unexpectedly"))?
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn qdisc_inventory_ignores_dump_entries_for_other_interfaces() {
+        let mut foreign = TcMessage::with_index(18);
+        foreign
+            .attributes
+            .push(TcAttribute::Kind("clsact".to_owned()));
+        let target = TcMessage::with_index(17);
+
+        assert_eq!(
+            clsact_state_from_messages(17, [&foreign, &target]).unwrap(),
+            TcClsactState::Absent,
+        );
+    }
+}
