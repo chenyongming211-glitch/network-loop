@@ -23,11 +23,7 @@ use l2_loop_core::{
     InterfaceName, InterfaceRef, KernelInspection, MemlockInspection, PinRootState,
     PreflightReport,
 };
-use tokio::{
-    net::UnixStream,
-    sync::oneshot,
-    task::JoinHandle,
-};
+use tokio::{net::UnixStream, sync::oneshot, task::JoinHandle};
 
 #[tokio::test]
 async fn dispatches_preflight_through_the_real_control_socket() {
@@ -70,11 +66,7 @@ async fn rejects_unwired_commands_with_a_stable_error() {
     )
     .await;
 
-    let response = exchange(
-        &socket.path,
-        AgentCommand::Status { interface: None },
-    )
-    .await;
+    let response = exchange(&socket.path, AgentCommand::Status { interface: None }).await;
 
     assert_eq!(
         error(&response),
@@ -114,10 +106,7 @@ async fn shutdown_never_removes_a_replacement_at_the_socket_path() {
     let socket = SocketFixture::new();
     let daemon = RunningDaemon::start(
         &socket.path,
-        FakeInspector::ok(
-            Arc::new(Mutex::new(Vec::new())),
-            valid_report("veth-test"),
-        ),
+        FakeInspector::ok(Arc::new(Mutex::new(Vec::new())), valid_report("veth-test")),
     )
     .await;
     std::fs::remove_file(&socket.path).unwrap();
@@ -197,10 +186,8 @@ impl SocketFixture {
     fn new() -> Self {
         static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
         let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!(
-            "l2-loop-dispatch-{}-{id}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("l2-loop-dispatch-{}-{id}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
         std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
         let path = root.join("agent.sock");
