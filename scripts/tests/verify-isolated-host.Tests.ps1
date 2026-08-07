@@ -114,6 +114,7 @@ Assert-True (-not $Harness.Contains('bpftool')) 'harness requires bpftool on the
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)command_name in[^\r\n]*\btc\b')) 'harness requires tc on the target host'
 
 Assert-True ($Harness.IndexOf('$ExitEvent = Register-IsolatedCleanup') -lt $Harness.IndexOf('$null = Invoke-IsolatedMutation')) 'cleanup is not registered before first mutation'
+Assert-True ($Harness.IndexOf('$Preflight = Invoke-ExactProcess') -lt $Harness.IndexOf("-Phase 'prepare-pins'")) 'pin parents are created before isolated preflight'
 Assert-True ($Workflow.Contains('script-tests:')) 'CI script-tests job is missing'
 Assert-True ($Workflow.Contains('pwsh -NoProfile -File scripts/tests/verify-isolated-host.Tests.ps1')) 'CI does not run the self-contained harness tests'
 
