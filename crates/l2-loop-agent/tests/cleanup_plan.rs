@@ -85,14 +85,21 @@ fn fresh_identity_mismatches_are_retained_and_never_become_cleanup_operations() 
             .iter()
             .any(|operation| matches!(operation, CleanupOperation::DetachXdp(_)))
     );
-    assert!(!plan.operations.contains(&CleanupOperation::UnpinMap(PinIdentity {
-        path: pin("IFACE_CONFIG"),
-        map_id: 997,
-    })));
-    assert!(plan.operations.contains(&CleanupOperation::UnpinMap(PinIdentity {
-        path: pin("HOOK_STATS"),
-        map_id: 302,
-    })));
+    assert!(
+        !plan
+            .operations
+            .contains(&CleanupOperation::UnpinMap(PinIdentity {
+                path: pin("IFACE_CONFIG"),
+                map_id: 997,
+            }))
+    );
+    assert!(
+        plan.operations
+            .contains(&CleanupOperation::UnpinMap(PinIdentity {
+                path: pin("HOOK_STATS"),
+                map_id: 302,
+            }))
+    );
 }
 
 #[test]
@@ -144,7 +151,12 @@ fn matching_snapshot(record: &OwnershipRecord) -> CleanupSnapshot {
     CleanupSnapshot {
         journal: Some(record.clone()),
         xdp: record.xdp.map(Into::into),
-        tc: record.tc.iter().copied().map(TcKernelIdentity::from).collect(),
+        tc: record
+            .tc
+            .iter()
+            .copied()
+            .map(TcKernelIdentity::from)
+            .collect(),
         iface_config: Some(IfaceConfigIdentity {
             ifindex: record.ifindex,
             generation: record.generation,
