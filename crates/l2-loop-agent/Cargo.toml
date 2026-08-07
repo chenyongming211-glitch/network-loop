@@ -10,6 +10,7 @@ name = "l2-loopd"
 path = "src/main.rs"
 
 [dependencies]
+aya.workspace = true
 futures-util.workspace = true
 l2-loop-common = { path = "../l2-loop-common", features = ["user"] }
 l2-loop-core = { path = "../l2-loop-core" }
