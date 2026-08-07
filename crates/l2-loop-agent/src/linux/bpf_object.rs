@@ -475,3 +475,52 @@ fn lock_error<T>(_: std::sync::PoisonError<T>) -> PortError {
 fn adapter(message: impl Into<String>) -> PortError {
     PortError::Adapter(message.into())
 }
+
+#[cfg(test)]
+mod pin_parent_tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use super::*;
+
+    static NEXT_TEST: AtomicU64 = AtomicU64::new(1);
+
+    #[test]
+    fn pin_parent_lease_creates_and_removes_only_owned_empty_directories() {
+        let (temporary, bpffs, run_root) = test_paths();
+        let lease = prepare_pin_parents(&run_root).expect("empty parents should be prepared");
+        assert!(bpffs.join("l2-loop/test").is_dir());
+
+        lease
+            .cleanup_exact()
+            .expect("owned empty parents should be removed");
+        assert!(!bpffs.join("l2-loop").exists());
+        fs::remove_dir(&bpffs).unwrap();
+        fs::remove_dir(temporary).unwrap();
+    }
+
+    #[test]
+    fn pin_parent_lease_refuses_a_preexisting_agent_root() {
+        let (temporary, bpffs, run_root) = test_paths();
+        fs::create_dir(bpffs.join("l2-loop")).unwrap();
+
+        assert!(prepare_pin_parents(&run_root).is_err());
+        assert!(bpffs.join("l2-loop").is_dir());
+        fs::remove_dir(bpffs.join("l2-loop")).unwrap();
+        fs::remove_dir(&bpffs).unwrap();
+        fs::remove_dir(temporary).unwrap();
+    }
+
+    fn test_paths() -> (PathBuf, PathBuf, PathBuf) {
+        let suffix = NEXT_TEST.fetch_add(1, Ordering::Relaxed);
+        let temporary = std::env::temp_dir().join(format!(
+            "l2-loop-pin-parent-{}-{suffix}",
+            std::process::id()
+        ));
+        let bpffs = temporary.join("bpffs");
+        fs::create_dir_all(&bpffs).unwrap();
+        let run_root = bpffs
+            .join("l2-loop/test")
+            .join("0123456789abcdef0123456789abcdef");
+        (temporary, bpffs, run_root)
+    }
+}
