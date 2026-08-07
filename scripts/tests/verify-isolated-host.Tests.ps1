@@ -115,6 +115,7 @@ Assert-True (-not [regex]::IsMatch($Harness, '(?m)command_name in[^\r\n]*\btc\b'
 
 Assert-True ($Harness.IndexOf('$ExitEvent = Register-IsolatedCleanup') -lt $Harness.IndexOf('$null = Invoke-IsolatedMutation')) 'cleanup is not registered before first mutation'
 Assert-True ($Harness.IndexOf('$Preflight = Invoke-ExactProcess') -lt $Harness.IndexOf("-Phase 'prepare-pins'")) 'pin parents are created before isolated preflight'
+Assert-True ($Harness.IndexOf('ulimit -l unlimited') -ge 0 -and $Harness.IndexOf('ulimit -l unlimited') -lt $Harness.IndexOf('./l2-loopd')) 'daemon is launched before the isolated child memlock limit is raised'
 Assert-True ($Workflow.Contains('script-tests:')) 'CI script-tests job is missing'
 Assert-True ($Workflow.Contains('pwsh -NoProfile -File scripts/tests/verify-isolated-host.Tests.ps1')) 'CI does not run the self-contained harness tests'
 
