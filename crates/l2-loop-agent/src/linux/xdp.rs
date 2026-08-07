@@ -238,10 +238,7 @@ impl<I: XdpIo> SafeXdp<I> {
 
         let rollback = match after.slot(mode) {
             XdpSlot::Attached(current) if current.program_id == loaded.program_id => {
-                match self
-                    .io
-                    .detach_if_matches(ifindex, mode, loaded.program_id)
-                {
+                match self.io.detach_if_matches(ifindex, mode, loaded.program_id) {
                     Ok(()) => XdpRollback::Completed,
                     Err(_) => XdpRollback::Failed,
                 }
@@ -286,11 +283,7 @@ fn unknown_state() -> XdpError {
     )
 }
 
-pub fn encode_attach_request(
-    ifindex: u32,
-    mode: XdpAttachMode,
-    program_fd: RawFd,
-) -> LinkMessage {
+pub fn encode_attach_request(ifindex: u32, mode: XdpAttachMode, program_fd: RawFd) -> LinkMessage {
     encode_request(
         ifindex,
         program_fd,
@@ -299,11 +292,7 @@ pub fn encode_attach_request(
     )
 }
 
-pub fn encode_detach_request(
-    ifindex: u32,
-    mode: XdpAttachMode,
-    expected_fd: RawFd,
-) -> LinkMessage {
+pub fn encode_detach_request(ifindex: u32, mode: XdpAttachMode, expected_fd: RawFd) -> LinkMessage {
     encode_request(ifindex, -1, mode_flags(mode), Some(expected_fd))
 }
 
