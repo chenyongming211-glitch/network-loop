@@ -761,14 +761,9 @@ mod tests {
 
     #[test]
     fn filter_inventory_ignores_only_a_summary_backed_by_a_concrete_filter() {
-        let summary =
-            encode_filter_identity(17, TcHook::Egress, TC_PRIORITY_FIRST, 0);
-        let mut concrete = encode_filter_identity(
-            17,
-            TcHook::Egress,
-            TC_PRIORITY_FIRST,
-            TC_EGRESS_HANDLE,
-        );
+        let summary = encode_filter_identity(17, TcHook::Egress, TC_PRIORITY_FIRST, 0);
+        let mut concrete =
+            encode_filter_identity(17, TcHook::Egress, TC_PRIORITY_FIRST, TC_EGRESS_HANDLE);
         concrete
             .attributes
             .push(TcAttribute::Options(vec![TcOption::Bpf(
