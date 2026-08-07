@@ -896,3 +896,59 @@ impl LinuxInspector<SystemLinkSource, SystemFileSource, SystemBpfQuery, SystemCo
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rtnetlink::packet_route::tc::TcHandle;
+
+    #[test]
+    fn host_inventory_accepts_a_backed_tc_filter_summary() {
+        let mut summary = tc_message(147, 0);
+        let mut concrete = tc_message(147, 0x4c32_0002);
+        concrete
+            .attributes
+            .push(TcAttribute::Options(vec![TcOption::Bpf(
+                TcFilterBpfOption::ProgId(4813548),
+            )]));
+
+        let (observed, known) =
+            observed_tc_from_messages(147, Direction::Egress, [&summary, &concrete]);
+
+        assert!(known);
+        assert_eq!(
+            observed,
+            vec![ObservedTcAttachment {
+                attachment: TcAttachment {
+                    direction: Direction::Egress,
+                    priority: 49_600,
+                    handle: 0x4c32_0002,
+                    program_id: 4813548,
+                },
+                owned: false,
+            }],
+        );
+
+        summary
+            .attributes
+            .push(TcAttribute::Options(Vec::new()));
+        assert!(!observed_tc_from_messages(147, Direction::Egress, [&summary]).1);
+    }
+
+    fn tc_message(ifindex: i32, handle: u32) -> TcMessage {
+        let mut message = TcMessage::with_index(ifindex);
+        message.header.handle = handle.into();
+        message.header.parent = TcHandle {
+            major: u16::MAX,
+            minor: TcHandle::MIN_EGRESS,
+        };
+        message.header.info = u32::from(TcHandle {
+            major: 49_600,
+            minor: 0x0003_u16.to_be(),
+        });
+        message
+            .attributes
+            .push(TcAttribute::Kind("bpf".to_owned()));
+        message
+    }
+}
