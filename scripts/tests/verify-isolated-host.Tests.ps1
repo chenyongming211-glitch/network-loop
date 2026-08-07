@@ -69,7 +69,7 @@ $ExpectedSsh = @(
     '-o', 'IdentitiesOnly=yes',
     '-i', '/private/key',
     '--', 'operator@test.invalid',
-    '--', 'ip', '-j', 'link', 'show'
+    'ip', '-j', 'link', 'show'
 )
 Assert-True (($Ssh -join "`n") -ceq ($ExpectedSsh -join "`n")) 'SSH argv is not exact'
 

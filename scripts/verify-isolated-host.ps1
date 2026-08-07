@@ -57,8 +57,15 @@ function Invoke-ExactProcess {
         throw "failed to start $FilePath"
     }
     if ($null -ne $StandardInput) {
-        $Process.StandardInput.Write($StandardInput)
-        $Process.StandardInput.Close()
+        try {
+            $Process.StandardInput.Write($StandardInput)
+            $Process.StandardInput.Close()
+        }
+        catch [System.IO.IOException] {
+            $Process.WaitForExit()
+            $StdinError = $Process.StandardError.ReadToEnd()
+            throw "$FilePath closed standard input before the bounded request completed: $StdinError"
+        }
     }
     $StdoutTask = $Process.StandardOutput.ReadToEndAsync()
     $StderrTask = $Process.StandardError.ReadToEndAsync()

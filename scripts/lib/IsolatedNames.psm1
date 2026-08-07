@@ -77,8 +77,7 @@ function Get-SshArguments {
         '-o', 'BatchMode=yes',
         '-o', 'IdentitiesOnly=yes',
         '-i', $KeyPath,
-        '--', $Target,
-        '--'
+        '--', $Target
     ) + $RemoteArguments
 }
 
