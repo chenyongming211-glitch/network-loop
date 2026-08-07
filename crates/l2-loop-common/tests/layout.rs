@@ -2,7 +2,7 @@ use core::mem::{align_of, size_of};
 
 use l2_loop_common::{
     CounterValue, FingerprintKey, FingerprintValue, InterfaceConfig, PolicyKey, ProbeKey,
-    ProbeRegistration, RatePolicy, StatsKey,
+    ProbeRegistration, RatePolicy, StatsKey, hook_role, observation_reason, traffic_class, verdict,
 };
 
 #[test]
@@ -44,4 +44,16 @@ fn constructors_zero_reserved_fields() {
     let probe = ProbeRegistration::new(100, 200);
     assert_eq!(probe.flags, 0);
     assert_eq!(probe.reserved, [0; 12]);
+}
+
+#[test]
+fn total_hook_counter_key_uses_only_bounded_aggregate_dimensions() {
+    let key = StatsKey::total(7, 11, hook_role::TEMPORARY_PATH_INGRESS);
+
+    assert_eq!(key.interface_generation, 7);
+    assert_eq!(key.ifindex, 11);
+    assert_eq!(key.hook_role, hook_role::TEMPORARY_PATH_INGRESS);
+    assert_eq!(key.traffic_class, traffic_class::ALL);
+    assert_eq!(key.verdict, verdict::PASS);
+    assert_eq!(key.reason, observation_reason::NONE);
 }

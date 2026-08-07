@@ -40,3 +40,27 @@ fn phase_one_programs_only_return_pass_or_continue() {
     assert!(PROGRAM_SOURCE.contains("XDP_PASS"));
     assert!(PROGRAM_SOURCE.contains("TC_ACT_OK"));
 }
+
+#[test]
+fn every_program_accounts_with_its_exact_hook_role() {
+    for call in [
+        "account_xdp(&ctx, hook_role::EXTERNAL_XDP_INGRESS)",
+        "account_tc(&ctx, hook_role::PHYSICAL_TC_EGRESS)",
+        "account_tc(&ctx, hook_role::TEMPORARY_PATH_INGRESS)",
+        "account_tc(&ctx, hook_role::TEMPORARY_PATH_EGRESS)",
+    ] {
+        assert!(
+            PROGRAM_SOURCE.contains(call),
+            "missing fail-open accounting call: {call}"
+        );
+    }
+}
+
+#[test]
+fn accounting_uses_one_bounded_total_counter_key() {
+    assert!(PROGRAM_SOURCE.contains("StatsKey::total("));
+    assert!(PROGRAM_SOURCE.contains("HOOK_STATS"));
+    assert!(PROGRAM_SOURCE.contains("CounterValue"));
+    assert!(!PROGRAM_SOURCE.contains("XDP_DROP"));
+    assert!(!PROGRAM_SOURCE.contains("TC_ACT_SHOT"));
+}
