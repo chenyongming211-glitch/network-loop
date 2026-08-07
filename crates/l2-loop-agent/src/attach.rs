@@ -129,12 +129,14 @@ where
 
         let pins = TestPinRoot::new(run_id.clone())
             .map_err(|error| AttachmentError::without_cleanup(BPF_LOAD_FAILED, error))?;
-        let mut rollback = RollbackState::default();
-        rollback.loaded = Some(
-            self.loader
-                .load_and_validate_abi(&pins)
-                .map_err(|error| AttachmentError::without_cleanup(BPF_LOAD_FAILED, error))?,
-        );
+        let loaded = self
+            .loader
+            .load_and_validate_abi(&pins)
+            .map_err(|error| AttachmentError::without_cleanup(BPF_LOAD_FAILED, error))?;
+        let mut rollback = RollbackState {
+            loaded: Some(loaded),
+            ..RollbackState::default()
+        };
 
         let ifindex = report.interface.requested.ifindex;
         let loaded = rollback.loaded.as_ref().expect("loaded object is present");
