@@ -13,7 +13,7 @@ use l2_loop_agent::{
 use l2_loop_core::{
     AttachmentState, BpfInspection, InterfaceInspection, InterfaceKind, InterfaceName,
     InterfaceRef, InterfaceState, KernelInspection, MemlockInspection, PF_LIVE_INTERFACE,
-    PinRootState, PreflightDecision, PreflightReport,
+    PF_TC_STATE_UNKNOWN, PinRootState, PreflightDecision, PreflightReport,
 };
 
 #[test]
@@ -229,6 +229,24 @@ fn rejects_every_non_isolated_target_before_memlock_or_bpf_work() {
     assert_eq!(shared.events(), ["preflight"]);
 }
 
+#[test]
+fn stable_adapter_codes_survive_transaction_rollback() {
+    let shared = Shared::new(Some(Operation::AttachTc));
+    shared.fail_with_code(PF_TC_STATE_UNKNOWN);
+    let mut transaction = transaction(shared.clone(), report(InterfaceKind::Veth, true, false));
+
+    let error = transaction
+        .execute(&interface(), &run_id(), 1_754_521_600)
+        .unwrap_err();
+
+    assert_eq!(error.code(), PF_TC_STATE_UNKNOWN);
+    assert!(shared.events().ends_with(&[
+        "attach_tc_explicit",
+        "detach_xdp_exact",
+        "unload_exact",
+    ]));
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Operation {
     Preflight,
@@ -249,6 +267,7 @@ struct Shared(Rc<RefCell<SharedState>>);
 struct SharedState {
     events: Vec<&'static str>,
     fail_at: Option<Operation>,
+    failure_code: Option<&'static str>,
     fail_cleanup: bool,
 }
 
@@ -257,6 +276,7 @@ impl Shared {
         Self(Rc::new(RefCell::new(SharedState {
             events: Vec::new(),
             fail_at,
+            failure_code: None,
             fail_cleanup: false,
         })))
     }
@@ -265,7 +285,13 @@ impl Shared {
         let mut state = self.0.borrow_mut();
         state.events.push(event);
         if state.fail_at == Some(operation) {
-            Err(PortError::Adapter(format!("injected failure at {event}")))
+            match state.failure_code {
+                Some(code) => Err(PortError::coded_adapter(
+                    code,
+                    format!("injected failure at {event}"),
+                )),
+                None => Err(PortError::Adapter(format!("injected failure at {event}"))),
+            }
         } else {
             Ok(())
         }
@@ -289,6 +315,10 @@ impl Shared {
 
     fn fail_all_cleanup(&self) {
         self.0.borrow_mut().fail_cleanup = true;
+    }
+
+    fn fail_with_code(&self, code: &'static str) {
+        self.0.borrow_mut().failure_code = Some(code);
     }
 }
 

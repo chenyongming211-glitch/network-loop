@@ -256,6 +256,30 @@ fn clsact_is_created_only_when_absent_and_is_never_removed() {
 }
 
 #[test]
+fn clsact_creation_failure_has_a_stable_stage_code() {
+    let mut io = FakeTcIo::with_queries([Ok(TcInventory::empty(TcClsactState::Absent))]);
+    io.clsact_result = Err(TcIoError::Failed("injected clsact failure".into()));
+
+    let error = SafeTc::new(io)
+        .attach(17, TcHook::Egress, loaded())
+        .unwrap_err();
+
+    assert_eq!(error.code(), "TC_CLSACT_CREATE_FAILED");
+}
+
+#[test]
+fn filter_creation_failure_has_a_stable_stage_code() {
+    let mut io = FakeTcIo::with_queries([Ok(TcInventory::empty(TcClsactState::Present))]);
+    io.attach_result = Err(TcIoError::Failed("injected filter failure".into()));
+
+    let error = SafeTc::new(io)
+        .attach(17, TcHook::Egress, loaded())
+        .unwrap_err();
+
+    assert_eq!(error.code(), "TC_FILTER_CREATE_FAILED");
+}
+
+#[test]
 fn eexist_is_one_filter_attempt_and_never_retried() {
     let mut io = FakeTcIo::with_queries([Ok(TcInventory::empty(TcClsactState::Present))]);
     io.attach_result = Err(TcIoError::Exists);
