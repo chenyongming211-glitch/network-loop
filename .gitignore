@@ -2,6 +2,7 @@
 /target/
 **/target/
 /.artifacts/
+/.isolated-acceptance/
 
 # Local development worktrees
 /.worktrees/

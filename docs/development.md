@@ -57,13 +57,13 @@ Keep `.artifacts/` local and ignored. After transfer to Linux, verify `SHA256SUM
 
 ## Current safety boundary
 
-- No implementation attaches to a live NIC.
+- Attachment is exposed only through the generated isolated-verification commands. The daemon independently rejects non-veth, active, or shared interfaces.
 - Preflight reads only the explicitly requested interface and relevant kernel attachment metadata.
 - The daemon control socket accepts one bounded request and returns one bounded response per connection.
 - No implementation sends a probe frame.
 - No implementation returns `XDP_DROP` or `TC_ACT_SHOT`.
 - Probe CLI parsing has no count, repeat, interval, or scheduling option.
-- Privileged attachment and isolated-host acceptance remain separate future slices.
+- The authorized host harness creates only one run-derived namespace/veth pair, never configures an address or route, and performs exact owned cleanup.
 
 ## Read-only preflight flow
 
@@ -79,6 +79,21 @@ The command sends one protocol-v1 request and reads one response. `--json` affec
 SIGINT and SIGTERM use graceful shutdown. Cleanup verifies the socket device and inode before unlinking it, so a replacement path is preserved.
 
 Do not compile these binaries locally. Deploy only the bundle from the exact green GitHub commit being accepted.
+
+## Authorized isolated-host acceptance
+
+The acceptance harness requires task-scoped environment inputs and never stores the target or key path in the repository:
+
+```powershell
+$env:L2_LOOP_TEST_TARGET = '<user>@<authorized-test-target>'
+$env:L2_LOOP_TEST_KEY = '<task-scoped-private-key-path>'
+$L2LoopCommit = git rev-parse HEAD
+pwsh -NoProfile -File scripts/verify-isolated-host.ps1 -Commit $L2LoopCommit
+```
+
+The exact commit must already have a successful GitHub Actions bundle. The harness verifies its checksums, snapshots existing network/eBPF identities, creates a down isolated veth pair, attaches only after daemon preflight, sends a bounded number of raw local Ethernet frames, requires both XDP and TC counters to increase, detaches by exact ownership journal identity, and compares the post-cleanup snapshot with the original. Missing prerequisites cause a refusal; the harness does not install packages or change system configuration.
+
+GitHub runs only the self-contained static/unit safety tests for this harness. CI never reads the task-scoped environment inputs and never contacts a test host.
 
 ## Review evidence
 
