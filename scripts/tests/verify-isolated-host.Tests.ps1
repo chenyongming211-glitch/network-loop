@@ -94,7 +94,7 @@ foreach ($Required in @(
     Assert-True ($Harness.Contains($Required)) "harness is missing required safety marker: $Required"
 }
 
-Assert-True ($Harness.IndexOf('Register-IsolatedCleanup') -lt $Harness.IndexOf('Invoke-IsolatedMutation')) 'cleanup is not registered before first mutation'
+Assert-True ($Harness.IndexOf('$ExitEvent = Register-IsolatedCleanup') -lt $Harness.IndexOf('$null = Invoke-IsolatedMutation')) 'cleanup is not registered before first mutation'
 Assert-True ($Workflow.Contains('script-tests:')) 'CI script-tests job is missing'
 Assert-True ($Workflow.Contains('pwsh -NoProfile -File scripts/tests/verify-isolated-host.Tests.ps1')) 'CI does not run the self-contained harness tests'
 
