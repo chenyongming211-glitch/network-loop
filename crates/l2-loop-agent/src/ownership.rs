@@ -393,12 +393,7 @@ impl<'a, F: OwnershipFileSystem> OwnershipStore<'a, F> {
             .read(self.journal.path())
             .map_err(|source| io_error(self.journal.path(), source))?;
         let record: OwnershipRecord = serde_json::from_slice(&contents)?;
-        self.validate_record(
-            &record,
-            ABI_VERSION,
-            record.ifindex,
-            record.generation,
-        )?;
+        self.validate_record(&record, ABI_VERSION, record.ifindex, record.generation)?;
         Ok(record)
     }
 
@@ -457,9 +452,7 @@ impl FileOwnershipRepository {
             .map_err(ownership_port_error)
     }
 
-    fn paths_for_record(
-        record: &OwnershipRecord,
-    ) -> Result<(JournalPath, TestPinRoot), PortError> {
+    fn paths_for_record(record: &OwnershipRecord) -> Result<(JournalPath, TestPinRoot), PortError> {
         let first = record
             .pin_paths
             .first()

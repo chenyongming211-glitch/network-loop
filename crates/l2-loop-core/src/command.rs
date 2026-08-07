@@ -5,7 +5,9 @@ use crate::{InterfaceName, PolicyRequest, PreflightReport, ProbeRequest};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AgentCommand {
-    Preflight { interface: InterfaceName },
+    Preflight {
+        interface: InterfaceName,
+    },
     IsolatedAttach {
         interface: InterfaceName,
         run_id: String,
@@ -13,13 +15,27 @@ pub enum AgentCommand {
     IsolatedDetach {
         run_id: String,
     },
-    Observe { interface: InterfaceName },
-    Status { interface: Option<InterfaceName> },
-    Probe { request: ProbeRequest },
-    ApplyPolicy { request: PolicyRequest },
-    DisablePolicy { rule_id: String },
-    EvidenceList { interface: Option<InterfaceName> },
-    EvidenceShow { evidence_id: String },
+    Observe {
+        interface: InterfaceName,
+    },
+    Status {
+        interface: Option<InterfaceName>,
+    },
+    Probe {
+        request: ProbeRequest,
+    },
+    ApplyPolicy {
+        request: PolicyRequest,
+    },
+    DisablePolicy {
+        rule_id: String,
+    },
+    EvidenceList {
+        interface: Option<InterfaceName>,
+    },
+    EvidenceShow {
+        evidence_id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

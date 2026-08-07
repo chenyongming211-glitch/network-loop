@@ -86,7 +86,10 @@ where
             }
             AgentCommand::IsolatedAttach { interface, run_id } => {
                 let Some(run_id) = parse_run_id(&run_id) else {
-                    return ControlResponse::error(ERROR_INVALID_REQUEST, "invalid isolated run ID");
+                    return ControlResponse::error(
+                        ERROR_INVALID_REQUEST,
+                        "invalid isolated run ID",
+                    );
                 };
                 let Some(isolated) = self.isolated.clone() else {
                     return ControlResponse::error(
@@ -95,9 +98,7 @@ where
                     );
                 };
                 let controlled = tokio::task::spawn_blocking(move || {
-                    let mut control = isolated
-                        .lock()
-                        .map_err(|_| IsolatedDispatchFailure::Lock)?;
+                    let mut control = isolated.lock().map_err(|_| IsolatedDispatchFailure::Lock)?;
                     control
                         .attach(&interface, &run_id)
                         .map_err(IsolatedDispatchFailure::Control)
@@ -107,7 +108,10 @@ where
             }
             AgentCommand::IsolatedDetach { run_id } => {
                 let Some(run_id) = parse_run_id(&run_id) else {
-                    return ControlResponse::error(ERROR_INVALID_REQUEST, "invalid isolated run ID");
+                    return ControlResponse::error(
+                        ERROR_INVALID_REQUEST,
+                        "invalid isolated run ID",
+                    );
                 };
                 let Some(isolated) = self.isolated.clone() else {
                     return ControlResponse::error(
@@ -116,9 +120,7 @@ where
                     );
                 };
                 let controlled = tokio::task::spawn_blocking(move || {
-                    let mut control = isolated
-                        .lock()
-                        .map_err(|_| IsolatedDispatchFailure::Lock)?;
+                    let mut control = isolated.lock().map_err(|_| IsolatedDispatchFailure::Lock)?;
                     control
                         .detach(&run_id)
                         .map_err(IsolatedDispatchFailure::Control)
@@ -255,9 +257,7 @@ fn isolated_response(
         }
         Ok(Err(IsolatedDispatchFailure::Control(_)))
         | Ok(Err(IsolatedDispatchFailure::Lock))
-        | Err(_) => {
-            ControlResponse::error(ERROR_INTERNAL, "isolated control failed")
-        }
+        | Err(_) => ControlResponse::error(ERROR_INTERNAL, "isolated control failed"),
     }
 }
 

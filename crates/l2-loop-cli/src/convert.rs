@@ -1,7 +1,7 @@
+use l2_loop_agent::ownership::RunId;
 use l2_loop_core::{
     AgentCommand, DomainError, InterfaceName, PolicyRequest, ProbeRequest, ProbeScope, TrafficClass,
 };
-use l2_loop_agent::ownership::RunId;
 use thiserror::Error;
 
 use crate::args::{Cli, CliCommand, EvidenceCommand, PoliceCommand, PolicyClassArg, ProbeScopeArg};
