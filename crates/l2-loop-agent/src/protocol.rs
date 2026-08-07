@@ -5,6 +5,7 @@ use l2_loop_core::{AgentCommand, AgentResult};
 
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const MAX_PAYLOAD_LEN: usize = 1024 * 1024;
+pub const ERROR_COMMAND_NOT_IMPLEMENTED: &str = "COMMAND_NOT_IMPLEMENTED";
 pub const ERROR_EARLY_EOF: &str = "EARLY_EOF";
 pub const ERROR_INTERNAL: &str = "INTERNAL_ERROR";
 pub const ERROR_INVALID_REQUEST: &str = "INVALID_REQUEST";

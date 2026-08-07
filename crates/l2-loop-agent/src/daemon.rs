@@ -4,7 +4,7 @@ use std::{
     io,
     os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -18,16 +18,65 @@ use tokio::{
 
 use crate::{
     protocol::{
-        ControlRequest, ControlResponse, ERROR_EARLY_EOF, ERROR_INTERNAL, ERROR_INVALID_REQUEST,
-        ERROR_PAYLOAD_TOO_LARGE, ERROR_REQUEST_TIMEOUT, ERROR_RESPONSE_TOO_LARGE, ERROR_TRANSPORT,
-        ERROR_UNSUPPORTED_PROTOCOL_VERSION, ProtocolError, decode_request, encode_response,
+        ControlRequest, ControlResponse, ERROR_COMMAND_NOT_IMPLEMENTED, ERROR_EARLY_EOF,
+        ERROR_INTERNAL, ERROR_INVALID_REQUEST, ERROR_PAYLOAD_TOO_LARGE, ERROR_REQUEST_TIMEOUT,
+        ERROR_RESPONSE_TOO_LARGE, ERROR_TRANSPORT, ERROR_UNSUPPORTED_PROTOCOL_VERSION,
+        ProtocolError, decode_request, encode_response,
     },
     transport::{TransportError, read_frame, write_frame},
+    PlatformInspector, PreflightService,
 };
+use l2_loop_core::AgentCommand;
 
 pub const DEFAULT_SOCKET_PATH: &str = "/run/l2-loop/agent.sock";
 pub const MAX_ACTIVE_HANDLERS: usize = 16;
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+pub struct DaemonDispatcher<P> {
+    preflight: Arc<Mutex<PreflightService<P>>>,
+}
+
+impl<P> Clone for DaemonDispatcher<P> {
+    fn clone(&self) -> Self {
+        Self {
+            preflight: self.preflight.clone(),
+        }
+    }
+}
+
+impl<P> DaemonDispatcher<P>
+where
+    P: PlatformInspector + Send + 'static,
+{
+    pub fn new(preflight: PreflightService<P>) -> Self {
+        Self {
+            preflight: Arc::new(Mutex::new(preflight)),
+        }
+    }
+
+    pub async fn dispatch(&self, request: ControlRequest) -> ControlResponse {
+        match request.command {
+            AgentCommand::Preflight { interface } => {
+                let preflight = self.preflight.clone();
+                let inspected = tokio::task::spawn_blocking(move || {
+                    let mut service = preflight.lock().map_err(|_| ())?;
+                    service.execute(&interface).map_err(|_| ())
+                })
+                .await;
+                match inspected {
+                    Ok(Ok(result)) => ControlResponse::success(result),
+                    Ok(Err(())) | Err(_) => {
+                        ControlResponse::error(ERROR_INTERNAL, "preflight inspection failed")
+                    }
+                }
+            }
+            _ => ControlResponse::error(
+                ERROR_COMMAND_NOT_IMPLEMENTED,
+                "command is not implemented",
+            ),
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum DaemonError {
