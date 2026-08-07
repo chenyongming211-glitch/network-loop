@@ -4,10 +4,9 @@ use std::collections::VecDeque;
 
 use l2_loop_agent::{
     linux::xdp::{
-        LoadedXdp, SafeXdp, XDP_FLAGS_DRV_MODE, XDP_FLAGS_SKB_MODE,
-        XDP_FLAGS_UPDATE_IF_NOEXIST, XdpDetachOutcome, XdpInventory, XdpIo, XdpIoError,
-        XdpRollback, XdpSlot, XdpState, classify_inventory, encode_attach_request,
-        encode_detach_request,
+        LoadedXdp, SafeXdp, XDP_FLAGS_DRV_MODE, XDP_FLAGS_SKB_MODE, XDP_FLAGS_UPDATE_IF_NOEXIST,
+        XdpDetachOutcome, XdpInventory, XdpIo, XdpIoError, XdpRollback, XdpSlot, XdpState,
+        classify_inventory, encode_attach_request, encode_detach_request,
     },
     ownership::{OwnedXdp, XdpAttachMode, XdpKernelIdentity},
 };
@@ -18,7 +17,10 @@ use netlink_packet_route::link::{LinkAttribute, LinkXdp};
 fn classifies_empty_owned_foreign_unknown_and_cross_mode_occupancy() {
     let owned = owned_xdp(17, XdpAttachMode::Generic, 101, [1; 8]);
 
-    assert_eq!(classify_inventory(&XdpInventory::empty(), None), XdpState::Empty);
+    assert_eq!(
+        classify_inventory(&XdpInventory::empty(), None),
+        XdpState::Empty
+    );
     assert_eq!(
         classify_inventory(
             &XdpInventory::only(XdpAttachMode::Generic, XdpSlot::Attached(owned.into())),
@@ -179,8 +181,16 @@ fn verification_mismatch_retains_a_different_current_program() {
         .attach(17, XdpAttachMode::Generic, loaded())
         .unwrap_err();
 
-    assert_eq!(error.rollback(), Some(XdpRollback::RetainedIdentityMismatch));
-    assert!(!calls.borrow().iter().any(|call| matches!(call, Call::Detach { .. })));
+    assert_eq!(
+        error.rollback(),
+        Some(XdpRollback::RetainedIdentityMismatch)
+    );
+    assert!(
+        !calls
+            .borrow()
+            .iter()
+            .any(|call| matches!(call, Call::Detach { .. }))
+    );
 }
 
 #[test]
@@ -195,7 +205,10 @@ fn detach_requires_a_fresh_exact_identity_match() {
         SafeXdp::new(exact).detach(&owned).unwrap(),
         XdpDetachOutcome::Detached
     );
-    assert!(matches!(exact_calls.borrow().last(), Some(Call::Detach { .. })));
+    assert!(matches!(
+        exact_calls.borrow().last(),
+        Some(Call::Detach { .. })
+    ));
 
     let changed = FakeXdpIo::with_queries([Ok(XdpInventory::only(
         XdpAttachMode::Generic,
