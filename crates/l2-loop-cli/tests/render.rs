@@ -75,16 +75,13 @@ fn maps_ready_warning_blocked_and_internal_responses_to_stable_exit_codes() {
     assert!(daemon_error.stdout.is_empty());
     assert_eq!(daemon_error.stderr, "INTERNAL_ERROR: inspection failed");
 
-    let unexpected = render_response(
+    let accepted = render_response(
         ControlResponse::success(AgentResult::Accepted),
         OutputFormat::Text,
     );
-    assert_eq!(unexpected.exit_code, EXIT_FAILURE);
-    assert!(unexpected.stdout.is_empty());
-    assert_eq!(
-        unexpected.stderr,
-        "INTERNAL_ERROR: daemon returned an unexpected result"
-    );
+    assert_eq!(accepted.exit_code, EXIT_SUCCESS);
+    assert_eq!(accepted.stdout, "accepted");
+    assert!(accepted.stderr.is_empty());
 
     let isolated_blocked = render_response(
         ControlResponse::error(PF_LIVE_INTERFACE, "isolated attachment was blocked"),
