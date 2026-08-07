@@ -470,7 +470,7 @@ fn encode_filter_identity(ifindex: u32, hook: TcHook, priority: u16, handle: u32
     message.header.parent = parent_for(hook);
     message.header.info = u32::from(TcHandle {
         major: priority,
-        minor: ETH_P_ALL,
+        minor: ETH_P_ALL.to_be(),
     });
     message.attributes.push(TcAttribute::Kind("bpf".to_owned()));
     message
