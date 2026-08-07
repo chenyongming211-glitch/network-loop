@@ -144,7 +144,7 @@ fn attach_message_uses_explicit_identity_and_exclusive_create() {
     assert_eq!(message.header.parent.major, u16::MAX);
     assert_eq!(message.header.parent.minor, 0xfff3);
     assert_eq!((message.header.info >> 16) as u16, TC_PRIORITY_FIRST + 2);
-    assert_eq!(message.header.info as u16, 0x0003);
+    assert_eq!(message.header.info as u16, 0x0003u16.to_be());
     assert_bpf_attributes(&message.attributes, Some(7));
 
     let flags = attach_request_flags();
@@ -169,6 +169,7 @@ fn detach_message_never_uses_a_wildcard_handle_or_priority() {
     assert_eq!(message.header.index, 17);
     assert_eq!(u32::from(message.header.handle), TC_INGRESS_HANDLE);
     assert_eq!((message.header.info >> 16) as u16, TC_PRIORITY_FIRST);
+    assert_eq!(message.header.info as u16, 0x0003u16.to_be());
     assert_ne!(message.header.handle, Default::default());
     assert_bpf_attributes(&message.attributes, None);
 }
