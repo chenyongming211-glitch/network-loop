@@ -8,9 +8,9 @@ use std::{
 };
 
 use l2_loop_agent::ownership::{
-    JournalPath, OwnedTc, OwnedXdp, OwnershipError, OwnershipFileSystem, OwnershipMetadata,
-    OwnershipRecord, OwnershipStore, RunId, StdOwnershipFileSystem, TcHook, TcKernelIdentity,
-    TestPinRoot, XdpAttachMode, XdpKernelIdentity, OWNERSHIP_SCHEMA_VERSION,
+    JournalPath, OWNERSHIP_SCHEMA_VERSION, OwnedTc, OwnedXdp, OwnershipError, OwnershipFileSystem,
+    OwnershipMetadata, OwnershipRecord, OwnershipStore, RunId, StdOwnershipFileSystem, TcHook,
+    TcKernelIdentity, TestPinRoot, XdpAttachMode, XdpKernelIdentity,
 };
 use l2_loop_common::ABI_VERSION;
 
@@ -28,7 +28,10 @@ fn run_ids_are_exactly_128_bit_lowercase_hexadecimal() {
         "0123456789abcdeffedcba98/6543210",
         "0123456789abcdeffedcba98..543210",
     ] {
-        assert!(RunId::parse(invalid).is_err(), "accepted invalid ID {invalid}");
+        assert!(
+            RunId::parse(invalid).is_err(),
+            "accepted invalid ID {invalid}"
+        );
     }
 }
 
@@ -49,7 +52,10 @@ fn journal_and_pin_paths_are_derived_from_the_active_run() {
         pins.path(),
         test_pin_root.join("0123456789abcdeffedcba9876543210")
     );
-    assert!(pins.validate_lexical(&pins.path().join("HOOK_STATS")).is_ok());
+    assert!(
+        pins.validate_lexical(&pins.path().join("HOOK_STATS"))
+            .is_ok()
+    );
 
     for invalid in [
         pins.path().to_path_buf(),
