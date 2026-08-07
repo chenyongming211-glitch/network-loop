@@ -285,14 +285,16 @@ case "$phase" in
         install -d -m 0700 "$root"
         ;;
     prepare)
+        ip netns add "$ns"
+        ip link add name "$host" type veth peer name "$peer"
+        ip link set dev "$peer" netns "$ns"
+        ;;
+    prepare-pins)
         install -d -m 0700 /run/l2-loop/tests
         mkdir /sys/fs/bpf/l2-loop
         chmod 0700 /sys/fs/bpf/l2-loop
         mkdir /sys/fs/bpf/l2-loop/test
         chmod 0700 /sys/fs/bpf/l2-loop/test
-        ip netns add "$ns"
-        ip link add name "$host" type veth peer name "$peer"
-        ip link set dev "$peer" netns "$ns"
         ;;
     install)
         assert_no_symlink "$root"
@@ -487,6 +489,8 @@ try {
         $Report.interface.live_shared) {
         throw 'daemon preflight did not approve the exact isolated veth'
     }
+
+    $null = Invoke-IsolatedMutation -Phase 'prepare-pins' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
 
     $AttachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
         "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-attach', '--interface', $Names.HostVeth, '--run-id', $RunId
