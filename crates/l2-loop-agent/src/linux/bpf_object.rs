@@ -422,10 +422,10 @@ fn rollback_pins(pins: &[PinIdentity], root: &Path) -> Vec<String> {
             Err(error) => retained.push(format!("{} ({error})", pin.path.display())),
         }
     }
-    if let Err(error) = fs::remove_dir(root) {
-        if error.kind() != std::io::ErrorKind::NotFound {
-            retained.push(format!("{} ({error})", root.display()));
-        }
+    if let Err(error) = fs::remove_dir(root)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        retained.push(format!("{} ({error})", root.display()));
     }
     retained
 }
