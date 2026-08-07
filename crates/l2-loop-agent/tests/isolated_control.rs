@@ -66,6 +66,19 @@ async fn daemon_rejects_invalid_run_ids_even_if_a_client_constructs_the_command(
 }
 
 #[tokio::test]
+async fn daemon_shutdown_invokes_exact_isolated_cleanup() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let dispatcher = DaemonDispatcher::with_isolated_control(
+        PreflightService::new(FakeInspector::ready()),
+        FakeControl::ok(calls.clone()),
+    );
+
+    dispatcher.shutdown_isolated().await.unwrap();
+
+    assert_eq!(calls.lock().unwrap().as_slice(), ["shutdown"]);
+}
+
+#[tokio::test]
 async fn blocked_non_veth_or_shared_targets_return_the_preflight_blocker() {
     for report in [
         report(InterfaceKind::Physical, true, false),
@@ -156,6 +169,11 @@ impl IsolatedControl for FakeControl {
             .lock()
             .unwrap()
             .push(format!("detach:{}", run_id.as_str()));
+        Ok(())
+    }
+
+    fn shutdown(&mut self) -> Result<(), IsolatedControlError> {
+        self.calls.lock().unwrap().push("shutdown".to_owned());
         Ok(())
     }
 }
