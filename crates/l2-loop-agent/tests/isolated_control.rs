@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use l2_loop_agent::{
     PlatformInspector, PortError, PreflightService,
     daemon::{DaemonDispatcher, IsolatedControl, IsolatedControlError},
-    ownership::{RunId, XdpAttachMode},
+    ownership::RunId,
     protocol::{ControlRequest, ResponseBody},
 };
 use l2_loop_core::{
