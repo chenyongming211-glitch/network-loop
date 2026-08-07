@@ -160,9 +160,8 @@ fn rejects_invalid_isolated_run_ids_and_missing_explicit_interfaces() {
         ],
         vec!["l2-loopctl", "isolated-detach", "--run-id", "../unsafe"],
     ] {
-        match Cli::try_parse_from(args) {
-            Ok(cli) => assert!(ParsedCli::try_from(cli).is_err()),
-            Err(_) => {}
+        if let Ok(cli) = Cli::try_parse_from(args) {
+            assert!(ParsedCli::try_from(cli).is_err());
         }
     }
 }
