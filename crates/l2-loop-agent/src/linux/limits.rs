@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::{PortError, ResourceLimits};
+
 const MEMLOCK_LABEL: &str = "Max locked memory";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,5 +68,25 @@ fn parse_limit(value: Option<&str>) -> Result<Option<u64>, LimitsParseError> {
             .map(Some)
             .map_err(|_| LimitsParseError::MalformedMemlock),
         None => Err(LimitsParseError::MalformedMemlock),
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ProcessResourceLimits;
+
+impl ResourceLimits for ProcessResourceLimits {
+    fn raise_memlock_to_infinity(&mut self) -> Result<(), PortError> {
+        let limit = nix::libc::rlimit {
+            rlim_cur: nix::libc::RLIM_INFINITY,
+            rlim_max: nix::libc::RLIM_INFINITY,
+        };
+        let result = unsafe { nix::libc::setrlimit(nix::libc::RLIMIT_MEMLOCK, &limit) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(PortError::Adapter(
+                "failed to raise the process memlock limit".to_owned(),
+            ))
+        }
     }
 }

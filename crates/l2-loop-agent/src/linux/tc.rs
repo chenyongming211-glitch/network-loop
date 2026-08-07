@@ -12,7 +12,10 @@ use rtnetlink::{
     },
 };
 
-use crate::ownership::{OwnedTc, TcHook, TcKernelIdentity};
+use crate::{
+    ownership::{OwnedTc, TcHook, TcKernelIdentity},
+    ports::{PortError, SafeTcPort},
+};
 
 pub const TC_INGRESS_HANDLE: u32 = 0x4c32_0001;
 pub const TC_EGRESS_HANDLE: u32 = 0x4c32_0002;
@@ -350,9 +353,49 @@ impl<I: TcIo> SafeTc<I> {
         }
     }
 
+    pub fn verify(&mut self, owned: &OwnedTc) -> Result<(), TcError> {
+        let current = self.query_or_unknown(owned.ifindex)?;
+        match classify_inventory(&current, owned.hook, Some(owned)) {
+            TcState::Owned => Ok(()),
+            TcState::Empty { .. } | TcState::Foreign => Err(TcError::new(
+                TC_VERIFY_FAILED,
+                "current TC identity does not match the owned filter",
+            )),
+            TcState::Unknown => Err(unknown_state()),
+        }
+    }
+
     fn query_or_unknown(&mut self, ifindex: u32) -> Result<TcInventory, TcError> {
         self.io.query(ifindex).map_err(|_| unknown_state())
     }
+}
+
+impl<I: TcIo> SafeTcPort for SafeTc<I> {
+    fn attach_explicit(
+        &mut self,
+        ifindex: u32,
+        hook: TcHook,
+        loaded: LoadedTc,
+    ) -> Result<OwnedTc, PortError> {
+        self.attach(ifindex, hook, loaded).map_err(tc_port_error)
+    }
+
+    fn verify_exact(&mut self, owned: &OwnedTc) -> Result<(), PortError> {
+        self.verify(owned).map_err(tc_port_error)
+    }
+
+    fn detach_exact(&mut self, owned: &OwnedTc) -> Result<(), PortError> {
+        match self.detach(owned).map_err(tc_port_error)? {
+            TcDetachOutcome::Detached | TcDetachOutcome::AlreadyAbsent => Ok(()),
+            TcDetachOutcome::RetainedIdentityMismatch => Err(PortError::Adapter(
+                "owned TC identity changed; filter was retained".to_owned(),
+            )),
+        }
+    }
+}
+
+fn tc_port_error(error: TcError) -> PortError {
+    PortError::Adapter(format!("{}: {}", error.code(), error.evidence()))
 }
 
 fn empty_plan(inventory: &TcInventory, hook: TcHook) -> Result<(u16, bool), TcError> {

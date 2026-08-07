@@ -50,13 +50,20 @@ pub fn render_response(response: ControlResponse, format: OutputFormat) -> Rende
     match response.body {
         ResponseBody::Success { result } => match *result {
             AgentResult::Preflight { report } => render_report(&report, format),
+            AgentResult::Accepted => RenderedOutput::success("accepted".to_owned(), EXIT_SUCCESS),
             _ => RenderedOutput::failure(format!(
                 "{ERROR_INTERNAL}: daemon returned an unexpected result"
             )),
         },
-        ResponseBody::Error { code, message } => {
-            RenderedOutput::failure(format!("{code}: {message}"))
-        }
+        ResponseBody::Error { code, message } => RenderedOutput {
+            stdout: String::new(),
+            stderr: format!("{code}: {message}"),
+            exit_code: if code.starts_with("PF_") {
+                EXIT_BLOCKED
+            } else {
+                EXIT_FAILURE
+            },
+        },
     }
 }
 

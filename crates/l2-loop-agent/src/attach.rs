@@ -23,12 +23,14 @@ const TC_VERIFY_FAILED: &str = "TC_VERIFY_FAILED";
 const MAP_INITIALIZE_FAILED: &str = "MAP_INITIALIZE_FAILED";
 const OWNERSHIP_JOURNAL_FAILED: &str = "OWNERSHIP_JOURNAL_FAILED";
 const IFACE_CONFIG_PUBLISH_FAILED: &str = "IFACE_CONFIG_PUBLISH_FAILED";
+const OWNED_CLEANUP_INCOMPLETE: &str = "OWNED_CLEANUP_INCOMPLETE";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachmentSession {
     pub state: InterfaceState,
     pub generation: u64,
     pub ownership: OwnershipRecord,
+    pub loaded: LoadedBpfObject,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,7 +214,55 @@ where
             state: InterfaceState::Observing,
             generation,
             ownership: record,
+            loaded: rollback.loaded.expect("loaded object is present"),
         })
+    }
+
+    pub fn detach_exact(&mut self, session: &AttachmentSession) -> Result<(), AttachmentError> {
+        let mut cleanup_evidence = Vec::new();
+        collect_cleanup(
+            &mut cleanup_evidence,
+            "ephemeral ownership journal",
+            self.ownership.remove_exact(&session.ownership),
+        );
+        collect_cleanup(
+            &mut cleanup_evidence,
+            "initialized maps",
+            self.maps.rollback_initialized_exact(
+                &session.loaded,
+                session.ownership.ifindex,
+                session.generation,
+            ),
+        );
+        for owned in session.ownership.tc.iter().rev() {
+            collect_cleanup(
+                &mut cleanup_evidence,
+                "TC egress filter",
+                self.tc.detach_exact(owned),
+            );
+        }
+        if let Some(owned) = session.ownership.xdp.as_ref() {
+            collect_cleanup(
+                &mut cleanup_evidence,
+                "XDP link",
+                self.xdp.detach_exact(owned),
+            );
+        }
+        collect_cleanup(
+            &mut cleanup_evidence,
+            "loaded eBPF object",
+            self.loader.unload_exact(&session.loaded),
+        );
+
+        if cleanup_evidence.is_empty() {
+            Ok(())
+        } else {
+            Err(AttachmentError {
+                code: OWNED_CLEANUP_INCOMPLETE.to_owned(),
+                evidence: "one or more exact owned cleanup steps were retained".to_owned(),
+                cleanup_evidence,
+            })
+        }
     }
 
     fn rollback(
@@ -268,6 +318,41 @@ where
             evidence: error.to_string(),
             cleanup_evidence,
         }
+    }
+}
+
+pub trait IsolatedAttachmentDriver: Send {
+    fn attach(
+        &mut self,
+        interface: &InterfaceName,
+        run_id: &RunId,
+        created_at_unix_seconds: u64,
+    ) -> Result<AttachmentSession, AttachmentError>;
+
+    fn detach_exact(&mut self, session: &AttachmentSession) -> Result<(), AttachmentError>;
+}
+
+impl<P, R, L, X, T, M, O> IsolatedAttachmentDriver for AttachmentTransaction<P, R, L, X, T, M, O>
+where
+    P: PlatformInspector + Send,
+    R: ResourceLimits + Send,
+    L: BpfObjectLoader + Send,
+    X: SafeXdpPort + Send,
+    T: SafeTcPort + Send,
+    M: MapPublisher + Send,
+    O: EphemeralOwnershipStore + Send,
+{
+    fn attach(
+        &mut self,
+        interface: &InterfaceName,
+        run_id: &RunId,
+        created_at_unix_seconds: u64,
+    ) -> Result<AttachmentSession, AttachmentError> {
+        self.execute(interface, run_id, created_at_unix_seconds)
+    }
+
+    fn detach_exact(&mut self, session: &AttachmentSession) -> Result<(), AttachmentError> {
+        AttachmentTransaction::detach_exact(self, session)
     }
 }
 

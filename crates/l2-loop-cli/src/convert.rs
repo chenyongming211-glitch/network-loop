@@ -1,6 +1,7 @@
 use l2_loop_core::{
     AgentCommand, DomainError, InterfaceName, PolicyRequest, ProbeRequest, ProbeScope, TrafficClass,
 };
+use l2_loop_agent::ownership::RunId;
 use thiserror::Error;
 
 use crate::args::{Cli, CliCommand, EvidenceCommand, PoliceCommand, PolicyClassArg, ProbeScopeArg};
@@ -20,6 +21,8 @@ pub enum CliError {
         value: String,
         source: humantime::DurationError,
     },
+    #[error("invalid isolated run ID: {0}")]
+    InvalidRunId(String),
 }
 
 impl TryFrom<Cli> for ParsedCli {
@@ -32,6 +35,19 @@ impl TryFrom<Cli> for ParsedCli {
                     interface: InterfaceName::new(args.interface)?,
                 },
                 args.json,
+            ),
+            CliCommand::IsolatedAttach(args) => (
+                AgentCommand::IsolatedAttach {
+                    interface: InterfaceName::new(args.interface)?,
+                    run_id: validate_run_id(args.run_id)?,
+                },
+                false,
+            ),
+            CliCommand::IsolatedDetach(args) => (
+                AgentCommand::IsolatedDetach {
+                    run_id: validate_run_id(args.run_id)?,
+                },
+                false,
             ),
             CliCommand::Observe(args) => (
                 AgentCommand::Observe {
@@ -88,6 +104,11 @@ impl TryFrom<Cli> for ParsedCli {
 
         Ok(Self { command, json })
     }
+}
+
+fn validate_run_id(value: String) -> Result<String, CliError> {
+    RunId::parse(&value).map_err(|error| CliError::InvalidRunId(error.to_string()))?;
+    Ok(value)
 }
 
 impl From<ProbeScopeArg> for ProbeScope {

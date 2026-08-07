@@ -14,11 +14,31 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum CliCommand {
     Preflight(PreflightArgs),
+    /// Attach only to a generated veth used for isolated verification.
+    #[command(about = "Attach for generated isolated verification only")]
+    IsolatedAttach(IsolatedAttachArgs),
+    /// Detach only state owned by one generated isolated verification run.
+    #[command(about = "Detach for generated isolated verification only")]
+    IsolatedDetach(IsolatedDetachArgs),
     Observe(ObserveArgs),
     Status(StatusArgs),
     Probe(ProbeArgs),
     Police(PoliceArgs),
     Evidence(EvidenceArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct IsolatedAttachArgs {
+    #[arg(long)]
+    pub interface: String,
+    #[arg(long)]
+    pub run_id: String,
+}
+
+#[derive(Debug, Args)]
+pub struct IsolatedDetachArgs {
+    #[arg(long)]
+    pub run_id: String,
 }
 
 #[derive(Debug, Args)]

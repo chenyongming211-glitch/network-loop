@@ -6,6 +6,13 @@ use crate::{InterfaceName, PolicyRequest, PreflightReport, ProbeRequest};
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AgentCommand {
     Preflight { interface: InterfaceName },
+    IsolatedAttach {
+        interface: InterfaceName,
+        run_id: String,
+    },
+    IsolatedDetach {
+        run_id: String,
+    },
     Observe { interface: InterfaceName },
     Status { interface: Option<InterfaceName> },
     Probe { request: ProbeRequest },

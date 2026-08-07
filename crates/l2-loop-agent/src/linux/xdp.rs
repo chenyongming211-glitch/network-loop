@@ -9,7 +9,10 @@ use futures_util::TryStreamExt;
 use l2_loop_core::{PF_XDP_OCCUPIED, PF_XDP_STATE_UNKNOWN};
 use rtnetlink::packet_route::link::{LinkAttribute, LinkMessage, LinkXdp, XdpAttached};
 
-use crate::ownership::{OwnedXdp, XdpAttachMode, XdpKernelIdentity};
+use crate::{
+    ownership::{OwnedXdp, XdpAttachMode, XdpKernelIdentity},
+    ports::{PortError, SafeXdpPort},
+};
 
 pub const XDP_FLAGS_UPDATE_IF_NOEXIST: u32 = 1 << 0;
 pub const XDP_FLAGS_SKB_MODE: u32 = 1 << 1;
@@ -271,9 +274,49 @@ impl<I: XdpIo> SafeXdp<I> {
         }
     }
 
+    pub fn verify(&mut self, owned: &OwnedXdp) -> Result<(), XdpError> {
+        let current = self.query_or_unknown(owned.ifindex)?;
+        match classify_inventory(&current, Some(owned)) {
+            XdpState::Owned => Ok(()),
+            XdpState::Empty | XdpState::Foreign => Err(XdpError::new(
+                XDP_VERIFY_FAILED,
+                "current XDP identity does not match the owned link",
+            )),
+            XdpState::Unknown => Err(unknown_state()),
+        }
+    }
+
     fn query_or_unknown(&mut self, ifindex: u32) -> Result<XdpInventory, XdpError> {
         self.io.query(ifindex).map_err(|_| unknown_state())
     }
+}
+
+impl<I: XdpIo> SafeXdpPort for SafeXdp<I> {
+    fn attach_no_replace(
+        &mut self,
+        ifindex: u32,
+        mode: XdpAttachMode,
+        loaded: LoadedXdp,
+    ) -> Result<OwnedXdp, PortError> {
+        self.attach(ifindex, mode, loaded).map_err(xdp_port_error)
+    }
+
+    fn verify_exact(&mut self, owned: &OwnedXdp) -> Result<(), PortError> {
+        self.verify(owned).map_err(xdp_port_error)
+    }
+
+    fn detach_exact(&mut self, owned: &OwnedXdp) -> Result<(), PortError> {
+        match self.detach(owned).map_err(xdp_port_error)? {
+            XdpDetachOutcome::Detached | XdpDetachOutcome::AlreadyAbsent => Ok(()),
+            XdpDetachOutcome::RetainedIdentityMismatch => Err(PortError::Adapter(
+                "owned XDP identity changed; link was retained".to_owned(),
+            )),
+        }
+    }
+}
+
+fn xdp_port_error(error: XdpError) -> PortError {
+    PortError::Adapter(format!("{}: {}", error.code(), error.evidence()))
 }
 
 fn unknown_state() -> XdpError {

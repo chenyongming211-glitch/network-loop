@@ -13,6 +13,7 @@ pub const PF_PIN_ROOT_FOREIGN: &str = "PF_PIN_ROOT_FOREIGN";
 pub const PF_MEMLOCK_TOO_LOW: &str = "PF_MEMLOCK_TOO_LOW";
 pub const PF_KERNEL_CAPABILITY: &str = "PF_KERNEL_CAPABILITY";
 pub const PF_LIVE_INTERFACE: &str = "PF_LIVE_INTERFACE";
+pub const PF_OWNERSHIP_MISMATCH: &str = "PF_OWNERSHIP_MISMATCH";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

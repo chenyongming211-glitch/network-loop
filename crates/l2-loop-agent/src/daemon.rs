@@ -5,7 +5,7 @@ use std::{
     os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use thiserror::Error;
@@ -17,7 +17,8 @@ use tokio::{
 };
 
 use crate::{
-    PlatformInspector, PreflightService,
+    AttachmentSession, IsolatedAttachmentDriver, PlatformInspector, PreflightService,
+    ownership::{FileOwnershipRepository, RunId},
     protocol::{
         ControlRequest, ControlResponse, ERROR_COMMAND_NOT_IMPLEMENTED, ERROR_EARLY_EOF,
         ERROR_INTERNAL, ERROR_INVALID_REQUEST, ERROR_PAYLOAD_TOO_LARGE, ERROR_REQUEST_TIMEOUT,
@@ -26,7 +27,7 @@ use crate::{
     },
     transport::{TransportError, read_frame, write_frame},
 };
-use l2_loop_core::AgentCommand;
+use l2_loop_core::{AgentCommand, PF_OWNERSHIP_MISMATCH};
 
 pub const DEFAULT_SOCKET_PATH: &str = "/run/l2-loop/agent.sock";
 pub const MAX_ACTIVE_HANDLERS: usize = 16;
@@ -34,12 +35,14 @@ pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct DaemonDispatcher<P> {
     preflight: Arc<Mutex<PreflightService<P>>>,
+    isolated: Option<Arc<Mutex<Box<dyn IsolatedControl>>>>,
 }
 
 impl<P> Clone for DaemonDispatcher<P> {
     fn clone(&self) -> Self {
         Self {
             preflight: self.preflight.clone(),
+            isolated: self.isolated.clone(),
         }
     }
 }
@@ -51,6 +54,17 @@ where
     pub fn new(preflight: PreflightService<P>) -> Self {
         Self {
             preflight: Arc::new(Mutex::new(preflight)),
+            isolated: None,
+        }
+    }
+
+    pub fn with_isolated_control<C>(preflight: PreflightService<P>, isolated: C) -> Self
+    where
+        C: IsolatedControl + 'static,
+    {
+        Self {
+            preflight: Arc::new(Mutex::new(preflight)),
+            isolated: Some(Arc::new(Mutex::new(Box::new(isolated)))),
         }
     }
 
@@ -70,9 +84,179 @@ where
                     }
                 }
             }
+            AgentCommand::IsolatedAttach { interface, run_id } => {
+                let Some(run_id) = parse_run_id(&run_id) else {
+                    return ControlResponse::error(ERROR_INVALID_REQUEST, "invalid isolated run ID");
+                };
+                let Some(isolated) = self.isolated.clone() else {
+                    return ControlResponse::error(
+                        ERROR_COMMAND_NOT_IMPLEMENTED,
+                        "isolated control is not enabled",
+                    );
+                };
+                let controlled = tokio::task::spawn_blocking(move || {
+                    let mut control = isolated
+                        .lock()
+                        .map_err(|_| IsolatedDispatchFailure::Lock)?;
+                    control
+                        .attach(&interface, &run_id)
+                        .map_err(IsolatedDispatchFailure::Control)
+                })
+                .await;
+                isolated_response(controlled)
+            }
+            AgentCommand::IsolatedDetach { run_id } => {
+                let Some(run_id) = parse_run_id(&run_id) else {
+                    return ControlResponse::error(ERROR_INVALID_REQUEST, "invalid isolated run ID");
+                };
+                let Some(isolated) = self.isolated.clone() else {
+                    return ControlResponse::error(
+                        ERROR_COMMAND_NOT_IMPLEMENTED,
+                        "isolated control is not enabled",
+                    );
+                };
+                let controlled = tokio::task::spawn_blocking(move || {
+                    let mut control = isolated
+                        .lock()
+                        .map_err(|_| IsolatedDispatchFailure::Lock)?;
+                    control
+                        .detach(&run_id)
+                        .map_err(IsolatedDispatchFailure::Control)
+                })
+                .await;
+                isolated_response(controlled)
+            }
             _ => {
                 ControlResponse::error(ERROR_COMMAND_NOT_IMPLEMENTED, "command is not implemented")
             }
+        }
+    }
+}
+
+pub trait IsolatedControl: Send {
+    fn attach(
+        &mut self,
+        interface: &l2_loop_core::InterfaceName,
+        run_id: &RunId,
+    ) -> Result<(), IsolatedControlError>;
+
+    fn detach(&mut self, run_id: &RunId) -> Result<(), IsolatedControlError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IsolatedControlError {
+    code: String,
+    blocked: bool,
+}
+
+impl IsolatedControlError {
+    pub fn blocked(code: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            blocked: true,
+        }
+    }
+
+    pub fn internal(code: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            blocked: false,
+        }
+    }
+}
+
+pub struct TransactionIsolatedControl {
+    driver: Box<dyn IsolatedAttachmentDriver>,
+    ownership: FileOwnershipRepository,
+    active: Option<(RunId, AttachmentSession)>,
+}
+
+impl TransactionIsolatedControl {
+    pub fn new<D>(driver: D) -> Self
+    where
+        D: IsolatedAttachmentDriver + 'static,
+    {
+        Self {
+            driver: Box::new(driver),
+            ownership: FileOwnershipRepository,
+            active: None,
+        }
+    }
+}
+
+impl IsolatedControl for TransactionIsolatedControl {
+    fn attach(
+        &mut self,
+        interface: &l2_loop_core::InterfaceName,
+        run_id: &RunId,
+    ) -> Result<(), IsolatedControlError> {
+        if self.active.is_some() {
+            return Err(IsolatedControlError::blocked(PF_OWNERSHIP_MISMATCH));
+        }
+        let created_at_unix_seconds = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| IsolatedControlError::internal("SYSTEM_CLOCK_INVALID"))?
+            .as_secs();
+        let session = self
+            .driver
+            .attach(interface, run_id, created_at_unix_seconds)
+            .map_err(attachment_control_error)?;
+        self.active = Some((run_id.clone(), session));
+        Ok(())
+    }
+
+    fn detach(&mut self, run_id: &RunId) -> Result<(), IsolatedControlError> {
+        let Some((active_run, session)) = self.active.as_ref() else {
+            return Err(IsolatedControlError::blocked(PF_OWNERSHIP_MISMATCH));
+        };
+        if active_run != run_id {
+            return Err(IsolatedControlError::blocked(PF_OWNERSHIP_MISMATCH));
+        }
+        let committed = self
+            .ownership
+            .load(run_id)
+            .map_err(|_| IsolatedControlError::blocked(PF_OWNERSHIP_MISMATCH))?;
+        if committed != session.ownership {
+            return Err(IsolatedControlError::blocked(PF_OWNERSHIP_MISMATCH));
+        }
+        self.driver
+            .detach_exact(session)
+            .map_err(attachment_control_error)?;
+        self.active = None;
+        Ok(())
+    }
+}
+
+fn attachment_control_error(error: crate::AttachmentError) -> IsolatedControlError {
+    if error.code().starts_with("PF_") {
+        IsolatedControlError::blocked(error.code())
+    } else {
+        IsolatedControlError::internal(error.code())
+    }
+}
+
+fn parse_run_id(value: &str) -> Option<RunId> {
+    RunId::parse(value).ok()
+}
+
+#[derive(Debug)]
+enum IsolatedDispatchFailure {
+    Lock,
+    Control(IsolatedControlError),
+}
+
+fn isolated_response(
+    controlled: Result<Result<(), IsolatedDispatchFailure>, tokio::task::JoinError>,
+) -> ControlResponse {
+    match controlled {
+        Ok(Ok(())) => ControlResponse::success(l2_loop_core::AgentResult::Accepted),
+        Ok(Err(IsolatedDispatchFailure::Control(error))) if error.blocked => {
+            ControlResponse::error(error.code, "isolated attachment was blocked")
+        }
+        Ok(Err(IsolatedDispatchFailure::Control(_)))
+        | Ok(Err(IsolatedDispatchFailure::Lock))
+        | Err(_) => {
+            ControlResponse::error(ERROR_INTERNAL, "isolated control failed")
         }
     }
 }

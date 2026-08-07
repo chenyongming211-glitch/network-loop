@@ -1,9 +1,19 @@
 use std::process::ExitCode;
 
 use l2_loop_agent::{
-    PreflightService,
-    daemon::{BoundedUnixServer, DEFAULT_SOCKET_PATH, DaemonDispatcher, DaemonError},
-    linux::inspector::SystemLinuxInspector,
+    AttachmentTransaction, PreflightService,
+    daemon::{
+        BoundedUnixServer, DEFAULT_SOCKET_PATH, DaemonDispatcher, DaemonError,
+        TransactionIsolatedControl,
+    },
+    linux::{
+        bpf_object::AyaObjectRuntime,
+        inspector::SystemLinuxInspector,
+        limits::ProcessResourceLimits,
+        tc::{RtnetlinkTcIo, SafeTc},
+        xdp::{RtnetlinkXdpIo, SafeXdp},
+    },
+    ownership::FileOwnershipRepository,
 };
 use tokio::signal::unix::{SignalKind, signal};
 
@@ -24,7 +34,31 @@ async fn run() -> Result<(), DaemonError> {
         source,
     })?;
     let server = BoundedUnixServer::bind(DEFAULT_SOCKET_PATH).await?;
-    let dispatcher = DaemonDispatcher::new(PreflightService::new(SystemLinuxInspector::system()));
+    let executable = std::env::current_exe().map_err(|source| DaemonError::Io {
+        operation: "resolve daemon executable",
+        source,
+    })?;
+    let object_path = executable
+        .parent()
+        .ok_or_else(|| DaemonError::Io {
+            operation: "resolve daemon bundle directory",
+            source: std::io::Error::other("daemon executable has no parent directory"),
+        })?
+        .join("l2-loop-ebpf.o");
+    let runtime = AyaObjectRuntime::new(object_path);
+    let transaction = AttachmentTransaction::new(
+        SystemLinuxInspector::system(),
+        ProcessResourceLimits,
+        runtime.loader(),
+        SafeXdp::new(RtnetlinkXdpIo),
+        SafeTc::new(RtnetlinkTcIo),
+        runtime.map_publisher(),
+        FileOwnershipRepository,
+    );
+    let dispatcher = DaemonDispatcher::with_isolated_control(
+        PreflightService::new(SystemLinuxInspector::system()),
+        TransactionIsolatedControl::new(transaction),
+    );
     server
         .serve(
             move |request| {

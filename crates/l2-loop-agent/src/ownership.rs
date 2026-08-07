@@ -9,6 +9,8 @@ use l2_loop_common::ABI_VERSION;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::{EphemeralOwnershipStore, PortError};
+
 pub const OWNERSHIP_SCHEMA_VERSION: u16 = 1;
 pub const TEST_JOURNAL_ROOT: &str = "/run/l2-loop/tests";
 pub const TEST_PIN_BASE: &str = "/sys/fs/bpf/l2-loop/test";
@@ -364,6 +366,17 @@ impl<'a, F: OwnershipFileSystem> OwnershipStore<'a, F> {
         expected_ifindex: u32,
         expected_generation: u64,
     ) -> Result<OwnershipRecord, OwnershipError> {
+        let record = self.load_current()?;
+        self.validate_record(
+            &record,
+            expected_abi_version,
+            expected_ifindex,
+            expected_generation,
+        )?;
+        Ok(record)
+    }
+
+    pub fn load_current(&self) -> Result<OwnershipRecord, OwnershipError> {
         let metadata = self
             .filesystem
             .metadata(self.journal.path())
@@ -382,9 +395,9 @@ impl<'a, F: OwnershipFileSystem> OwnershipStore<'a, F> {
         let record: OwnershipRecord = serde_json::from_slice(&contents)?;
         self.validate_record(
             &record,
-            expected_abi_version,
-            expected_ifindex,
-            expected_generation,
+            ABI_VERSION,
+            record.ifindex,
+            record.generation,
         )?;
         Ok(record)
     }
@@ -429,6 +442,80 @@ impl<'a, F: OwnershipFileSystem> OwnershipStore<'a, F> {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FileOwnershipRepository;
+
+impl FileOwnershipRepository {
+    pub fn load(&self, run_id: &RunId) -> Result<OwnershipRecord, PortError> {
+        let filesystem = StdOwnershipFileSystem;
+        let journal = JournalPath::new(run_id.clone()).map_err(ownership_port_error)?;
+        let pins = TestPinRoot::new(run_id.clone()).map_err(ownership_port_error)?;
+        OwnershipStore::new(&filesystem, journal, pins)
+            .load_current()
+            .map_err(ownership_port_error)
+    }
+
+    fn paths_for_record(
+        record: &OwnershipRecord,
+    ) -> Result<(JournalPath, TestPinRoot), PortError> {
+        let first = record
+            .pin_paths
+            .first()
+            .ok_or_else(|| PortError::Adapter("ownership record has no pin identity".to_owned()))?;
+        let parent = first
+            .parent()
+            .ok_or_else(|| PortError::Adapter("owned pin has no run root".to_owned()))?;
+        let value = parent
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| PortError::Adapter("owned pin run ID is invalid".to_owned()))?;
+        let run_id = RunId::parse(value).map_err(ownership_port_error)?;
+        let journal = JournalPath::new(run_id.clone()).map_err(ownership_port_error)?;
+        let pins = TestPinRoot::new(run_id).map_err(ownership_port_error)?;
+        if parent != pins.path()
+            || record
+                .pin_paths
+                .iter()
+                .any(|path| pins.validate_lexical(path).is_err())
+        {
+            return Err(PortError::Adapter(
+                "ownership record contains a pin outside its isolated run".to_owned(),
+            ));
+        }
+        Ok((journal, pins))
+    }
+}
+
+impl EphemeralOwnershipStore for FileOwnershipRepository {
+    fn save(&mut self, record: &OwnershipRecord) -> Result<(), PortError> {
+        let (journal, pins) = Self::paths_for_record(record)?;
+        OwnershipStore::new(&StdOwnershipFileSystem, journal, pins)
+            .save(record)
+            .map_err(ownership_port_error)
+    }
+
+    fn remove_exact(&mut self, record: &OwnershipRecord) -> Result<(), PortError> {
+        let (journal, pins) = Self::paths_for_record(record)?;
+        let current = OwnershipStore::new(&StdOwnershipFileSystem, journal.clone(), pins)
+            .load_validated(record.abi_version, record.ifindex, record.generation)
+            .map_err(ownership_port_error)?;
+        if &current != record {
+            return Err(PortError::Adapter(
+                "ownership journal changed identity and was retained".to_owned(),
+            ));
+        }
+        fs::remove_file(journal.path())
+            .map_err(|source| ownership_port_error(io_error(journal.path(), source)))?;
+        File::open(journal.root())
+            .and_then(|directory| directory.sync_all())
+            .map_err(|source| ownership_port_error(io_error(journal.root(), source)))
+    }
+}
+
+fn ownership_port_error(error: OwnershipError) -> PortError {
+    PortError::Adapter(error.to_string())
 }
 
 #[derive(Debug, Error)]
