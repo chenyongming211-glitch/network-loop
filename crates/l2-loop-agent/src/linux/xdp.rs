@@ -78,7 +78,7 @@ pub enum XdpState {
 
 pub fn classify_inventory(inventory: &XdpInventory, owned: Option<&OwnedXdp>) -> XdpState {
     let slots = [inventory.native, inventory.generic];
-    if slots.iter().any(|slot| *slot == XdpSlot::Unknown) {
+    if slots.contains(&XdpSlot::Unknown) {
         return XdpState::Unknown;
     }
 
