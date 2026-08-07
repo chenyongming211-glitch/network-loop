@@ -4,13 +4,11 @@ use futures_util::{StreamExt, TryStreamExt};
 use l2_loop_core::{PF_TC_HANDLE_COLLISION, PF_TC_STATE_UNKNOWN};
 use rtnetlink::{
     packet_core::{
-        NetlinkMessage, NetlinkPayload, NLM_F_ACK, NLM_F_CREATE, NLM_F_EXCL, NLM_F_REQUEST,
+        NLM_F_ACK, NLM_F_CREATE, NLM_F_EXCL, NLM_F_REQUEST, NetlinkMessage, NetlinkPayload,
     },
     packet_route::{
-        tc::{
-            TcAttribute, TcBpfFlags, TcFilterBpfOption, TcHandle, TcMessage, TcOption,
-        },
         RouteNetlinkMessage,
+        tc::{TcAttribute, TcBpfFlags, TcFilterBpfOption, TcHandle, TcMessage, TcOption},
     },
 };
 
@@ -101,8 +99,7 @@ impl TcInventory {
     }
 
     fn has_exact(&self, expected: TcKernelIdentity) -> bool {
-        self.filters
-            .contains(&TcFilterSlot::Bpf(expected))
+        self.filters.contains(&TcFilterSlot::Bpf(expected))
     }
 
     fn has_unknown(&self) -> bool {
@@ -116,10 +113,7 @@ impl TcInventory {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TcState {
-    Empty {
-        priority: u16,
-        clsact_present: bool,
-    },
+    Empty { priority: u16, clsact_present: bool },
     Owned,
     Foreign,
     Unknown,
@@ -281,13 +275,10 @@ impl<I: TcIo> SafeTc<I> {
         }
 
         let filter_handle = handle_for(hook);
-        match self.io.attach_exclusive(
-            ifindex,
-            hook,
-            priority,
-            filter_handle,
-            loaded.program_fd,
-        ) {
+        match self
+            .io
+            .attach_exclusive(ifindex, hook, priority, filter_handle, loaded.program_fd)
+        {
             Ok(()) => {}
             Err(TcIoError::Exists) => {
                 return Err(occupied(
@@ -430,12 +421,7 @@ pub fn encode_detach_request(identity: TcKernelIdentity) -> TcMessage {
     message
 }
 
-fn encode_filter_identity(
-    ifindex: u32,
-    hook: TcHook,
-    priority: u16,
-    handle: u32,
-) -> TcMessage {
+fn encode_filter_identity(ifindex: u32, hook: TcHook, priority: u16, handle: u32) -> TcMessage {
     let mut message = TcMessage::with_index(ifindex as i32);
     message.header.handle = handle.into();
     message.header.parent = parent_for(hook);
@@ -443,9 +429,7 @@ fn encode_filter_identity(
         major: priority,
         minor: ETH_P_ALL,
     });
-    message
-        .attributes
-        .push(TcAttribute::Kind("bpf".to_owned()));
+    message.attributes.push(TcAttribute::Kind("bpf".to_owned()));
     message
 }
 
@@ -518,8 +502,8 @@ impl TcIo for RtnetlinkTcIo {
 }
 
 async fn query_inventory(ifindex: u32) -> Result<TcInventory, TcIoError> {
-    let (connection, handle, _) = rtnetlink::new_connection()
-        .map_err(|_| failed("failed to open TC state query"))?;
+    let (connection, handle, _) =
+        rtnetlink::new_connection().map_err(|_| failed("failed to open TC state query"))?;
     tokio::spawn(connection);
 
     let mut qdiscs = handle.qdisc().get().index(ifindex as i32).execute();
@@ -584,10 +568,14 @@ fn filter_slot(message: &TcMessage, ifindex: u32, hook: TcHook) -> TcFilterSlot 
     if priority == 0 || filter_handle == 0 {
         return TcFilterSlot::Unknown(hook);
     }
-    let Some(kind) = message.attributes.iter().find_map(|attribute| match attribute {
-        TcAttribute::Kind(kind) => Some(kind.as_str()),
-        _ => None,
-    }) else {
+    let Some(kind) = message
+        .attributes
+        .iter()
+        .find_map(|attribute| match attribute {
+            TcAttribute::Kind(kind) => Some(kind.as_str()),
+            _ => None,
+        })
+    else {
         return TcFilterSlot::Unknown(hook);
     };
     if kind != "bpf" {
@@ -631,8 +619,8 @@ enum TcRequest {
 }
 
 async fn send_request(request: TcRequest, flags: u16) -> Result<(), TcIoError> {
-    let (connection, mut handle, _) = rtnetlink::new_connection()
-        .map_err(|_| failed("failed to open TC netlink operation"))?;
+    let (connection, mut handle, _) =
+        rtnetlink::new_connection().map_err(|_| failed("failed to open TC netlink operation"))?;
     tokio::spawn(connection);
     let route_message = match request {
         TcRequest::NewQdisc(message) => RouteNetlinkMessage::NewQueueDiscipline(message),
