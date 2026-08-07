@@ -329,7 +329,12 @@ impl<'a, F: OwnershipFileSystem> OwnershipStore<'a, F> {
     }
 
     pub fn save(&self, record: &OwnershipRecord) -> Result<(), OwnershipError> {
-        self.validate_record(record, record.abi_version, record.ifindex, record.generation)?;
+        self.validate_record(
+            record,
+            record.abi_version,
+            record.ifindex,
+            record.generation,
+        )?;
         match self.filesystem.metadata(self.journal.path()) {
             Ok(metadata) if metadata.file_type != OwnershipFileType::File => {
                 return Err(OwnershipError::InvalidJournalPath);
@@ -450,10 +455,7 @@ pub enum OwnershipError {
     Io { path: PathBuf, source: io::Error },
 }
 
-fn validate_absolute_root(
-    root: &Path,
-    error: OwnershipError,
-) -> Result<(), OwnershipError> {
+fn validate_absolute_root(root: &Path, error: OwnershipError) -> Result<(), OwnershipError> {
     if !root.is_absolute()
         || root
             .components()
