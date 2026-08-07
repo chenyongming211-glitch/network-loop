@@ -1,6 +1,7 @@
 use std::{
     fs,
     os::fd::{AsFd, AsRawFd},
+    os::unix::fs::{DirBuilderExt, MetadataExt},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -177,6 +178,7 @@ pub(super) struct ActiveAyaObject {
     pub(super) initialized: Option<(u32, u64)>,
     pub(super) published: Option<(u32, u64)>,
     pin_root: PathBuf,
+    pin_parents: PinParentLease,
 }
 
 impl BpfObjectLoader for AyaBpfObjectLoader {
@@ -194,20 +196,43 @@ impl BpfObjectLoader for AyaBpfObjectLoader {
 
         let xdp = load_xdp(&mut bpf)?;
         let tc_egress = load_tc(&mut bpf)?;
-        validate_pin_root(pins.path())?;
-        fs::create_dir(pins.path())
-            .map_err(|error| adapter(format!("failed to create isolated pin root: {error}")))?;
+        let pin_parents = prepare_pin_parents(pins.path())?;
+        if let Err(error) = fs::DirBuilder::new().mode(0o700).create(pins.path()) {
+            let cleanup = pin_parents.cleanup_exact();
+            return Err(adapter(format!(
+                "failed to create isolated pin root: {error}; parent cleanup: {cleanup:?}"
+            )));
+        }
 
         let mut pinned = Vec::new();
         for expected in expected_object_description().maps {
             let path = pins.path().join(&expected.name);
-            let map = bpf
-                .map(&expected.name)
-                .ok_or_else(|| adapter(format!("validated map {} disappeared", expected.name)))?;
-            let info = map_info(map)?;
+            let Some(map) = bpf.map(&expected.name) else {
+                return Err(rollback_error(
+                    format!("validated map {} disappeared", expected.name),
+                    &pinned,
+                    pins.path(),
+                    &pin_parents,
+                ));
+            };
+            let info = match map_info(map) {
+                Ok(info) => info,
+                Err(error) => {
+                    return Err(rollback_error(
+                        error.to_string(),
+                        &pinned,
+                        pins.path(),
+                        &pin_parents,
+                    ));
+                }
+            };
             if let Err(error) = map.pin(&path) {
-                rollback_pins(&pinned, pins.path());
-                return Err(adapter(format!("failed to pin {}: {error}", expected.name)));
+                return Err(rollback_error(
+                    format!("failed to pin {}: {error}", expected.name),
+                    &pinned,
+                    pins.path(),
+                    &pin_parents,
+                ));
             }
             let fresh = match MapInfo::from_pin(&path) {
                 Ok(fresh) => fresh,
@@ -218,19 +243,21 @@ impl BpfObjectLoader for AyaBpfObjectLoader {
                     };
                     let mut rollback = pinned.clone();
                     rollback.push(just_pinned);
-                    rollback_pins(&rollback, pins.path());
-                    return Err(adapter(format!(
-                        "failed to verify pinned map {}: {error}",
-                        expected.name
-                    )));
+                    return Err(rollback_error(
+                        format!("failed to verify pinned map {}: {error}", expected.name),
+                        &rollback,
+                        pins.path(),
+                        &pin_parents,
+                    ));
                 }
             };
             if fresh.id() != info.id() {
-                rollback_pins(&pinned, pins.path());
-                return Err(adapter(format!(
-                    "pinned map {} changed identity during creation",
-                    expected.name
-                )));
+                return Err(rollback_error(
+                    format!("pinned map {} changed identity during creation", expected.name),
+                    &pinned,
+                    pins.path(),
+                    &pin_parents,
+                ));
             }
             pinned.push(PinIdentity {
                 path,
@@ -250,6 +277,7 @@ impl BpfObjectLoader for AyaBpfObjectLoader {
             initialized: None,
             published: None,
             pin_root: pins.path().to_path_buf(),
+            pin_parents,
         });
         Ok(loaded)
     }
@@ -269,7 +297,7 @@ impl BpfObjectLoader for AyaBpfObjectLoader {
             ));
         }
         let active = state.active.take().expect("active object checked above");
-        let retained = rollback_pins(&active.pins, &active.pin_root);
+        let retained = rollback_pin_tree(&active.pins, &active.pin_root, &active.pin_parents);
         drop(active);
         if retained.is_empty() {
             Ok(())
@@ -384,24 +412,74 @@ fn map_info(map: &Map) -> Result<MapInfo, PortError> {
         .map_err(|error| adapter(format!("failed to query map identity: {error}")))
 }
 
-fn validate_pin_root(path: &Path) -> Result<(), PortError> {
-    let parent = path
+#[derive(Debug)]
+struct PinParentLease {
+    created: Vec<OwnedPinDirectory>,
+}
+
+#[derive(Debug)]
+struct OwnedPinDirectory {
+    path: PathBuf,
+    device: u64,
+    inode: u64,
+}
+
+impl PinParentLease {
+    fn cleanup_exact(&self) -> Result<(), PortError> {
+        let retained = cleanup_pin_parents(&self.created);
+        if retained.is_empty() {
+            Ok(())
+        } else {
+            Err(adapter(format!(
+                "retained isolated pin parents: {}",
+                retained.join(", ")
+            )))
+        }
+    }
+}
+
+fn prepare_pin_parents(path: &Path) -> Result<PinParentLease, PortError> {
+    let test_root = path
         .parent()
         .ok_or_else(|| adapter("isolated pin root has no parent"))?;
-    let metadata = fs::symlink_metadata(parent)
-        .map_err(|error| adapter(format!("failed to inspect pin parent: {error}")))?;
+    let agent_root = test_root
+        .parent()
+        .ok_or_else(|| adapter("isolated test pin root has no parent"))?;
+    let bpffs_root = agent_root
+        .parent()
+        .ok_or_else(|| adapter("isolated agent pin root has no parent"))?;
+    let metadata = fs::symlink_metadata(bpffs_root)
+        .map_err(|error| adapter(format!("failed to inspect bpffs root: {error}")))?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err(adapter("isolated pin parent is not a real directory"));
+        return Err(adapter("bpffs root is not a real directory"));
     }
-    let canonical = fs::canonicalize(parent)
-        .map_err(|error| adapter(format!("failed to resolve pin parent: {error}")))?;
-    if canonical != parent {
-        return Err(adapter("isolated pin parent contains a symlink"));
+    let canonical = fs::canonicalize(bpffs_root)
+        .map_err(|error| adapter(format!("failed to resolve bpffs root: {error}")))?;
+    if canonical != bpffs_root {
+        return Err(adapter("bpffs root contains a symlink"));
     }
-    if fs::symlink_metadata(path).is_ok() {
-        return Err(adapter("isolated pin root already exists"));
+    if fs::symlink_metadata(agent_root).is_ok() {
+        return Err(adapter("isolated agent pin root already exists"));
     }
-    Ok(())
+
+    let mut created = Vec::new();
+    for directory in [agent_root, test_root] {
+        if let Err(error) = fs::DirBuilder::new().mode(0o700).create(directory) {
+            let retained = cleanup_pin_parents(&created);
+            return Err(adapter(format!(
+                "failed to create isolated pin parent: {error}; retained: {}",
+                retained.join(", ")
+            )));
+        }
+        let metadata = fs::symlink_metadata(directory)
+            .map_err(|error| adapter(format!("failed to inspect created pin parent: {error}")))?;
+        created.push(OwnedPinDirectory {
+            path: directory.to_path_buf(),
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        });
+    }
+    Ok(PinParentLease { created })
 }
 
 fn rollback_pins(pins: &[PinIdentity], root: &Path) -> Vec<String> {
@@ -426,6 +504,56 @@ fn rollback_pins(pins: &[PinIdentity], root: &Path) -> Vec<String> {
         && error.kind() != std::io::ErrorKind::NotFound
     {
         retained.push(format!("{} ({error})", root.display()));
+    }
+    retained
+}
+
+fn rollback_pin_tree(
+    pins: &[PinIdentity],
+    root: &Path,
+    parents: &PinParentLease,
+) -> Vec<String> {
+    let mut retained = rollback_pins(pins, root);
+    retained.extend(cleanup_pin_parents(&parents.created));
+    retained
+}
+
+fn rollback_error(
+    message: String,
+    pins: &[PinIdentity],
+    root: &Path,
+    parents: &PinParentLease,
+) -> PortError {
+    let retained = rollback_pin_tree(pins, root, parents);
+    if retained.is_empty() {
+        adapter(message)
+    } else {
+        adapter(format!("{message}; retained: {}", retained.join(", ")))
+    }
+}
+
+fn cleanup_pin_parents(parents: &[OwnedPinDirectory]) -> Vec<String> {
+    let mut retained = Vec::new();
+    for parent in parents.iter().rev() {
+        let metadata = match fs::symlink_metadata(&parent.path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                retained.push(format!("{} ({error})", parent.path.display()));
+                continue;
+            }
+        };
+        if metadata.file_type().is_symlink()
+            || !metadata.is_dir()
+            || metadata.dev() != parent.device
+            || metadata.ino() != parent.inode
+        {
+            retained.push(format!("{} (identity changed)", parent.path.display()));
+            continue;
+        }
+        if let Err(error) = fs::remove_dir(&parent.path) {
+            retained.push(format!("{} ({error})", parent.path.display()));
+        }
     }
     retained
 }
@@ -506,6 +634,24 @@ mod pin_parent_tests {
         assert!(prepare_pin_parents(&run_root).is_err());
         assert!(bpffs.join("l2-loop").is_dir());
         fs::remove_dir(bpffs.join("l2-loop")).unwrap();
+        fs::remove_dir(&bpffs).unwrap();
+        fs::remove_dir(temporary).unwrap();
+    }
+
+    #[test]
+    fn pin_parent_lease_retains_a_replaced_directory() {
+        let (temporary, bpffs, run_root) = test_paths();
+        let lease = prepare_pin_parents(&run_root).expect("empty parents should be prepared");
+        let agent_root = bpffs.join("l2-loop");
+        let moved_root = bpffs.join("moved-owned-root");
+        fs::rename(&agent_root, &moved_root).unwrap();
+        fs::create_dir(&agent_root).unwrap();
+
+        assert!(lease.cleanup_exact().is_err());
+        assert!(agent_root.is_dir());
+        fs::remove_dir(agent_root).unwrap();
+        fs::remove_dir(moved_root.join("test")).unwrap();
+        fs::remove_dir(moved_root).unwrap();
         fs::remove_dir(&bpffs).unwrap();
         fs::remove_dir(temporary).unwrap();
     }
