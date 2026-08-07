@@ -138,13 +138,14 @@ where
 
         let ifindex = report.interface.requested.ifindex;
         let loaded = rollback.loaded.as_ref().expect("loaded object is present");
-        rollback.xdp = match self.xdp.attach_no_replace(
-            ifindex,
-            XdpAttachMode::Generic,
-            loaded.xdp,
-        ) {
+        rollback.xdp = match self
+            .xdp
+            .attach_no_replace(ifindex, XdpAttachMode::Generic, loaded.xdp)
+        {
             Ok(owned) => Some(owned),
-            Err(error) => return Err(self.rollback(XDP_ATTACH_FAILED, error, rollback, ifindex, 0)),
+            Err(error) => {
+                return Err(self.rollback(XDP_ATTACH_FAILED, error, rollback, ifindex, 0));
+            }
         };
         if let Err(error) = self
             .xdp
@@ -168,17 +169,8 @@ where
         }
 
         let generation = self.generation.saturating_add(1).max(1);
-        if let Err(error) = self
-            .maps
-            .initialize_dependent(loaded, ifindex, generation)
-        {
-            return Err(self.rollback(
-                MAP_INITIALIZE_FAILED,
-                error,
-                rollback,
-                ifindex,
-                generation,
-            ));
+        if let Err(error) = self.maps.initialize_dependent(loaded, ifindex, generation) {
+            return Err(self.rollback(MAP_INITIALIZE_FAILED, error, rollback, ifindex, generation));
         }
         rollback.maps_initialized = true;
 
@@ -203,10 +195,7 @@ where
         }
         rollback.journal = Some(record.clone());
 
-        if let Err(error) = self
-            .maps
-            .publish_iface_config(loaded, ifindex, generation)
-        {
+        if let Err(error) = self.maps.publish_iface_config(loaded, ifindex, generation) {
             return Err(self.rollback(
                 IFACE_CONFIG_PUBLISH_FAILED,
                 error,
@@ -311,11 +300,7 @@ fn validate_isolated_target(
     Ok(())
 }
 
-fn collect_cleanup(
-    evidence: &mut Vec<String>,
-    resource: &str,
-    result: Result<(), PortError>,
-) {
+fn collect_cleanup(evidence: &mut Vec<String>, resource: &str, result: Result<(), PortError>) {
     if let Err(error) = result {
         evidence.push(format!("{resource}: {error}"));
     }

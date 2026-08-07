@@ -105,10 +105,7 @@ pub trait ResourceLimits {
 pub trait BpfObjectLoader {
     /// Load the object and validate its complete public ABI before returning it.
     /// An error must leave no loaded or pinned object behind.
-    fn load_and_validate_abi(
-        &mut self,
-        pins: &TestPinRoot,
-    ) -> Result<LoadedBpfObject, PortError>;
+    fn load_and_validate_abi(&mut self, pins: &TestPinRoot) -> Result<LoadedBpfObject, PortError>;
 
     /// Release only resources represented by `loaded`.
     fn unload_exact(&mut self, loaded: &LoadedBpfObject) -> Result<(), PortError>;

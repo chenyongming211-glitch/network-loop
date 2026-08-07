@@ -15,8 +15,8 @@ mod service;
 #[cfg(target_os = "linux")]
 pub mod transport;
 
+#[cfg(target_os = "linux")]
+pub use attach::*;
 pub use ports::*;
 pub use preflight::*;
 pub use service::*;
-#[cfg(target_os = "linux")]
-pub use attach::*;
