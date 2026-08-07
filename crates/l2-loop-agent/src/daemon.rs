@@ -17,6 +17,7 @@ use tokio::{
 };
 
 use crate::{
+    PlatformInspector, PreflightService,
     protocol::{
         ControlRequest, ControlResponse, ERROR_COMMAND_NOT_IMPLEMENTED, ERROR_EARLY_EOF,
         ERROR_INTERNAL, ERROR_INVALID_REQUEST, ERROR_PAYLOAD_TOO_LARGE, ERROR_REQUEST_TIMEOUT,
@@ -24,7 +25,6 @@ use crate::{
         ProtocolError, decode_request, encode_response,
     },
     transport::{TransportError, read_frame, write_frame},
-    PlatformInspector, PreflightService,
 };
 use l2_loop_core::AgentCommand;
 
@@ -70,10 +70,9 @@ where
                     }
                 }
             }
-            _ => ControlResponse::error(
-                ERROR_COMMAND_NOT_IMPLEMENTED,
-                "command is not implemented",
-            ),
+            _ => {
+                ControlResponse::error(ERROR_COMMAND_NOT_IMPLEMENTED, "command is not implemented")
+            }
         }
     }
 }
