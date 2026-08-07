@@ -5,5 +5,6 @@ pub mod bpf_inventory;
 pub mod inspector;
 pub mod interface;
 pub mod limits;
+pub mod tc;
 pub mod topology;
 pub mod xdp;
