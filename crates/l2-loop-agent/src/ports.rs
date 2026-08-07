@@ -3,6 +3,12 @@ use std::time::SystemTime;
 use l2_loop_core::{HookRole, InterfaceName, PolicyRequest, PreflightReport, ProbeRequest};
 use thiserror::Error;
 
+#[cfg(target_os = "linux")]
+use crate::{
+    linux::{tc::LoadedTc, xdp::LoadedXdp},
+    ownership::{OwnedTc, OwnedXdp, OwnershipRecord, TcHook, TestPinRoot, XdpAttachMode},
+};
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum PortError {
     #[error("adapter error: {0}")]
@@ -80,4 +86,98 @@ pub trait EvidenceStore {
 pub trait Clock {
     fn monotonic_ns(&self) -> u64;
     fn wall_time(&self) -> SystemTime;
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadedBpfObject {
+    pub xdp: LoadedXdp,
+    pub tc_egress: LoadedTc,
+    pub pin_paths: Vec<std::path::PathBuf>,
+}
+
+#[cfg(target_os = "linux")]
+pub trait ResourceLimits {
+    fn raise_memlock_to_infinity(&mut self) -> Result<(), PortError>;
+}
+
+#[cfg(target_os = "linux")]
+pub trait BpfObjectLoader {
+    /// Load the object and validate its complete public ABI before returning it.
+    /// An error must leave no loaded or pinned object behind.
+    fn load_and_validate_abi(
+        &mut self,
+        pins: &TestPinRoot,
+    ) -> Result<LoadedBpfObject, PortError>;
+
+    /// Release only resources represented by `loaded`.
+    fn unload_exact(&mut self, loaded: &LoadedBpfObject) -> Result<(), PortError>;
+}
+
+#[cfg(target_os = "linux")]
+pub trait SafeXdpPort {
+    /// Attach atomically with no-replace semantics. Errors must not retain an
+    /// unreported link; the adapter owns any rollback needed inside this call.
+    fn attach_no_replace(
+        &mut self,
+        ifindex: u32,
+        mode: XdpAttachMode,
+        loaded: LoadedXdp,
+    ) -> Result<OwnedXdp, PortError>;
+
+    fn verify_exact(&mut self, owned: &OwnedXdp) -> Result<(), PortError>;
+    fn detach_exact(&mut self, owned: &OwnedXdp) -> Result<(), PortError>;
+}
+
+#[cfg(target_os = "linux")]
+pub trait SafeTcPort {
+    /// Attach at an explicit hook, priority, and handle without replacement.
+    /// Errors must not retain an unreported filter.
+    fn attach_explicit(
+        &mut self,
+        ifindex: u32,
+        hook: TcHook,
+        loaded: LoadedTc,
+    ) -> Result<OwnedTc, PortError>;
+
+    fn verify_exact(&mut self, owned: &OwnedTc) -> Result<(), PortError>;
+    fn detach_exact(&mut self, owned: &OwnedTc) -> Result<(), PortError>;
+}
+
+#[cfg(target_os = "linux")]
+pub trait MapPublisher {
+    /// Initialize entries that are not activation gates. Errors must leave no
+    /// completed initialization that is not represented to the transaction.
+    fn initialize_dependent(
+        &mut self,
+        loaded: &LoadedBpfObject,
+        ifindex: u32,
+        generation: u64,
+    ) -> Result<(), PortError>;
+
+    /// Publish the activation gate last. An error guarantees that the entry is
+    /// absent, so rollback never guesses whether observation became active.
+    fn publish_iface_config(
+        &mut self,
+        loaded: &LoadedBpfObject,
+        ifindex: u32,
+        generation: u64,
+    ) -> Result<(), PortError>;
+
+    fn rollback_initialized_exact(
+        &mut self,
+        loaded: &LoadedBpfObject,
+        ifindex: u32,
+        generation: u64,
+    ) -> Result<(), PortError>;
+}
+
+#[cfg(target_os = "linux")]
+pub trait EphemeralOwnershipStore {
+    /// Persist atomically. An error guarantees that no committed journal for
+    /// this record exists.
+    fn save(&mut self, record: &OwnershipRecord) -> Result<(), PortError>;
+
+    /// Remove only the exact committed record after revalidating its identity.
+    fn remove_exact(&mut self, record: &OwnershipRecord) -> Result<(), PortError>;
 }

@@ -1,6 +1,8 @@
 //! User-space daemon library for L2 Loop Detection Agent.
 
 #[cfg(target_os = "linux")]
+mod attach;
+#[cfg(target_os = "linux")]
 pub mod daemon;
 #[cfg(target_os = "linux")]
 pub mod linux;
@@ -16,3 +18,5 @@ pub mod transport;
 pub use ports::*;
 pub use preflight::*;
 pub use service::*;
+#[cfg(target_os = "linux")]
+pub use attach::*;
