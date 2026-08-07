@@ -3,8 +3,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use l2_loop_agent::{
-    AttachmentTransaction, BpfObjectLoader, EphemeralOwnershipStore, LoadedBpfObject,
-    MapPublisher, PlatformInspector, PortError, ResourceLimits, SafeTcPort, SafeXdpPort,
+    AttachmentTransaction, BpfObjectLoader, EphemeralOwnershipStore, LoadedBpfObject, MapPublisher,
+    PlatformInspector, PortError, ResourceLimits, SafeTcPort, SafeXdpPort,
 };
 use l2_loop_agent::{
     linux::{tc::LoadedTc, xdp::LoadedXdp},
@@ -12,8 +12,8 @@ use l2_loop_agent::{
 };
 use l2_loop_core::{
     AttachmentState, BpfInspection, InterfaceInspection, InterfaceKind, InterfaceName,
-    InterfaceRef, InterfaceState, KernelInspection, MemlockInspection, PinRootState,
-    PreflightDecision, PreflightReport, PF_LIVE_INTERFACE,
+    InterfaceRef, InterfaceState, KernelInspection, MemlockInspection, PF_LIVE_INTERFACE,
+    PinRootState, PreflightDecision, PreflightReport,
 };
 
 #[test]
@@ -162,8 +162,7 @@ fn every_failure_rolls_back_only_completed_owned_operations_in_reverse() {
 
     for (failure, expected) in cases {
         let shared = Shared::new(Some(*failure));
-        let mut transaction =
-            transaction(shared.clone(), report(InterfaceKind::Veth, true, false));
+        let mut transaction = transaction(shared.clone(), report(InterfaceKind::Veth, true, false));
 
         let error = transaction
             .execute(&interface(), &run_id(), 1_754_521_600)
@@ -171,7 +170,10 @@ fn every_failure_rolls_back_only_completed_owned_operations_in_reverse() {
 
         assert_eq!(shared.events(), *expected, "failure at {failure:?}");
         assert!(error.cleanup_evidence().is_empty());
-        assert!(!shared.events().contains(&"publish_iface_config") || *failure == Operation::PublishConfig);
+        assert!(
+            !shared.events().contains(&"publish_iface_config")
+                || *failure == Operation::PublishConfig
+        );
     }
 }
 
@@ -219,10 +221,7 @@ fn rejects_every_non_isolated_target_before_memlock_or_bpf_work() {
     }
 
     let shared = Shared::new(None);
-    let mut transaction = transaction(
-        shared.clone(),
-        report(InterfaceKind::Veth, false, true),
-    );
+    let mut transaction = transaction(shared.clone(), report(InterfaceKind::Veth, false, true));
     let error = transaction
         .execute(&interface(), &run_id(), 1_754_521_600)
         .unwrap_err();
@@ -276,7 +275,9 @@ impl Shared {
         let mut state = self.0.borrow_mut();
         state.events.push(event);
         if state.fail_cleanup {
-            Err(PortError::Adapter(format!("injected cleanup failure at {event}")))
+            Err(PortError::Adapter(format!(
+                "injected cleanup failure at {event}"
+            )))
         } else {
             Ok(())
         }
@@ -314,12 +315,8 @@ impl ResourceLimits for FakeLimits {
 struct FakeLoader(Shared);
 
 impl BpfObjectLoader for FakeLoader {
-    fn load_and_validate_abi(
-        &mut self,
-        pins: &TestPinRoot,
-    ) -> Result<LoadedBpfObject, PortError> {
-        self.0
-            .event("load_and_validate_abi", Operation::Load)?;
+    fn load_and_validate_abi(&mut self, pins: &TestPinRoot) -> Result<LoadedBpfObject, PortError> {
+        self.0.event("load_and_validate_abi", Operation::Load)?;
         Ok(LoadedBpfObject {
             xdp: LoadedXdp {
                 program_fd: 11,
@@ -377,8 +374,7 @@ impl SafeTcPort for FakeTc {
         hook: TcHook,
         loaded: LoadedTc,
     ) -> Result<OwnedTc, PortError> {
-        self.0
-            .event("attach_tc_explicit", Operation::AttachTc)?;
+        self.0.event("attach_tc_explicit", Operation::AttachTc)?;
         Ok(OwnedTc {
             ifindex,
             hook,
