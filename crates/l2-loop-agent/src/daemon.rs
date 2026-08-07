@@ -279,9 +279,12 @@ fn isolated_response(
         Ok(Err(IsolatedDispatchFailure::Control(error))) if error.blocked => {
             ControlResponse::error(error.code, "isolated attachment was blocked")
         }
-        Ok(Err(IsolatedDispatchFailure::Control(_)))
-        | Ok(Err(IsolatedDispatchFailure::Lock))
-        | Err(_) => ControlResponse::error(ERROR_INTERNAL, "isolated control failed"),
+        Ok(Err(IsolatedDispatchFailure::Control(error))) => {
+            ControlResponse::error(error.code, "isolated control failed")
+        }
+        Ok(Err(IsolatedDispatchFailure::Lock)) | Err(_) => {
+            ControlResponse::error(ERROR_INTERNAL, "isolated control failed")
+        }
     }
 }
 
