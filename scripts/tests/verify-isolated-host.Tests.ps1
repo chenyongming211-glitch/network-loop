@@ -101,10 +101,17 @@ foreach ($Required in @(
     'Assert-NoSymlink',
     'Assert-GeneratedTarget',
     'SHA256SUMS',
-    'HOOK_STATS'
+    'HOOK_STATS',
+    'l2-loop-hostcheck',
+    "'snapshot'",
+    "'verify-owned'",
+    "'counters'"
 )) {
     Assert-True ($Harness.Contains($Required)) "harness is missing required safety marker: $Required"
 }
+
+Assert-True (-not $Harness.Contains('bpftool')) 'harness requires bpftool on the target host'
+Assert-True (-not [regex]::IsMatch($Harness, '(?m)command_name in[^\r\n]*\btc\b')) 'harness requires tc on the target host'
 
 Assert-True ($Harness.IndexOf('$ExitEvent = Register-IsolatedCleanup') -lt $Harness.IndexOf('$null = Invoke-IsolatedMutation')) 'cleanup is not registered before first mutation'
 Assert-True ($Workflow.Contains('script-tests:')) 'CI script-tests job is missing'
