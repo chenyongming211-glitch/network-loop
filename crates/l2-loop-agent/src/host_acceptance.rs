@@ -1,6 +1,6 @@
 use std::{ffi::OsStr, fs, io, path::Path};
 
-use aya::maps::{MapData, PerCpuHashMap};
+use aya::maps::{Map, MapData, PerCpuHashMap};
 use l2_loop_common::{CounterValue, StatsKey, hook_role};
 use l2_loop_core::{AttachmentState, Direction, InterfaceName, TcAttachment};
 use nix::libc;
@@ -177,7 +177,9 @@ pub fn read_owned_counters(
         .iter()
         .find(|path| path.file_name() == Some(OsStr::new(HOOK_STATS)))
         .ok_or(HostAcceptanceError::CounterMap)?;
-    let map = MapData::from_pin(path).map_err(|_| HostAcceptanceError::CounterMap)?;
+    let map = Map::PerCpuHashMap(
+        MapData::from_pin(path).map_err(|_| HostAcceptanceError::CounterMap)?,
+    );
     let stats = PerCpuHashMap::<MapData, StatsKey, CounterValue>::try_from(map)
         .map_err(|_| HostAcceptanceError::CounterMap)?;
     let read = |role| -> Result<HookCounters, HostAcceptanceError> {
