@@ -142,7 +142,10 @@ fn isolated_help_is_explicit_and_unsafe_generic_controls_do_not_exist() {
         "cleanup-all",
         "discover-interface",
     ] {
-        assert!(!help.contains(forbidden), "unsafe help surface: {forbidden}");
+        assert!(
+            !help.contains(forbidden),
+            "unsafe help surface: {forbidden}"
+        );
     }
 }
 
@@ -155,12 +158,7 @@ fn rejects_invalid_isolated_run_ids_and_missing_explicit_interfaces() {
             "--run-id",
             "0123456789abcdef0123456789abcdef",
         ],
-        vec![
-            "l2-loopctl",
-            "isolated-detach",
-            "--run-id",
-            "../unsafe",
-        ],
+        vec!["l2-loopctl", "isolated-detach", "--run-id", "../unsafe"],
     ] {
         match Cli::try_parse_from(args) {
             Ok(cli) => assert!(ParsedCli::try_from(cli).is_err()),

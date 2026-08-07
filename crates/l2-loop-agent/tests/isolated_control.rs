@@ -138,9 +138,7 @@ impl IsolatedControl for FakeControl {
     ) -> Result<(), IsolatedControlError> {
         if let Some(report) = &self.blocked {
             let inspected = &report.interface;
-            if inspected.kind != InterfaceKind::Veth
-                || !inspected.isolated
-                || inspected.live_shared
+            if inspected.kind != InterfaceKind::Veth || !inspected.isolated || inspected.live_shared
             {
                 return Err(IsolatedControlError::blocked(PF_LIVE_INTERFACE));
             }
