@@ -4,10 +4,10 @@ use std::collections::VecDeque;
 
 use l2_loop_agent::{
     linux::tc::{
-        LoadedTc, SafeTc, TC_EGRESS_HANDLE, TC_INGRESS_HANDLE, TC_PRIORITY_FIRST,
-        TC_PRIORITY_LAST, TcClsactState, TcDetachOutcome, TcFilterSlot, TcInventory, TcIo,
-        TcIoError, TcRollback, TcState, attach_request_flags, classify_inventory,
-        encode_attach_request, encode_detach_request,
+        LoadedTc, SafeTc, TC_EGRESS_HANDLE, TC_INGRESS_HANDLE, TC_PRIORITY_FIRST, TC_PRIORITY_LAST,
+        TcClsactState, TcDetachOutcome, TcFilterSlot, TcInventory, TcIo, TcIoError, TcRollback,
+        TcState, attach_request_flags, classify_inventory, encode_attach_request,
+        encode_detach_request,
     },
     ownership::{OwnedTc, TcHook, TcKernelIdentity},
 };
@@ -22,7 +22,11 @@ fn classifies_empty_owned_foreign_and_unknown_slots() {
     let owned = owned_tc(17, TcHook::Egress, TC_PRIORITY_FIRST, TC_EGRESS_HANDLE, 101);
 
     assert_eq!(
-        classify_inventory(&TcInventory::empty(TcClsactState::Absent), TcHook::Egress, None),
+        classify_inventory(
+            &TcInventory::empty(TcClsactState::Absent),
+            TcHook::Egress,
+            None,
+        ),
         TcState::Empty {
             priority: TC_PRIORITY_FIRST,
             clsact_present: false,
@@ -30,10 +34,7 @@ fn classifies_empty_owned_foreign_and_unknown_slots() {
     );
     assert_eq!(
         classify_inventory(
-            &TcInventory::only(
-                TcClsactState::Present,
-                TcFilterSlot::Bpf(owned.into()),
-            ),
+            &TcInventory::only(TcClsactState::Present, TcFilterSlot::Bpf(owned.into()),),
             TcHook::Egress,
             Some(&owned),
         ),
@@ -41,10 +42,7 @@ fn classifies_empty_owned_foreign_and_unknown_slots() {
     );
     assert_eq!(
         classify_inventory(
-            &TcInventory::only(
-                TcClsactState::Present,
-                TcFilterSlot::Bpf(owned.into()),
-            ),
+            &TcInventory::only(TcClsactState::Present, TcFilterSlot::Bpf(owned.into()),),
             TcHook::Egress,
             None,
         ),
@@ -224,13 +222,7 @@ fn query_error_blocks_as_unknown_before_mutation() {
 
 #[test]
 fn clsact_is_created_only_when_absent_and_is_never_removed() {
-    let expected = owned_tc(
-        17,
-        TcHook::Egress,
-        TC_PRIORITY_FIRST,
-        TC_EGRESS_HANDLE,
-        101,
-    );
+    let expected = owned_tc(17, TcHook::Egress, TC_PRIORITY_FIRST, TC_EGRESS_HANDLE, 101);
     let io = FakeTcIo::with_queries([
         Ok(TcInventory::empty(TcClsactState::Absent)),
         Ok(TcInventory::only(
@@ -289,13 +281,7 @@ fn eexist_is_one_filter_attempt_and_never_retried() {
 
 #[test]
 fn verification_mismatch_rolls_back_only_the_exact_new_identity() {
-    let exact = identity(
-        17,
-        TcHook::Egress,
-        TC_PRIORITY_FIRST,
-        TC_EGRESS_HANDLE,
-        101,
-    );
+    let exact = identity(17, TcHook::Egress, TC_PRIORITY_FIRST, TC_EGRESS_HANDLE, 101);
     let io = FakeTcIo::with_queries([
         Ok(TcInventory::empty(TcClsactState::Present)),
         Ok(TcInventory::new(
@@ -317,13 +303,7 @@ fn verification_mismatch_rolls_back_only_the_exact_new_identity() {
 
 #[test]
 fn verification_mismatch_retains_a_changed_current_program() {
-    let changed = identity(
-        17,
-        TcHook::Egress,
-        TC_PRIORITY_FIRST,
-        TC_EGRESS_HANDLE,
-        202,
-    );
+    let changed = identity(17, TcHook::Egress, TC_PRIORITY_FIRST, TC_EGRESS_HANDLE, 202);
     let io = FakeTcIo::with_queries([
         Ok(TcInventory::empty(TcClsactState::Present)),
         Ok(TcInventory::only(
@@ -336,22 +316,18 @@ fn verification_mismatch_retains_a_changed_current_program() {
         .attach(17, TcHook::Egress, loaded())
         .unwrap_err();
 
-    assert_eq!(
-        error.rollback(),
-        Some(TcRollback::RetainedIdentityMismatch)
+    assert_eq!(error.rollback(), Some(TcRollback::RetainedIdentityMismatch));
+    assert!(
+        !calls
+            .borrow()
+            .iter()
+            .any(|call| matches!(call, Call::Detach(_)))
     );
-    assert!(!calls.borrow().iter().any(|call| matches!(call, Call::Detach(_))));
 }
 
 #[test]
 fn detach_requires_a_fresh_complete_identity_match() {
-    let owned = owned_tc(
-        17,
-        TcHook::Egress,
-        TC_PRIORITY_FIRST,
-        TC_EGRESS_HANDLE,
-        101,
-    );
+    let owned = owned_tc(17, TcHook::Egress, TC_PRIORITY_FIRST, TC_EGRESS_HANDLE, 101);
     let exact = FakeTcIo::with_queries([Ok(TcInventory::only(
         TcClsactState::Present,
         TcFilterSlot::Bpf(owned.into()),
@@ -414,13 +390,7 @@ fn loaded() -> LoadedTc {
     }
 }
 
-fn owned_tc(
-    ifindex: u32,
-    hook: TcHook,
-    priority: u16,
-    handle: u32,
-    program_id: u32,
-) -> OwnedTc {
+fn owned_tc(ifindex: u32, hook: TcHook, priority: u16, handle: u32, program_id: u32) -> OwnedTc {
     OwnedTc {
         ifindex,
         hook,
