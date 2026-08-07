@@ -4,6 +4,8 @@
 pub mod daemon;
 #[cfg(target_os = "linux")]
 pub mod linux;
+#[cfg(target_os = "linux")]
+pub mod ownership;
 mod ports;
 mod preflight;
 pub mod protocol;
