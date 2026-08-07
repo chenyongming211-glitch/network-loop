@@ -177,9 +177,8 @@ pub fn read_owned_counters(
         .iter()
         .find(|path| path.file_name() == Some(OsStr::new(HOOK_STATS)))
         .ok_or(HostAcceptanceError::CounterMap)?;
-    let map = Map::PerCpuHashMap(
-        MapData::from_pin(path).map_err(|_| HostAcceptanceError::CounterMap)?,
-    );
+    let map =
+        Map::PerCpuHashMap(MapData::from_pin(path).map_err(|_| HostAcceptanceError::CounterMap)?);
     let stats = PerCpuHashMap::<MapData, StatsKey, CounterValue>::try_from(map)
         .map_err(|_| HostAcceptanceError::CounterMap)?;
     let read = |role| -> Result<HookCounters, HostAcceptanceError> {
