@@ -612,15 +612,59 @@ async fn query_filters(
         TcHook::Ingress => request.ingress().execute(),
         TcHook::Egress => request.egress().execute(),
     };
-    let mut filters = Vec::new();
+    let mut raw = Vec::new();
     while let Some(message) = messages
         .try_next()
         .await
         .map_err(|_| failed("failed to query TC filter state"))?
     {
-        filters.push(filter_slot(&message, ifindex, hook));
+        raw.push(message);
     }
-    Ok(filters)
+    Ok(filter_slots_from_messages(ifindex, hook, raw.iter()))
+}
+
+fn filter_slots_from_messages<'a>(
+    ifindex: u32,
+    hook: TcHook,
+    messages: impl IntoIterator<Item = &'a TcMessage>,
+) -> Vec<TcFilterSlot> {
+    let messages: Vec<&TcMessage> = messages.into_iter().collect();
+    messages
+        .iter()
+        .filter(|message| !is_backed_filter_summary(message, &messages, ifindex, hook))
+        .map(|message| filter_slot(message, ifindex, hook))
+        .collect()
+}
+
+fn is_backed_filter_summary(
+    message: &TcMessage,
+    messages: &[&TcMessage],
+    ifindex: u32,
+    hook: TcHook,
+) -> bool {
+    let priority = (message.header.info >> 16) as u16;
+    let Some(kind) = filter_kind(message) else {
+        return false;
+    };
+    if message.header.index != ifindex as i32
+        || message.header.parent != parent_for(hook)
+        || u32::from(message.header.handle) != 0
+        || priority == 0
+        || message
+            .attributes
+            .iter()
+            .any(|attribute| matches!(attribute, TcAttribute::Options(_)))
+    {
+        return false;
+    }
+
+    messages.iter().any(|candidate| {
+        candidate.header.index == message.header.index
+            && candidate.header.parent == message.header.parent
+            && u32::from(candidate.header.handle) != 0
+            && (candidate.header.info >> 16) as u16 == priority
+            && filter_kind(candidate) == Some(kind)
+    })
 }
 
 fn filter_slot(message: &TcMessage, ifindex: u32, hook: TcHook) -> TcFilterSlot {
@@ -632,14 +676,7 @@ fn filter_slot(message: &TcMessage, ifindex: u32, hook: TcHook) -> TcFilterSlot 
     if priority == 0 || filter_handle == 0 {
         return TcFilterSlot::Unknown(hook);
     }
-    let Some(kind) = message
-        .attributes
-        .iter()
-        .find_map(|attribute| match attribute {
-            TcAttribute::Kind(kind) => Some(kind.as_str()),
-            _ => None,
-        })
-    else {
+    let Some(kind) = filter_kind(message) else {
         return TcFilterSlot::Unknown(hook);
     };
     if kind != "bpf" {
@@ -674,6 +711,16 @@ fn filter_slot(message: &TcMessage, ifindex: u32, hook: TcHook) -> TcFilterSlot 
         }),
         _ => TcFilterSlot::Unknown(hook),
     }
+}
+
+fn filter_kind(message: &TcMessage) -> Option<&str> {
+    message
+        .attributes
+        .iter()
+        .find_map(|attribute| match attribute {
+            TcAttribute::Kind(kind) => Some(kind.as_str()),
+            _ => None,
+        })
 }
 
 enum TcRequest {
