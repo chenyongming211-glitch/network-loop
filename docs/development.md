@@ -91,7 +91,7 @@ $L2LoopCommit = git rev-parse HEAD
 pwsh -NoProfile -File scripts/verify-isolated-host.ps1 -Commit $L2LoopCommit
 ```
 
-The exact commit must already have a successful GitHub Actions bundle. The harness verifies its checksums, snapshots existing network/eBPF identities, creates a down isolated veth pair, attaches only after daemon preflight, sends a bounded number of raw local Ethernet frames, requires both XDP and TC counters to increase, detaches by exact ownership journal identity, and compares the post-cleanup snapshot with the original. Missing prerequisites cause a refusal; the harness does not install packages or change system configuration.
+The exact commit must already have a successful GitHub Actions bundle. The harness verifies its checksums, uses the bundled `l2-loop-hostcheck` binary to snapshot existing network/eBPF identities without requiring host `tc` or `bpftool` commands, creates a down isolated veth pair, attaches only after daemon preflight, sends a bounded number of raw local Ethernet frames, requires both XDP and TC counters to increase, detaches by exact ownership journal identity, and compares the post-cleanup snapshot with the original. Missing base prerequisites cause a refusal; the harness does not install packages or change system configuration.
 
 GitHub runs only the self-contained static/unit safety tests for this harness. CI never reads the task-scoped environment inputs and never contacts a test host.
 

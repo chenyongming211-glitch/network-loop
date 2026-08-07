@@ -5,6 +5,8 @@ mod attach;
 #[cfg(target_os = "linux")]
 pub mod daemon;
 #[cfg(target_os = "linux")]
+pub mod host_acceptance;
+#[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "linux")]
 pub mod ownership;

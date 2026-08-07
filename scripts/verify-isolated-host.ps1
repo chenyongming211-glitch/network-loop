@@ -20,6 +20,7 @@ Import-Module (Join-Path $PSScriptRoot 'lib/IsolatedNames.psm1') -Force
 $ExpectedBundleFiles = @(
     'l2-loopd',
     'l2-loopctl',
+    'l2-loop-hostcheck',
     'l2-loop-ebpf.o',
     'manifest.json',
     'SHA256SUMS'
@@ -134,8 +135,8 @@ function Get-ExactGreenBundle {
     }
 
     $ChecksumLines = Get-Content -LiteralPath (Join-Path $ArtifactRoot 'SHA256SUMS')
-    if ($ChecksumLines.Count -ne 4) {
-        throw 'bundle checksum file must contain exactly four entries'
+    if ($ChecksumLines.Count -ne 5) {
+        throw 'bundle checksum file must contain exactly five entries'
     }
     foreach ($Line in $ChecksumLines) {
         if ($Line -cnotmatch '^([0-9a-f]{64})  ([A-Za-z0-9._-]+)$') {
@@ -183,18 +184,9 @@ assert_generated
 
 snapshot() {
     {
-        bpftool -j prog show
-        bpftool -j map show
-        bpftool -j link show
-        bpftool -j net
+        "$root/l2-loop-hostcheck" snapshot
         ip -j link show
         ip -j route show table all
-        tc -j qdisc show
-        for devpath in /sys/class/net/*; do
-            dev=${devpath##*/}
-            tc -j filter show dev "$dev" ingress
-            tc -j filter show dev "$dev" egress
-        done
     } | sha256sum | awk '{print $1}'
 }
 
@@ -206,7 +198,15 @@ cleanup_file() {
     fi
 }
 
-cleanup() {
+cleanup_dir() {
+    path=$1
+    if test -d "$path" || test -L "$path"; then
+        assert_no_symlink "$path"
+        rmdir "$path"
+    fi
+}
+
+cleanup_state() {
     if test -f "$root/daemon.pid" && test ! -L "$root/daemon.pid"; then
         pid=$(cat "$root/daemon.pid")
         case "$pid" in *[!0-9]*|'') fail "invalid owned daemon PID" ;; esac
@@ -239,30 +239,36 @@ cleanup() {
     for name in IFACE_CONFIG HOOK_STATS FINGERPRINTS PROBE_REGISTRY PROBE_STATS RATE_POLICY; do
         cleanup_file "$pins/$name"
     done
-    if test -d "$pins"; then
-        assert_no_symlink "$pins"
-        rmdir "$pins"
-    fi
+    cleanup_dir "$pins"
     cleanup_file "$journal"
     cleanup_file "$root/counters.json"
     cleanup_file "$root/daemon.pid"
     cleanup_file "$root/daemon.log"
+    cleanup_dir /sys/fs/bpf/l2-loop/test
+    cleanup_dir /sys/fs/bpf/l2-loop
+    cleanup_dir /run/l2-loop/tests
+}
+
+cleanup() {
+    cleanup_state
     cleanup_file "$root/l2-loopd"
     cleanup_file "$root/l2-loopctl"
+    cleanup_file "$root/l2-loop-hostcheck"
     cleanup_file "$root/l2-loop-ebpf.o"
     cleanup_file "$root/manifest.json"
     cleanup_file "$root/SHA256SUMS"
-    if test -d "$root"; then
-        assert_no_symlink "$root"
-        rmdir "$root"
-    fi
+    cleanup_dir "$root"
+    cleanup_dir /run/l2-loop/accept
+    cleanup_dir /run/l2-loop
 }
 
 case "$phase" in
     precheck)
-        for command_name in ip tc bpftool python3 sha256sum awk grep; do
+        for command_name in ip python3 sha256sum awk grep mkdir rmdir install chmod readlink kill sleep cat unlink; do
             command -v "$command_name" >/dev/null || fail "required acceptance command is unavailable"
         done
+        test ! -e /run/l2-loop && test ! -L /run/l2-loop || fail "agent runtime root is already occupied"
+        test ! -e /sys/fs/bpf/l2-loop && test ! -L /sys/fs/bpf/l2-loop || fail "agent pin root is already occupied"
         test ! -e "$root" && test ! -L "$root" || fail "run root already exists"
         test ! -e "$journal" && test ! -L "$journal" || fail "run journal already exists"
         test ! -e "$pins" && test ! -L "$pins" || fail "run pin root already exists"
@@ -273,10 +279,17 @@ case "$phase" in
     snapshot)
         snapshot
         ;;
-    prepare)
+    stage)
         install -d -m 0700 /run/l2-loop
         install -d -m 0700 /run/l2-loop/accept
         install -d -m 0700 "$root"
+        ;;
+    prepare)
+        install -d -m 0700 /run/l2-loop/tests
+        mkdir /sys/fs/bpf/l2-loop
+        chmod 0700 /sys/fs/bpf/l2-loop
+        mkdir /sys/fs/bpf/l2-loop/test
+        chmod 0700 /sys/fs/bpf/l2-loop/test
         ip netns add "$ns"
         ip link add name "$host" type veth peer name "$peer"
         ip link set dev "$peer" netns "$ns"
@@ -285,7 +298,7 @@ case "$phase" in
         assert_no_symlink "$root"
         cd "$root"
         sha256sum --check SHA256SUMS >/dev/null
-        chmod 0755 l2-loopd l2-loopctl
+        chmod 0755 l2-loopd l2-loopctl l2-loop-hostcheck
         ;;
     launch)
         cd "$root"
@@ -299,60 +312,14 @@ case "$phase" in
         test -S /run/l2-loop/agent.sock || fail "daemon socket was not created"
         ;;
     verify-hooks)
-        python3 - "$journal" "$host" <<'PY'
-import json, subprocess, sys
-journal_path, interface = sys.argv[1:]
-with open(journal_path, encoding="utf-8") as handle:
-    record = json.load(handle)
-xdp_id = int(record["xdp"]["program_id"])
-tc_id = int(record["tc"][0]["program_id"])
-subprocess.run(["bpftool", "prog", "show", "id", str(xdp_id)], check=True, stdout=subprocess.DEVNULL)
-subprocess.run(["bpftool", "prog", "show", "id", str(tc_id)], check=True, stdout=subprocess.DEVNULL)
-xdp = subprocess.check_output(["ip", "-details", "link", "show", "dev", interface], text=True)
-tc = subprocess.check_output(["tc", "filter", "show", "dev", interface, "egress"], text=True)
-if f"prog/xdp id {xdp_id}" not in xdp or f"id {tc_id}" not in tc:
-    raise SystemExit("kernel hook identity does not match the ownership journal")
-PY
+        "$root/l2-loop-hostcheck" 'verify-owned' --journal "$journal" --interface "$host"
         ;;
     links-up)
         ip link set dev "$host" up
         ip netns exec "$ns" ip link set dev "$peer" up
         ;;
     counters)
-        bpftool -j map dump pinned "$pins/HOOK_STATS" >"$root/counters.json"
-        python3 - "$root/counters.json" <<'PY'
-import json, sys
-
-def raw_bytes(value):
-    if isinstance(value, list) and all(isinstance(item, str) and item.startswith("0x") for item in value):
-        return bytes(int(item, 16) for item in value)
-    return None
-
-def counter(value):
-    if isinstance(value, dict) and "packets" in value and "bytes" in value:
-        return int(value["packets"]), int(value["bytes"])
-    if isinstance(value, dict) and "value" in value:
-        return counter(value["value"])
-    raw = raw_bytes(value)
-    if raw is None or len(raw) < 16:
-        raise SystemExit("unsupported HOOK_STATS value format")
-    return int.from_bytes(raw[0:8], "little"), int.from_bytes(raw[8:16], "little")
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    entries = json.load(handle)
-for entry in entries:
-    key = entry["key"]
-    if isinstance(key, dict):
-        role = int(key["hook_role"])
-    else:
-        raw_key = raw_bytes(key)
-        if raw_key is None or len(raw_key) < 13:
-            raise SystemExit("unsupported HOOK_STATS key format")
-        role = raw_key[12]
-    values = entry.get("values", [entry.get("value")])
-    totals = [counter(value) for value in values]
-    print(role, sum(item[0] for item in totals), sum(item[1] for item in totals))
-PY
+        "$root/l2-loop-hostcheck" 'counters' --journal "$journal"
         ;;
     traffic)
         python3 - "$host" "$count" <<'PY'
@@ -376,6 +343,9 @@ PY
         ;;
     cleanup)
         cleanup
+        ;;
+    cleanup-state)
+        cleanup_state
         ;;
     *) fail "unknown isolated acceptance phase" ;;
 esac
@@ -496,13 +466,14 @@ $CancelHandler = [ConsoleCancelEventHandler]{
 
 try {
     $null = Invoke-IsolatedRemotePhase -Phase 'precheck' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
-    $BeforeState = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
-
-    $null = Invoke-IsolatedMutation -Phase 'prepare' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+    $null = Invoke-IsolatedMutation -Phase 'stage' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
     $Sources = $ExpectedBundleFiles | ForEach-Object { Join-Path $ArtifactRoot $_ }
     $ScpArguments = Get-ScpArguments -Target $Target -KeyPath $KeyPath -Sources $Sources -Destination "$($Names.RemoteRunRoot)/"
     $null = Invoke-ExactProcess -FilePath 'scp' -ArgumentList $ScpArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
     $null = Invoke-IsolatedMutation -Phase 'install' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+    $BeforeState = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+
+    $null = Invoke-IsolatedMutation -Phase 'prepare' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
     $null = Invoke-IsolatedMutation -Phase 'launch' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
 
     $PreflightArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
@@ -541,9 +512,10 @@ try {
     $Detach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $DetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
     if ($Detach.Stdout.Trim() -cne 'accepted') { throw 'isolated detach was not acknowledged' }
 
-    & $CleanupAction
+    $null = Invoke-IsolatedMutation -Phase 'cleanup-state' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
     $AfterState = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
     Assert-IsolatedRemoteStateUnchanged -Before $BeforeState -After $AfterState
+    & $CleanupAction
     Write-Host "isolated acceptance passed for commit $Commit"
 }
 finally {

@@ -9,6 +9,10 @@ repository.workspace = true
 name = "l2-loopd"
 path = "src/main.rs"
 
+[[bin]]
+name = "l2-loop-hostcheck"
+path = "src/bin/hostcheck.rs"
+
 [dependencies]
 aya.workspace = true
 futures-util.workspace = true

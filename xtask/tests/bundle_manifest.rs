@@ -22,6 +22,7 @@ fn manifest_uses_the_stable_release_schema() {
             "files": {
                 "daemon": "l2-loopd",
                 "cli": "l2-loopctl",
+                "host_check": "l2-loop-hostcheck",
                 "ebpf": "l2-loop-ebpf.o"
             }
         })
@@ -34,14 +35,16 @@ fn checksum_manifest_is_lexically_ordered_and_exact() {
         ("manifest.json".to_owned(), "d".repeat(64)),
         ("l2-loopd".to_owned(), "c".repeat(64)),
         ("l2-loopctl".to_owned(), "b".repeat(64)),
+        ("l2-loop-hostcheck".to_owned(), "e".repeat(64)),
         ("l2-loop-ebpf.o".to_owned(), "a".repeat(64)),
     ]);
 
     assert_eq!(
         render_sha256sums(&checksums).expect("approved checksums should render"),
         format!(
-            "{}  l2-loop-ebpf.o\n{}  l2-loopctl\n{}  l2-loopd\n{}  manifest.json\n",
+            "{}  l2-loop-ebpf.o\n{}  l2-loop-hostcheck\n{}  l2-loopctl\n{}  l2-loopd\n{}  manifest.json\n",
             "a".repeat(64),
+            "e".repeat(64),
             "b".repeat(64),
             "c".repeat(64),
             "d".repeat(64)
@@ -54,6 +57,7 @@ fn checksum_manifest_rejects_missing_or_extra_files() {
     let missing = BTreeMap::from([
         ("l2-loopd".to_owned(), "a".repeat(64)),
         ("l2-loopctl".to_owned(), "b".repeat(64)),
+        ("l2-loop-hostcheck".to_owned(), "d".repeat(64)),
         ("manifest.json".to_owned(), "c".repeat(64)),
     ]);
     assert!(render_sha256sums(&missing).is_err());
@@ -61,6 +65,7 @@ fn checksum_manifest_rejects_missing_or_extra_files() {
     let extra = BTreeMap::from([
         ("l2-loop-ebpf.o".to_owned(), "a".repeat(64)),
         ("l2-loopctl".to_owned(), "b".repeat(64)),
+        ("l2-loop-hostcheck".to_owned(), "f".repeat(64)),
         ("l2-loopd".to_owned(), "c".repeat(64)),
         ("manifest.json".to_owned(), "d".repeat(64)),
         ("host-inventory.txt".to_owned(), "e".repeat(64)),

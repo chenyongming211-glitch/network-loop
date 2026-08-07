@@ -121,6 +121,7 @@ jobs:
           --commit-sha "${{ github.sha }}"
           --daemon target/x86_64-unknown-linux-musl/release/l2-loopd
           --cli target/x86_64-unknown-linux-musl/release/l2-loopctl
+          --host-check target/x86_64-unknown-linux-musl/release/l2-loop-hostcheck
           --ebpf .artifacts/ebpf/l2-loop-ebpf
           --output .artifacts/bundle
 

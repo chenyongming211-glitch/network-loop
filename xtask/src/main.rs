@@ -50,6 +50,8 @@ fn build_bundle(args: &[String]) -> ExitCode {
         daemon,
         cli_flag,
         cli,
+        host_check_flag,
+        host_check,
         ebpf_flag,
         ebpf,
         output_flag,
@@ -62,6 +64,7 @@ fn build_bundle(args: &[String]) -> ExitCode {
     if commit_flag != "--commit-sha"
         || daemon_flag != "--daemon"
         || cli_flag != "--cli"
+        || host_check_flag != "--host-check"
         || ebpf_flag != "--ebpf"
         || output_flag != "--output"
     {
@@ -74,6 +77,7 @@ fn build_bundle(args: &[String]) -> ExitCode {
         package_version: env!("CARGO_PKG_VERSION"),
         daemon: Path::new(daemon),
         cli: Path::new(cli),
+        host_check: Path::new(host_check),
         ebpf: Path::new(ebpf),
         output_dir: Path::new(output),
     };
@@ -89,6 +93,6 @@ fn build_bundle(args: &[String]) -> ExitCode {
 fn print_usage() {
     eprintln!("usage: cargo xtask build-ebpf");
     eprintln!(
-        "       cargo xtask bundle --commit-sha <SHA> --daemon <PATH> --cli <PATH> --ebpf <PATH> --output <DIR>"
+        "       cargo xtask bundle --commit-sha <SHA> --daemon <PATH> --cli <PATH> --host-check <PATH> --ebpf <PATH> --output <DIR>"
     );
 }

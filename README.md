@@ -24,7 +24,7 @@ It does not depend on Neutron, communicate across nodes, infer an interface auto
 
 Compilation, tests, Clippy, formatting checks, and eBPF builds run only in GitHub Actions. The local workspace is used for authoring and static inspection.
 
-Successful CI runs publish a five-file `l2-loop-linux-x86_64-<full-commit-sha>` artifact containing the two static MUSL userspace binaries, the eBPF object, `manifest.json`, and `SHA256SUMS`. The full commit SHA in both the artifact name and manifest identifies the exact source revision.
+Successful CI runs publish a six-file `l2-loop-linux-x86_64-<full-commit-sha>` artifact containing the daemon, CLI, self-contained host acceptance checker, eBPF object, `manifest.json`, and `SHA256SUMS`. All three userspace binaries are static MUSL executables. The full commit SHA in both the artifact name and manifest identifies the exact source revision.
 
 ## Read-only preflight
 

@@ -13,12 +13,14 @@ pub const USERSPACE_TARGET: &str = "x86_64-unknown-linux-musl";
 pub const EBPF_TARGET: &str = "bpfel-unknown-none";
 pub const DAEMON_FILENAME: &str = "l2-loopd";
 pub const CLI_FILENAME: &str = "l2-loopctl";
+pub const HOST_CHECK_FILENAME: &str = "l2-loop-hostcheck";
 pub const EBPF_FILENAME: &str = "l2-loop-ebpf.o";
 pub const MANIFEST_FILENAME: &str = "manifest.json";
 pub const CHECKSUMS_FILENAME: &str = "SHA256SUMS";
 
-const CHECKSUM_FILES: [&str; 4] = [
+const CHECKSUM_FILES: [&str; 5] = [
     EBPF_FILENAME,
+    HOST_CHECK_FILENAME,
     CLI_FILENAME,
     DAEMON_FILENAME,
     MANIFEST_FILENAME,
@@ -43,6 +45,7 @@ impl BundleManifest {
             files: BundleFiles {
                 daemon: DAEMON_FILENAME,
                 cli: CLI_FILENAME,
+                host_check: HOST_CHECK_FILENAME,
                 ebpf: EBPF_FILENAME,
             },
         }
@@ -53,6 +56,7 @@ impl BundleManifest {
 struct BundleFiles {
     daemon: &'static str,
     cli: &'static str,
+    host_check: &'static str,
     ebpf: &'static str,
 }
 
@@ -62,6 +66,7 @@ pub struct BundleInputs<'a> {
     pub package_version: &'a str,
     pub daemon: &'a Path,
     pub cli: &'a Path,
+    pub host_check: &'a Path,
     pub ebpf: &'a Path,
     pub output_dir: &'a Path,
 }
@@ -121,6 +126,7 @@ pub fn create_bundle(inputs: &BundleInputs<'_>) -> Result<(), BundleError> {
     validate_metadata(inputs.commit_sha, inputs.package_version)?;
     validate_input(inputs.daemon)?;
     validate_input(inputs.cli)?;
+    validate_input(inputs.host_check)?;
     validate_input(inputs.ebpf)?;
 
     if inputs.output_dir.exists() {
@@ -131,6 +137,10 @@ pub fn create_bundle(inputs: &BundleInputs<'_>) -> Result<(), BundleError> {
 
     copy_file(inputs.daemon, &inputs.output_dir.join(DAEMON_FILENAME))?;
     copy_file(inputs.cli, &inputs.output_dir.join(CLI_FILENAME))?;
+    copy_file(
+        inputs.host_check,
+        &inputs.output_dir.join(HOST_CHECK_FILENAME),
+    )?;
     copy_file(inputs.ebpf, &inputs.output_dir.join(EBPF_FILENAME))?;
 
     let manifest = BundleManifest::new(inputs.commit_sha, inputs.package_version);
