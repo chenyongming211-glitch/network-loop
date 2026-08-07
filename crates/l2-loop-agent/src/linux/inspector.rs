@@ -929,9 +929,7 @@ mod tests {
             }],
         );
 
-        summary
-            .attributes
-            .push(TcAttribute::Options(Vec::new()));
+        summary.attributes.push(TcAttribute::Options(Vec::new()));
         assert!(!observed_tc_from_messages(147, Direction::Egress, [&summary]).1);
     }
 
@@ -946,9 +944,7 @@ mod tests {
             major: 49_600,
             minor: 0x0003_u16.to_be(),
         });
-        message
-            .attributes
-            .push(TcAttribute::Kind("bpf".to_owned()));
+        message.attributes.push(TcAttribute::Kind("bpf".to_owned()));
         message
     }
 }
