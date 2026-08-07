@@ -11,7 +11,7 @@ use l2_loop_agent::{
     ownership::{OwnedXdp, XdpAttachMode, XdpKernelIdentity},
 };
 use l2_loop_core::{PF_XDP_OCCUPIED, PF_XDP_STATE_UNKNOWN};
-use netlink_packet_route::link::{LinkAttribute, LinkXdp};
+use rtnetlink::packet_route::link::{LinkAttribute, LinkXdp};
 
 #[test]
 fn classifies_empty_owned_foreign_unknown_and_cross_mode_occupancy() {
