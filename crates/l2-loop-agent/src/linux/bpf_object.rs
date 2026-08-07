@@ -253,7 +253,10 @@ impl BpfObjectLoader for AyaBpfObjectLoader {
             };
             if fresh.id() != info.id() {
                 return Err(rollback_error(
-                    format!("pinned map {} changed identity during creation", expected.name),
+                    format!(
+                        "pinned map {} changed identity during creation",
+                        expected.name
+                    ),
                     &pinned,
                     pins.path(),
                     &pin_parents,
@@ -508,11 +511,7 @@ fn rollback_pins(pins: &[PinIdentity], root: &Path) -> Vec<String> {
     retained
 }
 
-fn rollback_pin_tree(
-    pins: &[PinIdentity],
-    root: &Path,
-    parents: &PinParentLease,
-) -> Vec<String> {
+fn rollback_pin_tree(pins: &[PinIdentity], root: &Path, parents: &PinParentLease) -> Vec<String> {
     let mut retained = rollback_pins(pins, root);
     retained.extend(cleanup_pin_parents(&parents.created));
     retained
