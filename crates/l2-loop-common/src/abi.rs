@@ -58,6 +58,80 @@ impl StatsKey {
             reason: crate::observation_reason::NONE,
         }
     }
+
+    pub const fn classified(
+        interface_generation: u64,
+        ifindex: u32,
+        hook_role: u8,
+        traffic_class: u8,
+    ) -> Self {
+        Self {
+            interface_generation,
+            ifindex,
+            hook_role,
+            traffic_class,
+            verdict: crate::verdict::PASS,
+            reason: crate::observation_reason::NONE,
+        }
+    }
+
+    pub const fn parse_error(interface_generation: u64, ifindex: u32, hook_role: u8) -> Self {
+        Self {
+            interface_generation,
+            ifindex,
+            hook_role,
+            traffic_class: crate::traffic_class::UNICAST_OR_UNCLASSIFIED,
+            verdict: crate::verdict::ERROR_PASS,
+            reason: crate::observation_reason::PARSE_ERROR,
+        }
+    }
+
+    pub const fn observation_keys(
+        interface_generation: u64,
+        ifindex: u32,
+        hook_role: u8,
+    ) -> [Self; 8] {
+        [
+            Self::total(interface_generation, ifindex, hook_role),
+            Self::classified(
+                interface_generation,
+                ifindex,
+                hook_role,
+                crate::traffic_class::L2_BROADCAST,
+            ),
+            Self::classified(
+                interface_generation,
+                ifindex,
+                hook_role,
+                crate::traffic_class::IPV4_MULTICAST,
+            ),
+            Self::classified(
+                interface_generation,
+                ifindex,
+                hook_role,
+                crate::traffic_class::IPV6_MULTICAST,
+            ),
+            Self::classified(
+                interface_generation,
+                ifindex,
+                hook_role,
+                crate::traffic_class::OTHER_L2_MULTICAST,
+            ),
+            Self::classified(
+                interface_generation,
+                ifindex,
+                hook_role,
+                crate::traffic_class::LINK_LOCAL_CONTROL,
+            ),
+            Self::classified(
+                interface_generation,
+                ifindex,
+                hook_role,
+                crate::traffic_class::UNICAST_OR_UNCLASSIFIED,
+            ),
+            Self::parse_error(interface_generation, ifindex, hook_role),
+        ]
+    }
 }
 
 #[repr(C)]
