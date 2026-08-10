@@ -1,6 +1,6 @@
 use l2_loop_core::{
-    AgentMode, AgentResult, Direction, Generation, InterfaceName, InterfaceState,
-    InterfaceStatus, ObservationCounters, ObservationHealth, TrafficClass, VlanVisibility,
+    AgentMode, AgentResult, Direction, Generation, InterfaceName, InterfaceState, InterfaceStatus,
+    ObservationCounters, ObservationHealth, TrafficClass, VlanVisibility,
 };
 
 #[test]

@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use l2_loop_core::{
     AgentResult, ClassObservation, DomainError, HookObservation, HookRole, InterfaceName,
-    ObservationCounters, ObservationHealth, ObservationSnapshot, TrafficClass, VlanVisibility,
-    OBSERVATION_SCHEMA_VERSION, OBSERVED_CLASS_COUNT, OBSERVED_HOOK_COUNT,
+    OBSERVATION_SCHEMA_VERSION, OBSERVED_CLASS_COUNT, OBSERVED_HOOK_COUNT, ObservationCounters,
+    ObservationHealth, ObservationSnapshot, TrafficClass, VlanVisibility,
 };
 
 const CLASS_ORDER: [TrafficClass; OBSERVED_CLASS_COUNT] = [
