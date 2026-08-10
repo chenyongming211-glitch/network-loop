@@ -7,8 +7,8 @@ use l2_loop_agent::{
         CleanupOperation, CleanupSnapshot, IfaceConfigIdentity, PinIdentity, plan_owned_cleanup,
     },
     ownership::{
-        OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnedTc, OwnedXdp,
-        OwnershipRecord, TcHook, TcKernelIdentity, XdpAttachMode, XdpKernelIdentity,
+        OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnedTc, OwnedXdp, OwnershipRecord,
+        TcHook, TcKernelIdentity, XdpAttachMode, XdpKernelIdentity,
     },
 };
 use l2_loop_common::ABI_VERSION;
@@ -146,10 +146,14 @@ fn replaced_pin_is_retained_even_when_an_owned_program_reports_the_new_map_id() 
 
     let plan = plan_owned_cleanup(&record, &snapshot);
 
-    assert!(!plan.operations.contains(&CleanupOperation::UnpinMap(PinIdentity {
-        path: record.map_pins[0].path.clone(),
-        map_id: 999,
-    })));
+    assert!(
+        !plan
+            .operations
+            .contains(&CleanupOperation::UnpinMap(PinIdentity {
+                path: record.map_pins[0].path.clone(),
+                map_id: 999,
+            }))
+    );
     assert!(
         plan.retained
             .iter()

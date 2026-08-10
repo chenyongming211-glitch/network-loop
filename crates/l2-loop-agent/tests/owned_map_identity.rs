@@ -24,7 +24,9 @@ fn schema_two_requires_the_exact_fixed_owned_map_set() {
         ]
     );
 
-    fixture_record(valid_map_pins()).validate_owned_maps().unwrap();
+    fixture_record(valid_map_pins())
+        .validate_owned_maps()
+        .unwrap();
 }
 
 #[test]

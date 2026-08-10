@@ -10,7 +10,8 @@ use std::{
 use l2_loop_agent::ownership::{
     JournalPath, OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnedTc, OwnedXdp,
     OwnershipError, OwnershipFileSystem, OwnershipMetadata, OwnershipRecord, OwnershipStore, RunId,
-    StdOwnershipFileSystem, TcHook, TcKernelIdentity, TestPinRoot, XdpAttachMode, XdpKernelIdentity,
+    StdOwnershipFileSystem, TcHook, TcKernelIdentity, TestPinRoot, XdpAttachMode,
+    XdpKernelIdentity,
 };
 use l2_loop_common::ABI_VERSION;
 
