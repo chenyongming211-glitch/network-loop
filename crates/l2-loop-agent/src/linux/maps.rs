@@ -197,8 +197,8 @@ fn stats_keys(ifindex: u32, generation: u64) -> [StatsKey; 16] {
     let xdp = StatsKey::observation_keys(generation, ifindex, hook_role::EXTERNAL_XDP_INGRESS);
     let tc = StatsKey::observation_keys(generation, ifindex, hook_role::PHYSICAL_TC_EGRESS);
     [
-        xdp[0], xdp[1], xdp[2], xdp[3], xdp[4], xdp[5], xdp[6], xdp[7], tc[0], tc[1], tc[2],
-        tc[3], tc[4], tc[5], tc[6], tc[7],
+        xdp[0], xdp[1], xdp[2], xdp[3], xdp[4], xdp[5], xdp[6], xdp[7], tc[0], tc[1], tc[2], tc[3],
+        tc[4], tc[5], tc[6], tc[7],
     ]
 }
 
