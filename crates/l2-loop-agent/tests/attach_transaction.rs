@@ -8,7 +8,10 @@ use l2_loop_agent::{
 };
 use l2_loop_agent::{
     linux::{tc::LoadedTc, xdp::LoadedXdp},
-    ownership::{OwnedTc, OwnedXdp, OwnershipRecord, RunId, TcHook, TestPinRoot, XdpAttachMode},
+    ownership::{
+        OWNED_MAP_NAMES, OwnedMapPin, OwnedTc, OwnedXdp, OwnershipRecord, RunId, TcHook,
+        TestPinRoot, XdpAttachMode,
+    },
 };
 use l2_loop_core::{
     AttachmentState, BpfInspection, InterfaceInspection, InterfaceKind, InterfaceName,
@@ -28,6 +31,10 @@ fn commits_only_after_both_hooks_and_maps_are_verified() {
     assert_eq!(session.state, InterfaceState::Observing);
     assert_eq!(session.generation, 1);
     assert_eq!(session.ownership.generation, 1);
+    assert_eq!(
+        session.ownership.map_pins,
+        expected_map_pins(&TestPinRoot::new(run_id()).unwrap())
+    );
     assert_eq!(
         shared.events(),
         [
@@ -357,7 +364,7 @@ impl BpfObjectLoader for FakeLoader {
                 program_fd: 12,
                 program_id: 102,
             },
-            pin_paths: vec![pins.path().join("hook_stats")],
+            map_pins: expected_map_pins(pins),
         })
     }
 
@@ -500,6 +507,16 @@ fn interface() -> InterfaceName {
 
 fn run_id() -> RunId {
     RunId::parse("0123456789abcdef0123456789abcdef").unwrap()
+}
+
+fn expected_map_pins(pins: &TestPinRoot) -> Vec<OwnedMapPin> {
+    OWNED_MAP_NAMES
+        .iter()
+        .enumerate()
+        .map(|(index, name)| {
+            OwnedMapPin::new(*name, pins.path().join(name), 301 + index as u32).unwrap()
+        })
+        .collect()
 }
 
 fn report(kind: InterfaceKind, isolated: bool, live_shared: bool) -> PreflightReport {

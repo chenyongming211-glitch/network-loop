@@ -8,9 +8,9 @@ use std::{
 };
 
 use l2_loop_agent::ownership::{
-    JournalPath, OWNERSHIP_SCHEMA_VERSION, OwnedTc, OwnedXdp, OwnershipError, OwnershipFileSystem,
-    OwnershipMetadata, OwnershipRecord, OwnershipStore, RunId, StdOwnershipFileSystem, TcHook,
-    TcKernelIdentity, TestPinRoot, XdpAttachMode, XdpKernelIdentity,
+    JournalPath, OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnedTc, OwnedXdp,
+    OwnershipError, OwnershipFileSystem, OwnershipMetadata, OwnershipRecord, OwnershipStore, RunId,
+    StdOwnershipFileSystem, TcHook, TcKernelIdentity, TestPinRoot, XdpAttachMode, XdpKernelIdentity,
 };
 use l2_loop_common::ABI_VERSION;
 
@@ -100,12 +100,11 @@ fn journal_round_trip_is_atomic_private_and_identity_checked() {
     let journal = JournalPath::for_root(&journal_root, run_id.clone()).unwrap();
     let pins = TestPinRoot::for_root(&pin_base, run_id).unwrap();
     fs::create_dir_all(pins.path()).unwrap();
-    let map_pin = pins.path().join("HOOK_STATS");
-    fs::write(&map_pin, b"fixture").unwrap();
+    create_map_pin_fixtures(pins.path());
 
     let filesystem = RecordingFileSystem::default();
     let store = OwnershipStore::new(&filesystem, journal.clone(), pins);
-    let record = fixture_record(map_pin);
+    let record = fixture_record(test_pin_root(&pin_base));
     store.save(&record).unwrap();
 
     let loaded = store.load_validated(ABI_VERSION, 17, 41).unwrap();
@@ -143,9 +142,36 @@ fn journal_round_trip_is_atomic_private_and_identity_checked() {
 }
 
 #[test]
+fn old_ephemeral_schema_is_refused_without_migration() {
+    let temp = TempDir::new("old-schema");
+    let run_id = RunId::parse("0123456789abcdeffedcba9876543210").unwrap();
+    let journal_root = temp.path().join("journals");
+    let pin_base = temp.path().join("pins");
+    let journal = JournalPath::for_root(&journal_root, run_id.clone()).unwrap();
+    let pins = TestPinRoot::for_root(&pin_base, run_id).unwrap();
+    fs::create_dir_all(&journal_root).unwrap();
+    fs::create_dir_all(pins.path()).unwrap();
+    create_map_pin_fixtures(pins.path());
+
+    let mut record = fixture_record(pins.path().to_path_buf());
+    record.schema_version = 1;
+    fs::write(journal.path(), serde_json::to_vec(&record).unwrap()).unwrap();
+    fs::set_permissions(journal.path(), fs::Permissions::from_mode(0o600)).unwrap();
+
+    let store = OwnershipStore::new(&StdOwnershipFileSystem, journal, pins);
+    assert!(matches!(
+        store.load_current(),
+        Err(OwnershipError::SchemaMismatch {
+            expected: 2,
+            actual: 1,
+        })
+    ));
+}
+
+#[test]
 fn owned_kernel_identities_require_exact_matches() {
     let record = fixture_record(PathBuf::from(
-        "/sys/fs/bpf/l2-loop/test/0123456789abcdeffedcba9876543210/HOOK_STATS",
+        "/sys/fs/bpf/l2-loop/test/0123456789abcdeffedcba9876543210",
     ));
     let xdp = record.xdp.unwrap();
     let tc = record.tc[0];
@@ -175,7 +201,7 @@ fn owned_kernel_identities_require_exact_matches() {
     }));
 }
 
-fn fixture_record(map_pin: PathBuf) -> OwnershipRecord {
+fn fixture_record(pin_root: PathBuf) -> OwnershipRecord {
     OwnershipRecord {
         schema_version: OWNERSHIP_SCHEMA_VERSION,
         abi_version: ABI_VERSION,
@@ -196,8 +222,24 @@ fn fixture_record(map_pin: PathBuf) -> OwnershipRecord {
             program_id: 102,
             created_clsact: true,
         }],
-        pin_paths: vec![map_pin],
+        map_pins: OWNED_MAP_NAMES
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                OwnedMapPin::new(*name, pin_root.join(name), 301 + index as u32).unwrap()
+            })
+            .collect(),
         created_at_unix_seconds: 1_787_000_000,
+    }
+}
+
+fn test_pin_root(pin_base: &Path) -> PathBuf {
+    pin_base.join("0123456789abcdeffedcba9876543210")
+}
+
+fn create_map_pin_fixtures(pin_root: &Path) {
+    for name in OWNED_MAP_NAMES {
+        fs::write(pin_root.join(name), b"fixture").unwrap();
     }
 }
 

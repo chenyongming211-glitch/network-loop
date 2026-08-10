@@ -7,8 +7,8 @@ use l2_loop_agent::{
         CleanupOperation, CleanupSnapshot, IfaceConfigIdentity, PinIdentity, plan_owned_cleanup,
     },
     ownership::{
-        OWNERSHIP_SCHEMA_VERSION, OwnedTc, OwnedXdp, OwnershipRecord, TcHook, TcKernelIdentity,
-        XdpAttachMode, XdpKernelIdentity,
+        OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnedTc, OwnedXdp,
+        OwnershipRecord, TcHook, TcKernelIdentity, XdpAttachMode, XdpKernelIdentity,
     },
 };
 use l2_loop_common::ABI_VERSION;
@@ -21,26 +21,42 @@ fn journal_confirmed_cleanup_is_ordered_in_exact_reverse_creation_order() {
     let plan = plan_owned_cleanup(&record, &snapshot);
 
     assert!(plan.retained.is_empty());
+    assert_eq!(plan.operations[0], CleanupOperation::RemoveJournal);
     assert_eq!(
-        plan.operations,
+        plan.operations[1],
+        CleanupOperation::RemoveIfaceConfig(IfaceConfigIdentity {
+            ifindex: 17,
+            generation: 41,
+        })
+    );
+    assert_eq!(
+        plan.operations[2],
+        CleanupOperation::RemoveDependentMapEntries(IfaceConfigIdentity {
+            ifindex: 17,
+            generation: 41,
+        })
+    );
+    let actual_pins = plan
+        .operations
+        .iter()
+        .filter_map(|operation| match operation {
+            CleanupOperation::UnpinMap(pin) => Some(pin.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let expected_pins = record
+        .map_pins
+        .iter()
+        .rev()
+        .map(|pin| PinIdentity {
+            path: pin.path.clone(),
+            map_id: pin.map_id,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(actual_pins, expected_pins);
+    assert_eq!(
+        &plan.operations[plan.operations.len() - 2..],
         [
-            CleanupOperation::RemoveJournal,
-            CleanupOperation::RemoveIfaceConfig(IfaceConfigIdentity {
-                ifindex: 17,
-                generation: 41,
-            }),
-            CleanupOperation::RemoveDependentMapEntries(IfaceConfigIdentity {
-                ifindex: 17,
-                generation: 41,
-            }),
-            CleanupOperation::UnpinMap(PinIdentity {
-                path: pin("HOOK_STATS"),
-                map_id: 302,
-            }),
-            CleanupOperation::UnpinMap(PinIdentity {
-                path: pin("IFACE_CONFIG"),
-                map_id: 301,
-            }),
             CleanupOperation::DetachTc(record.tc[0]),
             CleanupOperation::DetachXdp(record.xdp.unwrap()),
         ]
@@ -121,6 +137,26 @@ fn foreign_pin_paths_are_never_cleanup_candidates() {
     );
 }
 
+#[test]
+fn replaced_pin_is_retained_even_when_an_owned_program_reports_the_new_map_id() {
+    let record = ownership();
+    let mut snapshot = matching_snapshot(&record);
+    snapshot.pins[0].map_id = 999;
+    snapshot.owned_program_map_ids[0].1.push(999);
+
+    let plan = plan_owned_cleanup(&record, &snapshot);
+
+    assert!(!plan.operations.contains(&CleanupOperation::UnpinMap(PinIdentity {
+        path: record.map_pins[0].path.clone(),
+        map_id: 999,
+    })));
+    assert!(
+        plan.retained
+            .iter()
+            .any(|retained| retained.resource.contains("IFACE_CONFIG"))
+    );
+}
+
 fn ownership() -> OwnershipRecord {
     OwnershipRecord {
         schema_version: OWNERSHIP_SCHEMA_VERSION,
@@ -142,7 +178,7 @@ fn ownership() -> OwnershipRecord {
             program_id: 102,
             created_clsact: true,
         }],
-        pin_paths: vec![pin("IFACE_CONFIG"), pin("HOOK_STATS")],
+        map_pins: owned_map_pins(),
         created_at_unix_seconds: 1_754_521_600,
     }
 }
@@ -161,18 +197,27 @@ fn matching_snapshot(record: &OwnershipRecord) -> CleanupSnapshot {
             ifindex: record.ifindex,
             generation: record.generation,
         }),
-        pins: vec![
-            PinIdentity {
-                path: pin("IFACE_CONFIG"),
-                map_id: 301,
-            },
-            PinIdentity {
-                path: pin("HOOK_STATS"),
-                map_id: 302,
-            },
+        pins: record
+            .map_pins
+            .iter()
+            .map(|pin| PinIdentity {
+                path: pin.path.clone(),
+                map_id: pin.map_id,
+            })
+            .collect(),
+        owned_program_map_ids: vec![
+            (101, record.map_pins.iter().map(|pin| pin.map_id).collect()),
+            (102, record.map_pins.iter().map(|pin| pin.map_id).collect()),
         ],
-        owned_program_map_ids: vec![(101, vec![301, 302]), (102, vec![301, 302])],
     }
+}
+
+fn owned_map_pins() -> Vec<OwnedMapPin> {
+    OWNED_MAP_NAMES
+        .iter()
+        .enumerate()
+        .map(|(index, name)| OwnedMapPin::new(*name, pin(name), 301 + index as u32).unwrap())
+        .collect()
 }
 
 fn pin(name: &str) -> PathBuf {
