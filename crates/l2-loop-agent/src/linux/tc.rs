@@ -240,11 +240,7 @@ impl TcError {
         }
     }
 
-    fn mutation(
-        code: &'static str,
-        evidence: impl Into<String>,
-        rollback: TcRollback,
-    ) -> Self {
+    fn mutation(code: &'static str, evidence: impl Into<String>, rollback: TcRollback) -> Self {
         Self {
             code,
             evidence: evidence.into(),
