@@ -7,6 +7,9 @@ use l2_loop_agent::{
         TransactionIsolatedControl,
     },
     linux::{
+        acceptance_fault::{
+            ACCEPTANCE_FAULT_ENV, AcceptanceFault, FaultInjectingMaps, FaultInjectingTc,
+        },
         bpf_object::AyaObjectRuntime,
         inspector::SystemLinuxInspector,
         limits::ProcessResourceLimits,
@@ -29,6 +32,15 @@ async fn main() -> ExitCode {
 }
 
 async fn run() -> Result<(), DaemonError> {
+    let acceptance_fault_value = match std::env::var(ACCEPTANCE_FAULT_ENV) {
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(DaemonError::InvalidAcceptanceFault);
+        }
+    };
+    let acceptance_fault = AcceptanceFault::parse(acceptance_fault_value.as_deref())
+        .map_err(|_| DaemonError::InvalidAcceptanceFault)?;
     let mut terminate = signal(SignalKind::terminate()).map_err(|source| DaemonError::Io {
         operation: "register termination signal",
         source,
@@ -51,8 +63,8 @@ async fn run() -> Result<(), DaemonError> {
         ProcessResourceLimits,
         runtime.loader(),
         SafeXdp::new(RtnetlinkXdpIo),
-        SafeTc::new(RtnetlinkTcIo),
-        runtime.map_publisher(),
+        FaultInjectingTc::new(SafeTc::new(RtnetlinkTcIo), acceptance_fault),
+        FaultInjectingMaps::new(runtime.map_publisher(), acceptance_fault),
         FileOwnershipRepository,
     );
     let dispatcher = DaemonDispatcher::with_isolated_control(

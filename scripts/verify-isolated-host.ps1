@@ -8,7 +8,10 @@ param(
     [int] $FrameCount = 32,
 
     [ValidateRange(30, 600)]
-    [int] $TimeoutSeconds = 180
+    [int] $TimeoutSeconds = 180,
+
+    [ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption')]
+    [string] $Scenario = 'Success'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -169,8 +172,11 @@ host=$4
 peer=$5
 root=$6
 count=$7
+scenario=$8
 journal="/run/l2-loop/tests/$run.json"
 pins="/sys/fs/bpf/l2-loop/test/$run"
+saved_journal="$root/ownership.original.json"
+changed_journal="$root/ownership.changed.json"
 
 fail() { printf '%s\n' "$1" >&2; exit 1; }
 assert_no_symlink() { test ! -L "$1" || fail "owned path is a symbolic link"; }
@@ -181,6 +187,10 @@ assert_generated() {
     test "$root" = "/run/l2-loop/accept/$run" || fail "run root is not generated"
 }
 assert_generated
+case "$scenario" in
+    Success|TcAttachFailure|MapInitializeFailure|DaemonTermination|IdentityChange|TrafficInterruption) ;;
+    *) fail "unknown isolated acceptance scenario" ;;
+esac
 
 snapshot() {
     {
@@ -206,7 +216,7 @@ cleanup_dir() {
     fi
 }
 
-cleanup_state() {
+stop_daemon() {
     if test -f "$root/daemon.pid" && test ! -L "$root/daemon.pid"; then
         pid=$(cat "$root/daemon.pid")
         case "$pid" in *[!0-9]*|'') fail "invalid owned daemon PID" ;; esac
@@ -222,6 +232,10 @@ cleanup_state() {
             kill -0 "$pid" 2>/dev/null && fail "owned daemon did not stop"
         fi
     fi
+}
+
+cleanup_state() {
+    stop_daemon
 
     if ip link show dev "$host" >/dev/null 2>&1; then
         kind=$(ip -j -details link show dev "$host" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0].get("linkinfo",{}).get("info_kind",""))')
@@ -242,6 +256,8 @@ cleanup_state() {
     cleanup_dir "$pins"
     cleanup_file "$journal"
     cleanup_file "$root/counters.json"
+    cleanup_file "$saved_journal"
+    cleanup_file "$changed_journal"
     cleanup_file "$root/daemon.pid"
     cleanup_file "$root/daemon.log"
     cleanup_dir /sys/fs/bpf/l2-loop/test
@@ -264,13 +280,15 @@ cleanup() {
 
 case "$phase" in
     precheck)
-        for command_name in ip python3 sha256sum awk grep mkdir rmdir install chmod readlink kill sleep cat unlink; do
+        for command_name in ip python3 sha256sum awk grep mkdir rmdir install chmod readlink kill sleep cat unlink env mv; do
             command -v "$command_name" >/dev/null || fail "required acceptance command is unavailable"
         done
         test ! -e /run/l2-loop && test ! -L /run/l2-loop || fail "agent runtime root is already occupied"
         test ! -e /sys/fs/bpf/l2-loop && test ! -L /sys/fs/bpf/l2-loop || fail "agent pin root is already occupied"
         test ! -e "$root" && test ! -L "$root" || fail "run root already exists"
         test ! -e "$journal" && test ! -L "$journal" || fail "run journal already exists"
+        test ! -e "$saved_journal" && test ! -L "$saved_journal" || fail "saved journal already exists"
+        test ! -e "$changed_journal" && test ! -L "$changed_journal" || fail "changed journal already exists"
         test ! -e "$pins" && test ! -L "$pins" || fail "run pin root already exists"
         ! ip link show dev "$host" >/dev/null 2>&1 || fail "generated host veth already exists"
         ! ip netns list | awk '{print $1}' | grep -Fqx -- "$ns" || fail "generated namespace already exists"
@@ -298,7 +316,17 @@ case "$phase" in
     launch)
         cd "$root"
         ulimit -l unlimited
-        ./l2-loopd >daemon.log 2>&1 &
+        case "$scenario" in
+            TcAttachFailure)
+                env L2_LOOP_ACCEPTANCE_FAULT=tc-attach ./l2-loopd >daemon.log 2>&1 &
+                ;;
+            MapInitializeFailure)
+                env L2_LOOP_ACCEPTANCE_FAULT=map-initialize ./l2-loopd >daemon.log 2>&1 &
+                ;;
+            *)
+                ./l2-loopd >daemon.log 2>&1 &
+                ;;
+        esac
         printf '%s\n' "$!" >daemon.pid
         tries=0
         while test ! -S /run/l2-loop/agent.sock && test "$tries" -lt 50; do
@@ -309,6 +337,9 @@ case "$phase" in
         ;;
     verify-hooks)
         "$root/l2-loop-hostcheck" 'verify-owned' --journal "$journal" --interface "$host"
+        ;;
+    verify-hooks-saved)
+        "$root/l2-loop-hostcheck" 'verify-owned' --journal "$saved_journal" --interface "$host"
         ;;
     links-up)
         ip link set dev "$host" up
@@ -337,6 +368,45 @@ with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
         channel.send(frame)
 PY
         ;;
+    traffic-interrupt)
+        python3 - "$host" "$count" <<'PY'
+import socket, sys
+interface, count = sys.argv[1], int(sys.argv[2])
+frame = bytes.fromhex("ffffffffffff02000000000388b5") + bytes(46)
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
+    channel.bind((interface, 0))
+    for _ in range(max(1, count // 2)):
+        channel.send(frame)
+raise SystemExit(130)
+PY
+        ;;
+    stop-daemon)
+        stop_daemon
+        ;;
+    alter-journal)
+        test -f "$journal" && test ! -L "$journal" || fail "owned journal is unavailable"
+        test ! -e "$saved_journal" && test ! -L "$saved_journal" || fail "saved journal is occupied"
+        test ! -e "$changed_journal" && test ! -L "$changed_journal" || fail "changed journal is occupied"
+        install -m 0600 "$journal" "$saved_journal"
+        python3 - "$journal" "$changed_journal" <<'PY'
+import json, sys
+source, destination = sys.argv[1:]
+with open(source, "r", encoding="utf-8") as channel:
+    record = json.load(channel)
+record["generation"] = int(record["generation"]) + 1
+with open(destination, "x", encoding="utf-8") as channel:
+    json.dump(record, channel, separators=(",", ":"))
+PY
+        chmod 0600 "$changed_journal"
+        unlink "$journal"
+        mv "$changed_journal" "$journal"
+        ;;
+    restore-journal)
+        test -f "$journal" && test ! -L "$journal" || fail "changed journal is unavailable"
+        test -f "$saved_journal" && test ! -L "$saved_journal" || fail "saved journal is unavailable"
+        unlink "$journal"
+        mv "$saved_journal" "$journal"
+        ;;
     cleanup)
         cleanup
         ;;
@@ -360,7 +430,7 @@ function Invoke-IsolatedRemotePhase {
 
     $Arguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
         'sh', '-s', '--', $Phase, $Names.RunId, $Names.Namespace, $Names.HostVeth,
-        $Names.PeerVeth, $Names.RemoteRunRoot, [string]$FrameCount
+        $Names.PeerVeth, $Names.RemoteRunRoot, [string]$FrameCount, $Scenario
     )
     Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $Arguments -StandardInput $RemoteProgram -TimeoutSeconds $TimeoutSeconds -AllowFailure:$AllowFailure
 }
@@ -484,35 +554,98 @@ try {
         throw 'daemon preflight did not approve the exact isolated veth'
     }
 
+    $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+    $PreparedState = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+
+    $BlockedArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+        "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-attach', '--interface', 'lo', '--run-id', $RunId
+    )
+    $Blocked = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $BlockedArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds -AllowFailure
+    if ($Blocked.ExitCode -ne 4 -or -not $Blocked.Stderr.Contains('PF_LIVE_INTERFACE')) {
+        throw 'non-veth isolated attachment was not blocked before BPF work'
+    }
+
     $AttachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
         "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-attach', '--interface', $Names.HostVeth, '--run-id', $RunId
     )
-    $Attach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $AttachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+    $FaultCode = switch ($Scenario) {
+        'TcAttachFailure' { 'TC_ATTACH_FAILED' }
+        'MapInitializeFailure' { 'MAP_INITIALIZE_FAILED' }
+        default { $null }
+    }
+    $Attach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $AttachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds -AllowFailure:($null -ne $FaultCode)
+
+    if ($null -ne $FaultCode) {
+        if ($Attach.ExitCode -eq 0 -or -not $Attach.Stderr.Contains($FaultCode)) {
+            throw "isolated attach did not fail at the expected bounded stage: $FaultCode"
+        }
+        $AfterFailure = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+        Assert-IsolatedRemoteStateUnchanged -Before $PreparedState -After $AfterFailure
+        $null = Invoke-IsolatedMutation -Phase 'cleanup-state' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+        $AfterState = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+        Assert-IsolatedRemoteStateUnchanged -Before $BeforeState -After $AfterState
+        & $CleanupAction
+        Write-Host "isolated acceptance scenario $Scenario passed for commit $Commit"
+        return
+    }
+
     if ($Attach.Stdout.Trim() -cne 'accepted') { throw 'isolated attach was not acknowledged' }
     $null = Invoke-IsolatedRemotePhase -Phase 'verify-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
 
-    $BeforeCounters = Convert-Counters -Text (Invoke-IsolatedRemotePhase -Phase 'counters' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds).Stdout
-    $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
-    $null = Invoke-IsolatedMutation -Phase 'traffic' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
-    $AfterCounters = Convert-Counters -Text (Invoke-IsolatedRemotePhase -Phase 'counters' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds).Stdout
-    foreach ($Role in @(1, 2)) {
-        if ($AfterCounters[$Role].Packets -lt ($BeforeCounters[$Role].Packets + $FrameCount) -or
-            $AfterCounters[$Role].Bytes -le $BeforeCounters[$Role].Bytes) {
-            throw "isolated hook role $Role did not count the bounded test traffic"
+    $Detached = $false
+    switch ($Scenario) {
+        'Success' {
+            $BeforeCounters = Convert-Counters -Text (Invoke-IsolatedRemotePhase -Phase 'counters' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds).Stdout
+            $null = Invoke-IsolatedMutation -Phase 'traffic' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $AfterCounters = Convert-Counters -Text (Invoke-IsolatedRemotePhase -Phase 'counters' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds).Stdout
+            foreach ($Role in @(1, 2)) {
+                if ($AfterCounters[$Role].Packets -lt ($BeforeCounters[$Role].Packets + $FrameCount) -or
+                    $AfterCounters[$Role].Bytes -le $BeforeCounters[$Role].Bytes) {
+                    throw "isolated hook role $Role did not count the bounded test traffic"
+                }
+            }
+        }
+        'DaemonTermination' {
+            $null = Invoke-IsolatedMutation -Phase 'stop-daemon' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $AfterTermination = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            Assert-IsolatedRemoteStateUnchanged -Before $PreparedState -After $AfterTermination
+            $null = Invoke-IsolatedMutation -Phase 'traffic' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $Detached = $true
+        }
+        'IdentityChange' {
+            $null = Invoke-IsolatedMutation -Phase 'alter-journal' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $DetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+                "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-detach', '--run-id', $RunId
+            )
+            $Mismatch = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $DetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds -AllowFailure
+            if ($Mismatch.ExitCode -ne 4 -or -not $Mismatch.Stderr.Contains('PF_OWNERSHIP_MISMATCH')) {
+                throw 'identity-changed detach did not require manual review'
+            }
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-hooks-saved' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedMutation -Phase 'restore-journal' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+        }
+        'TrafficInterruption' {
+            $Interrupted = Invoke-IsolatedRemotePhase -Phase 'traffic-interrupt' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds -AllowFailure
+            if ($Interrupted.ExitCode -eq 0) {
+                throw 'bounded traffic sender was not interrupted'
+            }
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
         }
     }
 
-    $DetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
-        "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-detach', '--run-id', $RunId
-    )
-    $Detach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $DetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
-    if ($Detach.Stdout.Trim() -cne 'accepted') { throw 'isolated detach was not acknowledged' }
+    if (-not $Detached) {
+        $DetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+            "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-detach', '--run-id', $RunId
+        )
+        $Detach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $DetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+        if ($Detach.Stdout.Trim() -cne 'accepted') { throw 'isolated detach was not acknowledged' }
+    }
 
     $null = Invoke-IsolatedMutation -Phase 'cleanup-state' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
     $AfterState = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
     Assert-IsolatedRemoteStateUnchanged -Before $BeforeState -After $AfterState
     & $CleanupAction
-    Write-Host "isolated acceptance passed for commit $Commit"
+    Write-Host "isolated acceptance scenario $Scenario passed for commit $Commit"
 }
 finally {
     try { & $CleanupAction } finally {

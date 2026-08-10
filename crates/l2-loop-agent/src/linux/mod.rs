@@ -1,6 +1,7 @@
 //! Pure Linux snapshot parsing used by the read-only preflight inspector.
 
 pub mod bond;
+pub mod acceptance_fault;
 pub mod bpf_inventory;
 pub mod bpf_object;
 pub mod cleanup;

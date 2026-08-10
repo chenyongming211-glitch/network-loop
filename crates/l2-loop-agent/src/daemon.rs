@@ -302,6 +302,8 @@ pub enum DaemonError {
     SocketInUse,
     #[error("exact isolated cleanup failed during daemon shutdown")]
     IsolatedCleanup,
+    #[error("isolated acceptance fault configuration is invalid")]
+    InvalidAcceptanceFault,
     #[error("control socket operation failed: {operation}")]
     Io {
         operation: &'static str,
