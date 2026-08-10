@@ -4,6 +4,8 @@ use l2_loop_core::{HookRole, InterfaceName, PolicyRequest, PreflightReport, Prob
 use thiserror::Error;
 
 #[cfg(target_os = "linux")]
+use l2_loop_core::{HookObservation, OBSERVED_HOOK_COUNT, VlanVisibility};
+#[cfg(target_os = "linux")]
 use crate::{
     linux::{tc::LoadedTc, xdp::LoadedXdp},
     ownership::{
@@ -109,6 +111,20 @@ pub trait EvidenceStore {
 pub trait Clock {
     fn monotonic_ns(&self) -> u64;
     fn wall_time(&self) -> SystemTime;
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawObservation {
+    pub ifindex: u32,
+    pub generation: u64,
+    pub vlan_visibility: VlanVisibility,
+    pub hooks: [HookObservation; OBSERVED_HOOK_COUNT],
+}
+
+#[cfg(target_os = "linux")]
+pub trait ObservationReader: Send {
+    fn read_exact(&mut self, ownership: &OwnershipRecord) -> Result<RawObservation, PortError>;
 }
 
 #[cfg(target_os = "linux")]
