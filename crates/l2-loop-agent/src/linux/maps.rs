@@ -211,3 +211,24 @@ fn lock_error<T>(_: std::sync::PoisonError<T>) -> PortError {
 fn adapter(message: impl Into<String>) -> PortError {
     PortError::Adapter(message.into())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::stats_keys;
+    use l2_loop_common::{StatsKey, hook_role};
+
+    #[test]
+    fn observation_key_set_is_initialized_and_removed_exactly() {
+        let xdp = StatsKey::observation_keys(7, 41, hook_role::EXTERNAL_XDP_INGRESS);
+        let tc = StatsKey::observation_keys(7, 41, hook_role::PHYSICAL_TC_EGRESS);
+        let expected = xdp.into_iter().chain(tc).collect::<Vec<_>>();
+        let actual = stats_keys(41, 7).into_iter().collect::<Vec<_>>();
+
+        assert_eq!(expected.len(), 16);
+        assert_eq!(actual, expected);
+        assert_eq!(
+            stats_keys(41, 7).into_iter().rev().collect::<Vec<_>>(),
+            expected.into_iter().rev().collect::<Vec<_>>(),
+        );
+    }
+}

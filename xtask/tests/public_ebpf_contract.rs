@@ -64,3 +64,36 @@ fn accounting_uses_one_bounded_total_counter_key() {
     assert!(!PROGRAM_SOURCE.contains("XDP_DROP"));
     assert!(!PROGRAM_SOURCE.contains("TC_ACT_SHOT"));
 }
+
+#[test]
+fn accounting_classifies_a_bounded_frame_and_promotes_vlan_visibility() {
+    for required in [
+        "parse_l2",
+        "StatsKey::classified(",
+        "StatsKey::parse_error(",
+        "vlan_visibility::VERIFIED_VISIBLE",
+        "xdp_action::XDP_PASS",
+        "TC_ACT_OK",
+    ] {
+        assert!(
+            PROGRAM_SOURCE.contains(required),
+            "missing passive accounting marker: {required}"
+        );
+    }
+}
+
+#[test]
+fn passive_programs_exclude_policy_probe_and_drop_paths() {
+    for prohibited in [
+        "RATE_POLICY",
+        "PROBE_REGISTRY",
+        "PROBE_STATS",
+        "XDP_DROP",
+        "TC_ACT_SHOT",
+    ] {
+        assert!(
+            !PROGRAM_SOURCE.contains(prohibited),
+            "passive program contains prohibited marker: {prohibited}"
+        );
+    }
+}
