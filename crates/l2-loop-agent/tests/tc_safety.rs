@@ -222,7 +222,7 @@ fn query_error_blocks_as_unknown_before_mutation() {
 }
 
 #[test]
-fn clsact_is_created_only_when_absent_and_is_never_removed() {
+fn clsact_created_by_the_transaction_is_removed_after_exact_detach() {
     let expected = owned_tc(17, TcHook::Egress, TC_PRIORITY_FIRST, TC_EGRESS_HANDLE, 101);
     let io = FakeTcIo::with_queries([
         Ok(TcInventory::empty(TcClsactState::Absent)),
@@ -230,14 +230,18 @@ fn clsact_is_created_only_when_absent_and_is_never_removed() {
             TcClsactState::Present,
             TcFilterSlot::Bpf(expected.into()),
         )),
+        Ok(TcInventory::only(
+            TcClsactState::Present,
+            TcFilterSlot::Bpf(expected.into()),
+        )),
     ]);
     let calls = io.calls.clone();
 
-    let attached = SafeTc::new(io)
-        .attach(17, TcHook::Egress, loaded())
-        .unwrap();
+    let mut safe = SafeTc::new(io);
+    let attached = safe.attach(17, TcHook::Egress, loaded()).unwrap();
 
     assert!(attached.created_clsact);
+    assert_eq!(safe.detach(&attached).unwrap(), TcDetachOutcome::Detached);
     assert_eq!(
         calls.borrow().as_slice(),
         [
@@ -251,6 +255,9 @@ fn clsact_is_created_only_when_absent_and_is_never_removed() {
                 program_fd: 7,
             },
             Call::Query(17),
+            Call::Query(17),
+            Call::Detach(expected.into()),
+            Call::RemoveClsactIfEmpty(17),
         ]
     );
 }
@@ -269,14 +276,41 @@ fn clsact_creation_failure_has_a_stable_stage_code() {
 
 #[test]
 fn filter_creation_failure_has_a_stable_stage_code() {
-    let mut io = FakeTcIo::with_queries([Ok(TcInventory::empty(TcClsactState::Present))]);
+    let mut io = FakeTcIo::with_queries([Ok(TcInventory::empty(TcClsactState::Absent))]);
     io.attach_result = Err(TcIoError::Failed("injected filter failure".into()));
+    let calls = io.calls.clone();
 
     let error = SafeTc::new(io)
         .attach(17, TcHook::Egress, loaded())
         .unwrap_err();
 
     assert_eq!(error.code(), "TC_FILTER_CREATE_FAILED");
+    assert_eq!(error.rollback(), Some(TcRollback::Completed));
+    assert_eq!(calls.borrow().last(), Some(&Call::RemoveClsactIfEmpty(17)));
+}
+
+#[test]
+fn a_changed_or_nonempty_owned_clsact_is_retained_for_manual_review() {
+    let mut owned = owned_tc(17, TcHook::Egress, TC_PRIORITY_FIRST, TC_EGRESS_HANDLE, 101);
+    owned.created_clsact = true;
+    let mut io = FakeTcIo::with_queries([Ok(TcInventory::only(
+        TcClsactState::Present,
+        TcFilterSlot::Bpf(owned.into()),
+    ))]);
+    io.clsact_remove_result = Err(TcIoError::IdentityMismatch);
+    let calls = io.calls.clone();
+
+    let error = SafeTc::new(io).detach(&owned).unwrap_err();
+
+    assert_eq!(error.code(), "TC_CLSACT_REMOVE_FAILED");
+    assert_eq!(
+        calls.borrow().as_slice(),
+        [
+            Call::Query(17),
+            Call::Detach(owned.into()),
+            Call::RemoveClsactIfEmpty(17),
+        ]
+    );
 }
 
 #[test]
@@ -454,6 +488,7 @@ enum Call {
         program_fd: i32,
     },
     Detach(TcKernelIdentity),
+    RemoveClsactIfEmpty(u32),
 }
 
 struct FakeTcIo {
@@ -461,6 +496,7 @@ struct FakeTcIo {
     clsact_result: Result<(), TcIoError>,
     attach_result: Result<(), TcIoError>,
     detach_result: Result<(), TcIoError>,
+    clsact_remove_result: Result<(), TcIoError>,
     calls: std::rc::Rc<std::cell::RefCell<Vec<Call>>>,
 }
 
@@ -471,6 +507,7 @@ impl FakeTcIo {
             clsact_result: Ok(()),
             attach_result: Ok(()),
             detach_result: Ok(()),
+            clsact_remove_result: Ok(()),
             calls: Default::default(),
         }
     }
