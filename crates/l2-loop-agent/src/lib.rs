@@ -9,9 +9,9 @@ pub mod host_acceptance;
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "linux")]
-pub mod ownership;
-#[cfg(target_os = "linux")]
 mod observation;
+#[cfg(target_os = "linux")]
+pub mod ownership;
 mod ports;
 mod preflight;
 pub mod protocol;

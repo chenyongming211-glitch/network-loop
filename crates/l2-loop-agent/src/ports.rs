@@ -4,14 +4,14 @@ use l2_loop_core::{HookRole, InterfaceName, PolicyRequest, PreflightReport, Prob
 use thiserror::Error;
 
 #[cfg(target_os = "linux")]
-use l2_loop_core::{HookObservation, OBSERVED_HOOK_COUNT, VlanVisibility};
-#[cfg(target_os = "linux")]
 use crate::{
     linux::{tc::LoadedTc, xdp::LoadedXdp},
     ownership::{
         OwnedMapPin, OwnedTc, OwnedXdp, OwnershipRecord, TcHook, TestPinRoot, XdpAttachMode,
     },
 };
+#[cfg(target_os = "linux")]
+use l2_loop_core::{HookObservation, OBSERVED_HOOK_COUNT, VlanVisibility};
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum PortError {
