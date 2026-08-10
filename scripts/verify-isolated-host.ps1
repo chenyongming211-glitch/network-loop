@@ -464,6 +464,30 @@ function Assert-IsolatedRemoteStateUnchanged {
     }
 }
 
+function Wait-IsolatedRemoteState {
+    param(
+        [Parameter(Mandatory)] [string] $Expected,
+        [Parameter(Mandatory)] $Names,
+        [Parameter(Mandatory)] [string] $Target,
+        [Parameter(Mandatory)] [string] $KeyPath,
+        [Parameter(Mandatory)] [int] $TimeoutSeconds,
+        [ValidateRange(1, 5)] [int] $MaxAttempts = 5,
+        [ValidateRange(10, 100)] [int] $DelayMilliseconds = 100
+    )
+
+    $Current = ''
+    for ($Attempt = 1; $Attempt -le $MaxAttempts; $Attempt++) {
+        $Current = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+        if ($Expected -ceq $Current) {
+            return
+        }
+        if ($Attempt -lt $MaxAttempts) {
+            Start-Sleep -Milliseconds $DelayMilliseconds
+        }
+    }
+    Assert-IsolatedRemoteStateUnchanged -Before $Expected -After $Current
+}
+
 function Invoke-IsolatedMutation {
     param(
         [Parameter(Mandatory)] [string] $Phase,
@@ -585,11 +609,9 @@ try {
         if ($Attach.ExitCode -eq 0 -or -not $Attach.Stderr.Contains($FaultCode)) {
             throw "isolated attach did not fail at the expected bounded stage: $FaultCode"
         }
-        $AfterFailure = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
-        Assert-IsolatedRemoteStateUnchanged -Before $PreparedState -After $AfterFailure
+        Wait-IsolatedRemoteState -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
         $null = Invoke-IsolatedMutation -Phase 'cleanup-state' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
-        $AfterState = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
-        Assert-IsolatedRemoteStateUnchanged -Before $BeforeState -After $AfterState
+        Wait-IsolatedRemoteState -Expected $BeforeState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
         & $CleanupAction
         Write-Host "isolated acceptance scenario $Scenario passed for commit $Commit"
         return
@@ -616,8 +638,7 @@ try {
             $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $null = Invoke-IsolatedMutation -Phase 'stop-daemon' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $null = Invoke-IsolatedMutation -Phase 'links-down' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
-            $AfterTermination = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
-            Assert-IsolatedRemoteStateUnchanged -Before $PreparedState -After $AfterTermination
+            Wait-IsolatedRemoteState -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
             $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $null = Invoke-IsolatedMutation -Phase 'traffic' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $Detached = $true
@@ -653,8 +674,7 @@ try {
     }
 
     $null = Invoke-IsolatedMutation -Phase 'cleanup-state' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
-    $AfterState = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
-    Assert-IsolatedRemoteStateUnchanged -Before $BeforeState -After $AfterState
+    Wait-IsolatedRemoteState -Expected $BeforeState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
     & $CleanupAction
     Write-Host "isolated acceptance scenario $Scenario passed for commit $Commit"
 }
