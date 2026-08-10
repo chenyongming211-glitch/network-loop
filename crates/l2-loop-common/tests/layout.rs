@@ -57,3 +57,98 @@ fn total_hook_counter_key_uses_only_bounded_aggregate_dimensions() {
     assert_eq!(key.verdict, verdict::PASS);
     assert_eq!(key.reason, observation_reason::NONE);
 }
+
+#[test]
+fn observation_keys_are_fixed_ordered_and_generation_scoped() {
+    let keys = StatsKey::observation_keys(9, 41, hook_role::EXTERNAL_XDP_INGRESS);
+
+    assert_eq!(keys.len(), 8);
+    assert!(
+        keys.iter().all(|key| key.interface_generation == 9
+            && key.ifindex == 41
+            && key.hook_role == hook_role::EXTERNAL_XDP_INGRESS)
+    );
+    assert_eq!(
+        keys[0],
+        StatsKey::total(9, 41, hook_role::EXTERNAL_XDP_INGRESS)
+    );
+    assert_eq!(
+        keys[1],
+        StatsKey::classified(
+            9,
+            41,
+            hook_role::EXTERNAL_XDP_INGRESS,
+            traffic_class::L2_BROADCAST,
+        )
+    );
+    assert_eq!(
+        keys[2],
+        StatsKey::classified(
+            9,
+            41,
+            hook_role::EXTERNAL_XDP_INGRESS,
+            traffic_class::IPV4_MULTICAST,
+        )
+    );
+    assert_eq!(
+        keys[3],
+        StatsKey::classified(
+            9,
+            41,
+            hook_role::EXTERNAL_XDP_INGRESS,
+            traffic_class::IPV6_MULTICAST,
+        )
+    );
+    assert_eq!(
+        keys[4],
+        StatsKey::classified(
+            9,
+            41,
+            hook_role::EXTERNAL_XDP_INGRESS,
+            traffic_class::OTHER_L2_MULTICAST,
+        )
+    );
+    assert_eq!(
+        keys[5],
+        StatsKey::classified(
+            9,
+            41,
+            hook_role::EXTERNAL_XDP_INGRESS,
+            traffic_class::LINK_LOCAL_CONTROL,
+        )
+    );
+    assert_eq!(
+        keys[6],
+        StatsKey::classified(
+            9,
+            41,
+            hook_role::EXTERNAL_XDP_INGRESS,
+            traffic_class::UNICAST_OR_UNCLASSIFIED,
+        )
+    );
+    assert_eq!(
+        keys[7],
+        StatsKey::parse_error(9, 41, hook_role::EXTERNAL_XDP_INGRESS)
+    );
+}
+
+#[test]
+fn classified_and_parse_error_keys_use_the_approved_dimensions() {
+    let classified = StatsKey::classified(
+        7,
+        11,
+        hook_role::PHYSICAL_TC_EGRESS,
+        traffic_class::IPV6_MULTICAST,
+    );
+    assert_eq!(classified.traffic_class, traffic_class::IPV6_MULTICAST);
+    assert_eq!(classified.verdict, verdict::PASS);
+    assert_eq!(classified.reason, observation_reason::NONE);
+
+    let parse_error = StatsKey::parse_error(7, 11, hook_role::PHYSICAL_TC_EGRESS);
+    assert_eq!(
+        parse_error.traffic_class,
+        traffic_class::UNICAST_OR_UNCLASSIFIED
+    );
+    assert_eq!(parse_error.verdict, verdict::ERROR_PASS);
+    assert_eq!(parse_error.reason, observation_reason::PARSE_ERROR);
+}
