@@ -99,6 +99,11 @@ foreach ($Required in @(
     'Test-IsolatedRemoteState',
     'Assert-IsolatedRemoteStateUnchanged',
     'Wait-IsolatedRemoteState',
+    "[ValidateSet('snapshot', 'snapshot-prepared')] [string] `$Phase = 'snapshot'",
+    "snapshot_prepared()",
+    "snapshot-prepared)",
+    "sum(1 for item in value if item.get(\"ifname\") == excluded) != 1",
+    "item for item in value if item.get(\"ifname\") != excluded",
     '[ValidateRange(1, 5)] [int] $MaxAttempts = 5',
     '[ValidateRange(10, 100)] [int] $DelayMilliseconds = 100',
     "Start-Sleep -Milliseconds `$DelayMilliseconds",
@@ -131,6 +136,11 @@ Assert-True (($Harness.Split('Wait-IsolatedRemoteState').Count - 1) -ge 5) 'boun
 $PreparedMarker = '$PreparedState = Test-IsolatedRemoteState'
 $LinksUpMarker = '$null = Invoke-IsolatedMutation -Phase ''links-up'''
 Assert-True ($Harness.IndexOf($PreparedMarker) -ge 0 -and $Harness.IndexOf($PreparedMarker) -lt $Harness.IndexOf($LinksUpMarker)) 'generated veth is raised before the transaction completes isolated attach'
+Assert-True ($Harness.Contains("`$PreparedState = Test-IsolatedRemoteState -Phase 'snapshot-prepared'")) 'prepared state includes the generated veth volatile link record'
+Assert-True (($Harness.Split("Wait-IsolatedRemoteState -Phase 'snapshot-prepared'").Count - 1) -ge 2) 'transaction rollback boundaries do not use the prepared-state snapshot'
+Assert-True (($Harness.Split("Test-IsolatedRemoteState -Phase 'snapshot-prepared'").Count - 1) -eq 1) 'prepared-state filtering is not limited to the generated transaction snapshot'
+Assert-True (($Harness.Split('$BeforeState = Test-IsolatedRemoteState -Names').Count - 1) -eq 1) 'full host snapshot is not captured before isolated mutation'
+Assert-True (($Harness.Split('Wait-IsolatedRemoteState -Expected $BeforeState').Count - 1) -ge 2) 'full host state is not verified after cleanup paths'
 Assert-True (-not $Harness.Contains("prepare-pins")) 'harness creates the transaction-owned pin parents'
 Assert-True ($Harness.IndexOf('ulimit -l unlimited') -ge 0 -and $Harness.IndexOf('ulimit -l unlimited') -lt $Harness.IndexOf('./l2-loopd')) 'daemon is launched before the isolated child memlock limit is raised'
 Assert-True ($Workflow.Contains('script-tests:')) 'CI script-tests job is missing'
