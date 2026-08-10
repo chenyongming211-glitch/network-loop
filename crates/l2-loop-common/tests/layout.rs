@@ -63,11 +63,9 @@ fn observation_keys_are_fixed_ordered_and_generation_scoped() {
     let keys = StatsKey::observation_keys(9, 41, hook_role::EXTERNAL_XDP_INGRESS);
 
     assert_eq!(keys.len(), 8);
-    assert!(
-        keys.iter().all(|key| key.interface_generation == 9
-            && key.ifindex == 41
-            && key.hook_role == hook_role::EXTERNAL_XDP_INGRESS)
-    );
+    assert!(keys.iter().all(|key| key.interface_generation == 9
+        && key.ifindex == 41
+        && key.hook_role == hook_role::EXTERNAL_XDP_INGRESS));
     assert_eq!(
         keys[0],
         StatsKey::total(9, 41, hook_role::EXTERNAL_XDP_INGRESS)

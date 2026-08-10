@@ -97,24 +97,12 @@ fn classification_priority_and_link_local_boundaries_are_exact() {
 
 #[test]
 fn parses_one_supported_vlan_header_and_extracts_only_the_vlan_id() {
-    let dot1q = parse_l2(&tagged(
-        [0x33, 0x33, 0, 0, 0, 1],
-        0x8100,
-        0xa07b,
-        0x86dd,
-    ))
-    .unwrap();
+    let dot1q = parse_l2(&tagged([0x33, 0x33, 0, 0, 0, 1], 0x8100, 0xa07b, 0x86dd)).unwrap();
     assert_eq!(dot1q.outer_vlan_id, Some(123));
     assert_eq!(dot1q.traffic_class, traffic_class::IPV6_MULTICAST);
     assert!(!dot1q.nested_vlan);
 
-    let dot1ad = parse_l2(&tagged(
-        [0x01, 0, 0x5e, 0, 0, 1],
-        0x88a8,
-        0xf007,
-        0x0800,
-    ))
-    .unwrap();
+    let dot1ad = parse_l2(&tagged([0x01, 0, 0x5e, 0, 0, 1], 0x88a8, 0xf007, 0x0800)).unwrap();
     assert_eq!(dot1ad.outer_vlan_id, Some(7));
     assert_eq!(dot1ad.traffic_class, traffic_class::IPV4_MULTICAST);
     assert!(!dot1ad.nested_vlan);
@@ -128,10 +116,7 @@ fn bounds_nested_vlan_and_degrades_by_destination_only() {
             [0x01, 0x80, 0xc2, 0, 0, 0x0f],
             traffic_class::LINK_LOCAL_CONTROL,
         ),
-        (
-            [0x33, 0x33, 0, 0, 0, 1],
-            traffic_class::OTHER_L2_MULTICAST,
-        ),
+        ([0x33, 0x33, 0, 0, 0, 1], traffic_class::OTHER_L2_MULTICAST),
         (
             [0x02, 0, 0, 0, 0, 2],
             traffic_class::UNICAST_OR_UNCLASSIFIED,
