@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{InterfaceName, PolicyRequest, PreflightReport, ProbeRequest};
+use crate::{
+    InterfaceName, ObservationCounters, ObservationHealth, ObservationSnapshot, PolicyRequest,
+    PreflightReport, ProbeRequest, VlanVisibility,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -45,6 +48,7 @@ pub enum AgentCommand {
 pub enum AgentResult {
     Preflight { report: PreflightReport },
     Accepted,
+    Observation { snapshot: ObservationSnapshot },
     Status { interfaces: Vec<InterfaceStatus> },
     Probe { returned_frames: u64 },
     PolicyApplied { rule_id: String },
@@ -57,4 +61,10 @@ pub enum AgentResult {
 pub struct InterfaceStatus {
     pub interface: InterfaceName,
     pub state: crate::InterfaceState,
+    pub generation: u64,
+    pub captured_at_unix_ms: u64,
+    pub health: ObservationHealth,
+    pub vlan_visibility: VlanVisibility,
+    pub xdp_ingress: ObservationCounters,
+    pub tc_egress: ObservationCounters,
 }

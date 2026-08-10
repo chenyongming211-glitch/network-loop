@@ -8,6 +8,8 @@ pub enum DomainError {
     InvalidInterfaceName,
     #[error("generation must be non-zero")]
     InvalidGeneration,
+    #[error("invalid observation: {0}")]
+    InvalidObservation(&'static str),
     #[error("VLAN must be in the range 1-4094, got {0}")]
     InvalidVlan(u16),
     #[error("invalid interface lifecycle transition from {from} to {to}")]
