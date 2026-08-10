@@ -111,7 +111,7 @@ function Get-ExactGreenBundle {
         '--json', 'databaseId,conclusion,headSha'
     ) -TimeoutSeconds 60
     $Run = @($RunQuery.Stdout | ConvertFrom-Json) |
-        Where-Object { $_.headSha -ceq $Commit -and $_.conclusion -ceq 'success' } |
+        Where-Object { $null -ne $_ -and $_.headSha -ceq $Commit -and $_.conclusion -ceq 'success' } |
         Select-Object -First 1
     if ($null -eq $Run) {
         throw 'the exact commit does not have a successful GitHub Actions run'
