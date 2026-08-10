@@ -94,8 +94,7 @@ where
                 "authorized isolated failure before map initialization".to_owned(),
             ));
         }
-        self.inner
-            .initialize_dependent(loaded, ifindex, generation)
+        self.inner.initialize_dependent(loaded, ifindex, generation)
     }
 
     fn publish_iface_config(
@@ -104,8 +103,7 @@ where
         ifindex: u32,
         generation: u64,
     ) -> Result<(), PortError> {
-        self.inner
-            .publish_iface_config(loaded, ifindex, generation)
+        self.inner.publish_iface_config(loaded, ifindex, generation)
     }
 
     fn rollback_initialized_exact(
