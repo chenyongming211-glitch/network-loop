@@ -352,9 +352,6 @@ case "$phase" in
     verify-hooks)
         "$root/l2-loop-hostcheck" 'verify-owned' --journal "$journal" --interface "$host"
         ;;
-    verify-hooks-saved)
-        "$root/l2-loop-hostcheck" 'verify-owned' --journal "$saved_journal" --interface "$host"
-        ;;
     links-up)
         ip link set dev "$host" up
         ip netns exec "$ns" ip link set dev "$peer" up
@@ -665,8 +662,8 @@ try {
             if ($Mismatch.ExitCode -ne 4 -or -not $Mismatch.Stderr.Contains('PF_OWNERSHIP_MISMATCH')) {
                 throw 'identity-changed detach did not require manual review'
             }
-            $null = Invoke-IsolatedRemotePhase -Phase 'verify-hooks-saved' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $null = Invoke-IsolatedMutation -Phase 'restore-journal' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
         }
         'TrafficInterruption' {
             $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
