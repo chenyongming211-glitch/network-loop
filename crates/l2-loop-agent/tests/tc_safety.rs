@@ -314,6 +314,23 @@ fn a_changed_or_nonempty_owned_clsact_is_retained_for_manual_review() {
 }
 
 #[test]
+fn detach_retry_removes_an_empty_transaction_created_clsact() {
+    let mut owned = owned_tc(17, TcHook::Egress, TC_PRIORITY_FIRST, TC_EGRESS_HANDLE, 101);
+    owned.created_clsact = true;
+    let io = FakeTcIo::with_queries([Ok(TcInventory::empty(TcClsactState::Present))]);
+    let calls = io.calls.clone();
+
+    assert_eq!(
+        SafeTc::new(io).detach(&owned).unwrap(),
+        TcDetachOutcome::AlreadyAbsent
+    );
+    assert_eq!(
+        calls.borrow().as_slice(),
+        [Call::Query(17), Call::RemoveClsactIfEmpty(17)]
+    );
+}
+
+#[test]
 fn eexist_is_one_filter_attempt_and_never_retried() {
     let mut io = FakeTcIo::with_queries([Ok(TcInventory::empty(TcClsactState::Present))]);
     io.attach_result = Err(TcIoError::Exists);
@@ -545,5 +562,12 @@ impl TcIo for FakeTcIo {
     fn detach_exact(&mut self, identity: TcKernelIdentity) -> Result<(), TcIoError> {
         self.calls.borrow_mut().push(Call::Detach(identity));
         self.detach_result.clone()
+    }
+
+    fn remove_clsact_if_empty_exact(&mut self, ifindex: u32) -> Result<(), TcIoError> {
+        self.calls
+            .borrow_mut()
+            .push(Call::RemoveClsactIfEmpty(ifindex));
+        self.clsact_remove_result.clone()
     }
 }

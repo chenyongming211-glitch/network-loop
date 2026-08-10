@@ -27,6 +27,7 @@ const TC_CLSACT_CREATE_FAILED: &str = "TC_CLSACT_CREATE_FAILED";
 const TC_FILTER_CREATE_FAILED: &str = "TC_FILTER_CREATE_FAILED";
 const TC_VERIFY_FAILED: &str = "TC_VERIFY_FAILED";
 const TC_DETACH_FAILED: &str = "TC_DETACH_FAILED";
+const TC_CLSACT_REMOVE_FAILED: &str = "TC_CLSACT_REMOVE_FAILED";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LoadedTc {
@@ -185,6 +186,7 @@ pub trait TcIo {
         program_fd: RawFd,
     ) -> Result<(), TcIoError>;
     fn detach_exact(&mut self, identity: TcKernelIdentity) -> Result<(), TcIoError>;
+    fn remove_clsact_if_empty_exact(&mut self, ifindex: u32) -> Result<(), TcIoError>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,6 +239,18 @@ impl TcError {
             rollback: Some(rollback),
         }
     }
+
+    fn mutation(
+        code: &'static str,
+        evidence: impl Into<String>,
+        rollback: TcRollback,
+    ) -> Self {
+        Self {
+            code,
+            evidence: evidence.into(),
+            rollback: Some(rollback),
+        }
+    }
 }
 
 pub struct SafeTc<I> {
@@ -285,14 +299,19 @@ impl<I: TcIo> SafeTc<I> {
         {
             Ok(()) => {}
             Err(TcIoError::Exists) => {
-                return Err(occupied(
+                return Err(self.attach_failure(
+                    PF_TC_HANDLE_COLLISION,
                     "exclusive TC filter creation found an occupied slot",
+                    ifindex,
+                    created_clsact,
                 ));
             }
             Err(TcIoError::IdentityMismatch | TcIoError::Failed(_)) => {
-                return Err(TcError::new(
+                return Err(self.attach_failure(
                     TC_FILTER_CREATE_FAILED,
                     "exclusive TC filter creation failed",
+                    ifindex,
+                    created_clsact,
                 ));
             }
         }
@@ -321,6 +340,7 @@ impl<I: TcIo> SafeTc<I> {
         let expected = TcKernelIdentity::from(owned);
         let rollback = if after.has_exact(expected) {
             match self.io.detach_exact(expected) {
+                Ok(()) if created_clsact => self.remove_created_clsact(ifindex),
                 Ok(()) => TcRollback::Completed,
                 Err(_) => TcRollback::Failed,
             }
@@ -338,17 +358,39 @@ impl<I: TcIo> SafeTc<I> {
     pub fn detach(&mut self, owned: &OwnedTc) -> Result<TcDetachOutcome, TcError> {
         let current = self.query_or_unknown(owned.ifindex)?;
         match classify_inventory(&current, owned.hook, Some(owned)) {
-            TcState::Empty { .. } => Ok(TcDetachOutcome::AlreadyAbsent),
-            TcState::Owned => self
-                .io
-                .detach_exact((*owned).into())
-                .map(|()| TcDetachOutcome::Detached)
-                .map_err(|_| {
+            TcState::Empty { .. } => {
+                if owned.created_clsact
+                    && self.remove_created_clsact(owned.ifindex) != TcRollback::Completed
+                {
+                    return Err(TcError::new(
+                        TC_CLSACT_REMOVE_FAILED,
+                        "transaction-created clsact was retained after its filter disappeared",
+                    ));
+                }
+                Ok(TcDetachOutcome::AlreadyAbsent)
+            }
+            TcState::Owned => {
+                self.io.detach_exact((*owned).into()).map_err(|_| {
                     TcError::new(
                         TC_DETACH_FAILED,
                         "exact owned TC detach failed without broad cleanup",
                     )
-                }),
+                })?;
+                if owned.created_clsact {
+                    match self.remove_created_clsact(owned.ifindex) {
+                        TcRollback::Completed => {}
+                        TcRollback::Failed
+                        | TcRollback::RetainedIdentityMismatch
+                        | TcRollback::RetainedUnknownState => {
+                            return Err(TcError::new(
+                                TC_CLSACT_REMOVE_FAILED,
+                                "transaction-created clsact was retained after exact filter detach",
+                            ));
+                        }
+                    }
+                }
+                Ok(TcDetachOutcome::Detached)
+            }
             TcState::Foreign => Ok(TcDetachOutcome::RetainedIdentityMismatch),
             TcState::Unknown => Err(unknown_state()),
         }
@@ -368,6 +410,30 @@ impl<I: TcIo> SafeTc<I> {
 
     fn query_or_unknown(&mut self, ifindex: u32) -> Result<TcInventory, TcError> {
         self.io.query(ifindex).map_err(|_| unknown_state())
+    }
+
+    fn attach_failure(
+        &mut self,
+        code: &'static str,
+        evidence: &'static str,
+        ifindex: u32,
+        created_clsact: bool,
+    ) -> TcError {
+        if created_clsact {
+            TcError::mutation(code, evidence, self.remove_created_clsact(ifindex))
+        } else {
+            TcError::new(code, evidence)
+        }
+    }
+
+    fn remove_created_clsact(&mut self, ifindex: u32) -> TcRollback {
+        match self.io.remove_clsact_if_empty_exact(ifindex) {
+            Ok(()) => TcRollback::Completed,
+            Err(TcIoError::Exists | TcIoError::IdentityMismatch) => {
+                TcRollback::RetainedIdentityMismatch
+            }
+            Err(TcIoError::Failed(_)) => TcRollback::Failed,
+        }
     }
 }
 
@@ -538,6 +604,20 @@ impl TcIo for RtnetlinkTcIo {
             }
             send_request(
                 TcRequest::DeleteFilter(encode_detach_request(identity)),
+                NLM_F_REQUEST | NLM_F_ACK,
+            )
+            .await
+        })
+    }
+
+    fn remove_clsact_if_empty_exact(&mut self, ifindex: u32) -> Result<(), TcIoError> {
+        run_async(move || async move {
+            let current = query_inventory(ifindex).await?;
+            if current.clsact != TcClsactState::Present || !current.filters.is_empty() {
+                return Err(TcIoError::IdentityMismatch);
+            }
+            send_request(
+                TcRequest::DeleteQdisc(encode_clsact_request(ifindex)),
                 NLM_F_REQUEST | NLM_F_ACK,
             )
             .await
@@ -726,6 +806,7 @@ fn filter_kind(message: &TcMessage) -> Option<&str> {
 enum TcRequest {
     NewQdisc(TcMessage),
     NewFilter(TcMessage),
+    DeleteQdisc(TcMessage),
     DeleteFilter(TcMessage),
 }
 
@@ -736,6 +817,7 @@ async fn send_request(request: TcRequest, flags: u16) -> Result<(), TcIoError> {
     let route_message = match request {
         TcRequest::NewQdisc(message) => RouteNetlinkMessage::NewQueueDiscipline(message),
         TcRequest::NewFilter(message) => RouteNetlinkMessage::NewTrafficFilter(message),
+        TcRequest::DeleteQdisc(message) => RouteNetlinkMessage::DelQueueDiscipline(message),
         TcRequest::DeleteFilter(message) => RouteNetlinkMessage::DelTrafficFilter(message),
     };
     let mut message = NetlinkMessage::from(route_message);
