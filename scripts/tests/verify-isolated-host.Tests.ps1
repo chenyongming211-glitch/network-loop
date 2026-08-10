@@ -141,6 +141,9 @@ Assert-True ([regex]::Matches($Harness, [regex]::Escape("Wait-IsolatedRemoteStat
 Assert-True ([regex]::Matches($Harness, [regex]::Escape("Test-IsolatedRemoteState -Phase 'snapshot-prepared'")).Count -eq 1) 'prepared-state filtering is not limited to the generated transaction snapshot'
 Assert-True ([regex]::Matches($Harness, [regex]::Escape('$BeforeState = Test-IsolatedRemoteState -Names')).Count -eq 1) 'full host snapshot is not captured before isolated mutation'
 Assert-True ([regex]::Matches($Harness, [regex]::Escape('Wait-IsolatedRemoteState -Expected $BeforeState')).Count -ge 2) 'full host state is not verified after cleanup paths'
+Assert-True (-not $Harness.Contains("'verify-hooks-saved'")) 'hostcheck is asked to trust a non-canonical ownership journal path'
+$IdentityCanonicalVerification = "(?s)'IdentityChange' \{(?:(?!'TrafficInterruption').)*restore-journal(?:(?!'TrafficInterruption').)*-Phase 'verify-hooks'"
+Assert-True ([regex]::IsMatch($Harness, $IdentityCanonicalVerification)) 'identity-change rejection is not verified after restoring the canonical journal'
 Assert-True (-not $Harness.Contains("prepare-pins")) 'harness creates the transaction-owned pin parents'
 Assert-True ($Harness.IndexOf('ulimit -l unlimited') -ge 0 -and $Harness.IndexOf('ulimit -l unlimited') -lt $Harness.IndexOf('./l2-loopd')) 'daemon is launched before the isolated child memlock limit is raised'
 Assert-True ($Workflow.Contains('script-tests:')) 'CI script-tests job is missing'
