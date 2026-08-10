@@ -19,6 +19,13 @@ cargo check
 
 This job covers ABI layout, fixed numeric values, domain validation, lifecycle transitions, protocol framing, CLI parsing and rendering, the bounded Unix server, daemon dispatch, Linux snapshot parsing, agent orchestration, and the public eBPF source contract.
 
+### Script safety jobs
+
+The isolated-host harness has self-contained static safety tests on both Linux
+PowerShell 7 and Windows PowerShell. They verify deterministic generated names,
+exact SSH argument arrays, bounded cleanup convergence, canonical ownership checks,
+and the absence of broad or wildcard cleanup. These jobs never contact a target host.
+
 ### eBPF job
 
 The eBPF job installs stable Rust for `xtask`, nightly Rust with `rust-src`, and `bpf-linker`. It then runs:
@@ -37,12 +44,13 @@ After Userspace and eBPF both pass, the Bundle job builds `l2-loopd` and `l2-loo
 l2-loop-linux-x86_64-<full-commit-sha>
 ├── l2-loopd
 ├── l2-loopctl
+├── l2-loop-hostcheck
 ├── l2-loop-ebpf.o
 ├── manifest.json
 └── SHA256SUMS
 ```
 
-`manifest.json` records the full commit SHA, workspace package version, both target triples, and the three executable/object filenames. `SHA256SUMS` is lexically ordered and covers the other four files. The workflow runs `sha256sum --check SHA256SUMS` before upload.
+`manifest.json` records the full commit SHA, workspace package version, both target triples, and the four executable/object filenames. `SHA256SUMS` is lexically ordered and covers the other five files. The workflow runs `sha256sum --check SHA256SUMS` before upload.
 
 Download an artifact without compiling locally:
 
@@ -58,6 +66,7 @@ Keep `.artifacts/` local and ignored. After transfer to Linux, verify `SHA256SUM
 ## Current safety boundary
 
 - Attachment is exposed only through the generated isolated-verification commands. The daemon independently rejects non-veth, active, or shared interfaces.
+- XDP uses atomic no-replace attachment. TC uses reserved identities and records whether the transaction created `clsact`; exact cleanup removes that qdisc only when it is still empty and owned by the transaction.
 - Preflight reads only the explicitly requested interface and relevant kernel attachment metadata.
 - The daemon control socket accepts one bounded request and returns one bounded response per connection.
 - No implementation sends a probe frame.
@@ -91,7 +100,28 @@ $L2LoopCommit = git rev-parse HEAD
 pwsh -NoProfile -File scripts/verify-isolated-host.ps1 -Commit $L2LoopCommit
 ```
 
-The exact commit must already have a successful GitHub Actions bundle. The harness verifies its checksums, uses the bundled `l2-loop-hostcheck` binary to snapshot existing network/eBPF identities without requiring host `tc` or `bpftool` commands, creates a down isolated veth pair, attaches only after daemon preflight, sends a bounded number of raw local Ethernet frames, requires both XDP and TC counters to increase, detaches by exact ownership journal identity, and compares the post-cleanup snapshot with the original. The loader creates the exact isolated bpffs parent directories only after its transaction preflight succeeds and removes only those empty directories during exact rollback. Missing base prerequisites cause a refusal; the harness does not install packages or change system configuration.
+The exact commit must already have a successful GitHub Actions bundle. The harness verifies its checksums, uses the bundled `l2-loop-hostcheck` binary to snapshot existing network/eBPF identities without requiring host `tc` or `bpftool` commands, creates a down isolated veth pair, attaches only after daemon preflight, sends a bounded number of raw local Ethernet frames, requires both XDP and TC counters to increase, detaches by exact ownership journal identity, and compares the post-cleanup snapshot with the original. Transaction-internal snapshots omit only the generated host-veth's volatile raw link record while retaining its XDP/TC/`clsact` identities through hostcheck; outer before/after snapshots still cover every host link and route. The loader creates the exact isolated bpffs parent directories only after its transaction preflight succeeds and removes only those empty directories during exact rollback. Missing base prerequisites cause a refusal; the harness does not install packages or change system configuration.
+
+Run all bounded acceptance scenarios against the same exact artifact:
+
+```powershell
+$L2LoopScenarios = @(
+    'Success',
+    'TcAttachFailure',
+    'MapInitializeFailure',
+    'DaemonTermination',
+    'IdentityChange',
+    'TrafficInterruption'
+)
+foreach ($L2LoopScenario in $L2LoopScenarios) {
+    pwsh -NoProfile -File scripts/verify-isolated-host.ps1 `
+        -Commit $L2LoopCommit -Scenario $L2LoopScenario
+}
+```
+
+Every scenario requires exact rollback of owned state and full restoration of foreign
+network/eBPF identities. An intentionally changed ownership identity is refused and
+retained for manual review until the original canonical journal is restored.
 
 GitHub runs only the self-contained static/unit safety tests for this harness. CI never reads the task-scoped environment inputs and never contacts a test host.
 

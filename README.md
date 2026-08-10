@@ -17,8 +17,9 @@ It does not depend on Neutron, communicate across nodes, infer an interface auto
 
 - [Product and safety architecture](docs/l2-loop-agent-design.md)
 - [Rust foundation specification](docs/superpowers/specs/2026-08-06-l2-loop-rust-foundation-design.md)
+- [Linux preflight and isolated safe-attach specification](docs/superpowers/specs/2026-08-06-linux-preflight-safe-attach-design.md)
 - [Local alert and evidence output specification](docs/superpowers/specs/2026-08-06-local-alert-evidence-output-design.md)
-- [Implementation plan](docs/superpowers/plans/2026-08-06-l2-loop-rust-foundation.md)
+- [Isolated safe-attach implementation plan](docs/superpowers/plans/2026-08-06-isolated-safe-attach.md)
 
 ## Build policy
 
@@ -59,10 +60,17 @@ The implementation now contains:
 - the complete safe `l2-loopctl` command grammar and read-only preflight client;
 - a bounded Unix control server and preflight dispatcher;
 - the real read-only Linux inspector;
-- user-space adapter traits and transactional hook orchestration;
-- four fail-open Aya program entry points and six fixed public maps.
+- validated Aya object loading and initialization of six fixed public maps;
+- atomic no-replace generic XDP attachment and ownership-aware TC attachment;
+- an exact ownership journal, reverse-order rollback, and owned-only cleanup;
+- four fail-open Aya program entry points with isolated packet/byte accounting;
+- a bounded host harness covering success, partial failures, daemon termination,
+  identity change, and interrupted traffic.
 
-No program is loaded or attached to an interface in this delivery. The eBPF entry points return pass/continue unconditionally.
+Production and live-interface attachment remain disabled. Loading and attachment are
+available only through the generated isolated-veth verification path after the daemon
+independently approves preflight. The eBPF entry points always return pass/continue;
+this delivery observes counters and never drops or polices traffic.
 
 See [development.md](docs/development.md) for the CI workflow.
 
