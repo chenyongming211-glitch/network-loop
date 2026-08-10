@@ -6,7 +6,9 @@ use thiserror::Error;
 #[cfg(target_os = "linux")]
 use crate::{
     linux::{tc::LoadedTc, xdp::LoadedXdp},
-    ownership::{OwnedTc, OwnedXdp, OwnershipRecord, TcHook, TestPinRoot, XdpAttachMode},
+    ownership::{
+        OwnedMapPin, OwnedTc, OwnedXdp, OwnershipRecord, TcHook, TestPinRoot, XdpAttachMode,
+    },
 };
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -114,7 +116,7 @@ pub trait Clock {
 pub struct LoadedBpfObject {
     pub xdp: LoadedXdp,
     pub tc_egress: LoadedTc,
-    pub pin_paths: Vec<std::path::PathBuf>,
+    pub map_pins: Vec<OwnedMapPin>,
 }
 
 #[cfg(target_os = "linux")]

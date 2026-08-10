@@ -191,7 +191,7 @@ where
             ifindex,
             xdp: rollback.xdp,
             tc: vec![rollback.tc.expect("owned TC is present")],
-            pin_paths: loaded.pin_paths.clone(),
+            map_pins: loaded.map_pins.clone(),
             created_at_unix_seconds,
         };
         if let Err(error) = self.ownership.save(&record) {

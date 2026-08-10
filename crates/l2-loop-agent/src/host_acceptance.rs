@@ -1,6 +1,6 @@
-use std::{ffi::OsStr, fs, io, path::Path};
+use std::{fs, io, path::Path};
 
-use aya::maps::{Map, MapData, PerCpuHashMap};
+use aya::maps::{Map, MapData, MapInfo, PerCpuHashMap};
 use l2_loop_common::{CounterValue, StatsKey, hook_role};
 use l2_loop_core::{AttachmentState, Direction, InterfaceName, TcAttachment};
 use nix::libc;
@@ -173,12 +173,17 @@ pub fn read_owned_counters(
     record: &OwnershipRecord,
 ) -> Result<[HookCounters; 2], HostAcceptanceError> {
     let path = record
-        .pin_paths
+        .map_pins
         .iter()
-        .find(|path| path.file_name() == Some(OsStr::new(HOOK_STATS)))
+        .find(|pin| pin.name == HOOK_STATS)
         .ok_or(HostAcceptanceError::CounterMap)?;
-    let map =
-        Map::PerCpuHashMap(MapData::from_pin(path).map_err(|_| HostAcceptanceError::CounterMap)?);
+    let info = MapInfo::from_pin(&path.path).map_err(|_| HostAcceptanceError::CounterMap)?;
+    if info.id() != path.map_id {
+        return Err(HostAcceptanceError::CounterMap);
+    }
+    let map = Map::PerCpuHashMap(
+        MapData::from_pin(&path.path).map_err(|_| HostAcceptanceError::CounterMap)?,
+    );
     let stats = PerCpuHashMap::<MapData, StatsKey, CounterValue>::try_from(map)
         .map_err(|_| HostAcceptanceError::CounterMap)?;
     let read = |role| -> Result<HookCounters, HostAcceptanceError> {
@@ -304,7 +309,9 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::ownership::{OWNERSHIP_SCHEMA_VERSION, OwnedTc, OwnedXdp};
+    use crate::ownership::{
+        OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnedTc, OwnedXdp,
+    };
 
     #[test]
     fn exact_owned_hook_identity_is_accepted() {
@@ -379,9 +386,21 @@ mod tests {
                 program_id: 102,
                 created_clsact: true,
             }],
-            pin_paths: vec![PathBuf::from(
-                "/sys/fs/bpf/l2-loop/test/0123456789abcdef0123456789abcdef/HOOK_STATS",
-            )],
+            map_pins: OWNED_MAP_NAMES
+                .iter()
+                .enumerate()
+                .map(|(index, name)| {
+                    OwnedMapPin::new(
+                        *name,
+                        PathBuf::from(
+                            "/sys/fs/bpf/l2-loop/test/0123456789abcdef0123456789abcdef",
+                        )
+                        .join(name),
+                        301 + index as u32,
+                    )
+                    .unwrap()
+                })
+                .collect(),
             created_at_unix_seconds: 1,
         }
     }

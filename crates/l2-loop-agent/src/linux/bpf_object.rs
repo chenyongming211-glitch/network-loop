@@ -15,8 +15,8 @@ use l2_loop_common::ABI_VERSION;
 use thiserror::Error;
 
 use crate::{
-    linux::{cleanup::PinIdentity, tc::LoadedTc, xdp::LoadedXdp},
-    ownership::TestPinRoot,
+    linux::{tc::LoadedTc, xdp::LoadedXdp},
+    ownership::{OwnedMapPin, TestPinRoot},
     ports::{BpfObjectLoader, LoadedBpfObject, PortError},
 };
 
@@ -174,7 +174,7 @@ pub(super) struct AyaRuntimeState {
 pub(super) struct ActiveAyaObject {
     pub(super) bpf: Ebpf,
     pub(super) loaded: LoadedBpfObject,
-    pub(super) pins: Vec<PinIdentity>,
+    pub(super) pins: Vec<OwnedMapPin>,
     pub(super) initialized: Option<(u32, u64)>,
     pub(super) published: Option<(u32, u64)>,
     pin_root: PathBuf,
@@ -226,6 +226,29 @@ impl BpfObjectLoader for AyaBpfObjectLoader {
                     ));
                 }
             };
+            let owned_pin = match OwnedMapPin::new(expected.name.clone(), path.clone(), info.id()) {
+                Ok(owned_pin) => owned_pin,
+                Err(error) => {
+                    return Err(rollback_error(
+                        error.to_string(),
+                        &pinned,
+                        pins.path(),
+                        &pin_parents,
+                    ));
+                }
+            };
+            if pinned.iter().any(|pin: &OwnedMapPin| {
+                pin.name == owned_pin.name
+                    || pin.path == owned_pin.path
+                    || pin.map_id == owned_pin.map_id
+            }) {
+                return Err(rollback_error(
+                    "loaded map identities are not unique".to_owned(),
+                    &pinned,
+                    pins.path(),
+                    &pin_parents,
+                ));
+            }
             if let Err(error) = map.pin(&path) {
                 return Err(rollback_error(
                     format!("failed to pin {}: {error}", expected.name),
@@ -237,12 +260,8 @@ impl BpfObjectLoader for AyaBpfObjectLoader {
             let fresh = match MapInfo::from_pin(&path) {
                 Ok(fresh) => fresh,
                 Err(error) => {
-                    let just_pinned = PinIdentity {
-                        path: path.clone(),
-                        map_id: info.id(),
-                    };
                     let mut rollback = pinned.clone();
-                    rollback.push(just_pinned);
+                    rollback.push(owned_pin);
                     return Err(rollback_error(
                         format!("failed to verify pinned map {}: {error}", expected.name),
                         &rollback,
@@ -252,26 +271,25 @@ impl BpfObjectLoader for AyaBpfObjectLoader {
                 }
             };
             if fresh.id() != info.id() {
+                let mut rollback = pinned.clone();
+                rollback.push(owned_pin);
                 return Err(rollback_error(
                     format!(
                         "pinned map {} changed identity during creation",
                         expected.name
                     ),
-                    &pinned,
+                    &rollback,
                     pins.path(),
                     &pin_parents,
                 ));
             }
-            pinned.push(PinIdentity {
-                path,
-                map_id: info.id(),
-            });
+            pinned.push(owned_pin);
         }
 
         let loaded = LoadedBpfObject {
             xdp,
             tc_egress,
-            pin_paths: pinned.iter().map(|pin| pin.path.clone()).collect(),
+            map_pins: pinned.clone(),
         };
         state.active = Some(ActiveAyaObject {
             bpf,
@@ -485,7 +503,7 @@ fn prepare_pin_parents(path: &Path) -> Result<PinParentLease, PortError> {
     Ok(PinParentLease { created })
 }
 
-fn rollback_pins(pins: &[PinIdentity], root: &Path) -> Vec<String> {
+fn rollback_pins(pins: &[OwnedMapPin], root: &Path) -> Vec<String> {
     let mut retained = Vec::new();
     for pin in pins.iter().rev() {
         match MapInfo::from_pin(&pin.path) {
@@ -511,7 +529,7 @@ fn rollback_pins(pins: &[PinIdentity], root: &Path) -> Vec<String> {
     retained
 }
 
-fn rollback_pin_tree(pins: &[PinIdentity], root: &Path, parents: &PinParentLease) -> Vec<String> {
+fn rollback_pin_tree(pins: &[OwnedMapPin], root: &Path, parents: &PinParentLease) -> Vec<String> {
     let mut retained = rollback_pins(pins, root);
     retained.extend(cleanup_pin_parents(&parents.created));
     retained
@@ -519,7 +537,7 @@ fn rollback_pin_tree(pins: &[PinIdentity], root: &Path, parents: &PinParentLease
 
 fn rollback_error(
     message: String,
-    pins: &[PinIdentity],
+    pins: &[OwnedMapPin],
     root: &Path,
     parents: &PinParentLease,
 ) -> PortError {

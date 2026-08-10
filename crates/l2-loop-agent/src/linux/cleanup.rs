@@ -71,33 +71,23 @@ pub fn plan_owned_cleanup(record: &OwnershipRecord, snapshot: &CleanupSnapshot) 
         );
     }
 
-    let owned_program_ids = record
-        .xdp
-        .iter()
-        .map(|owned| owned.program_id)
-        .chain(record.tc.iter().map(|owned| owned.program_id))
-        .collect::<Vec<_>>();
-    let owned_map_ids = snapshot
-        .owned_program_map_ids
-        .iter()
-        .filter(|(program_id, _)| owned_program_ids.contains(program_id))
-        .flat_map(|(_, map_ids)| map_ids.iter().copied())
-        .collect::<Vec<_>>();
-
-    for path in record.pin_paths.iter().rev() {
-        let current = snapshot.pins.iter().find(|pin| pin.path == *path);
+    for owned_pin in record.map_pins.iter().rev() {
+        let current = snapshot
+            .pins
+            .iter()
+            .find(|pin| pin.path == owned_pin.path);
         match current {
-            Some(pin) if owned_map_ids.contains(&pin.map_id) => {
+            Some(pin) if pin.map_id == owned_pin.map_id => {
                 operations.push(CleanupOperation::UnpinMap(pin.clone()));
             }
             Some(_) => retain(
                 &mut retained,
-                &format!("pin {}", path.display()),
-                "fresh pinned map ID is not owned by a journal program",
+                &format!("pin {}", owned_pin.path.display()),
+                "fresh pinned map ID does not match the journal",
             ),
             None => retain(
                 &mut retained,
-                &format!("pin {}", path.display()),
+                &format!("pin {}", owned_pin.path.display()),
                 "journal pin is absent from the fresh snapshot",
             ),
         }

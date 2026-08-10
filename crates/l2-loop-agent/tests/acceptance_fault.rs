@@ -172,6 +172,6 @@ fn loaded() -> LoadedBpfObject {
             program_fd: 12,
             program_id: 102,
         },
-        pin_paths: Vec::new(),
+        map_pins: Vec::new(),
     }
 }

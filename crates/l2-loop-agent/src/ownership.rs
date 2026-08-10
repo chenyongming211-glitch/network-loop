@@ -11,9 +11,17 @@ use thiserror::Error;
 
 use crate::{EphemeralOwnershipStore, PortError};
 
-pub const OWNERSHIP_SCHEMA_VERSION: u16 = 1;
+pub const OWNERSHIP_SCHEMA_VERSION: u16 = 2;
 pub const TEST_JOURNAL_ROOT: &str = "/run/l2-loop/tests";
 pub const TEST_PIN_BASE: &str = "/sys/fs/bpf/l2-loop/test";
+pub const OWNED_MAP_NAMES: [&str; 6] = [
+    "IFACE_CONFIG",
+    "HOOK_STATS",
+    "FINGERPRINTS",
+    "PROBE_REGISTRY",
+    "PROBE_STATS",
+    "RATE_POLICY",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -225,6 +233,47 @@ impl From<OwnedTc> for TcKernelIdentity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OwnedMapPin {
+    pub name: String,
+    pub path: PathBuf,
+    pub map_id: u32,
+}
+
+impl OwnedMapPin {
+    pub fn new(
+        name: impl Into<String>,
+        path: PathBuf,
+        map_id: u32,
+    ) -> Result<Self, OwnershipError> {
+        let owned = Self {
+            name: name.into(),
+            path,
+            map_id,
+        };
+        owned.validate()?;
+        Ok(owned)
+    }
+
+    fn validate(&self) -> Result<(), OwnershipError> {
+        if self.map_id == 0
+            || !OWNED_MAP_NAMES.contains(&self.name.as_str())
+            || !self.path.is_absolute()
+            || self
+                .path
+                .components()
+                .any(|component| matches!(component, Component::ParentDir | Component::CurDir))
+            || self.path.file_name().and_then(|name| name.to_str()) != Some(self.name.as_str())
+        {
+            Err(OwnershipError::IdentityMismatch(
+                "invalid owned map identity".to_owned(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OwnershipRecord {
     pub schema_version: u16,
     pub abi_version: u16,
@@ -232,8 +281,45 @@ pub struct OwnershipRecord {
     pub ifindex: u32,
     pub xdp: Option<OwnedXdp>,
     pub tc: Vec<OwnedTc>,
-    pub pin_paths: Vec<PathBuf>,
+    #[serde(default)]
+    pub map_pins: Vec<OwnedMapPin>,
     pub created_at_unix_seconds: u64,
+}
+
+impl OwnershipRecord {
+    pub fn validate_owned_maps(&self) -> Result<(), OwnershipError> {
+        if self.map_pins.len() != OWNED_MAP_NAMES.len() {
+            return Err(OwnershipError::IdentityMismatch(
+                "owned map set is incomplete".to_owned(),
+            ));
+        }
+
+        for (index, pin) in self.map_pins.iter().enumerate() {
+            pin.validate()?;
+            if self.map_pins[..index].iter().any(|previous| {
+                previous.name == pin.name
+                    || previous.path == pin.path
+                    || previous.map_id == pin.map_id
+            }) {
+                return Err(OwnershipError::IdentityMismatch(
+                    "owned map identities are not unique".to_owned(),
+                ));
+            }
+        }
+
+        if OWNED_MAP_NAMES.iter().any(|required| {
+            !self
+                .map_pins
+                .iter()
+                .any(|pin| pin.name.as_str() == *required)
+        }) {
+            return Err(OwnershipError::IdentityMismatch(
+                "owned map set does not match the public ABI".to_owned(),
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -432,8 +518,9 @@ impl<'a, F: OwnershipFileSystem> OwnershipStore<'a, F> {
                 "owned hook ifindex does not match journal".to_owned(),
             ));
         }
-        for pin in &record.pin_paths {
-            self.pins.validate_existing(self.filesystem, pin)?;
+        record.validate_owned_maps()?;
+        for pin in &record.map_pins {
+            self.pins.validate_existing(self.filesystem, &pin.path)?;
         }
         Ok(())
     }
@@ -454,10 +541,11 @@ impl FileOwnershipRepository {
 
     fn paths_for_record(record: &OwnershipRecord) -> Result<(JournalPath, TestPinRoot), PortError> {
         let first = record
-            .pin_paths
+            .map_pins
             .first()
             .ok_or_else(|| PortError::Adapter("ownership record has no pin identity".to_owned()))?;
         let parent = first
+            .path
             .parent()
             .ok_or_else(|| PortError::Adapter("owned pin has no run root".to_owned()))?;
         let value = parent
@@ -469,9 +557,9 @@ impl FileOwnershipRepository {
         let pins = TestPinRoot::new(run_id).map_err(ownership_port_error)?;
         if parent != pins.path()
             || record
-                .pin_paths
+                .map_pins
                 .iter()
-                .any(|path| pins.validate_lexical(path).is_err())
+                .any(|pin| pins.validate_lexical(&pin.path).is_err())
         {
             return Err(PortError::Adapter(
                 "ownership record contains a pin outside its isolated run".to_owned(),
