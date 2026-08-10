@@ -1,4 +1,4 @@
-use std::{fs, io, path::Path};
+use std::{ffi::OsStr, fs, io, path::Path};
 
 use aya::maps::{Map, MapData, MapInfo, PerCpuHashMap};
 use l2_loop_common::{CounterValue, StatsKey, hook_role};
