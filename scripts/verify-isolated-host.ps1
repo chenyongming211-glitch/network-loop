@@ -229,7 +229,10 @@ stop_daemon() {
                 sleep 0.1
                 tries=$((tries + 1))
             done
-            kill -0 "$pid" 2>/dev/null && fail "owned daemon did not stop"
+            if kill -0 "$pid" 2>/dev/null; then
+                state=$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null || printf unknown)
+                fail "owned daemon did not stop: process state $state"
+            fi
         fi
     fi
 }
@@ -344,6 +347,10 @@ case "$phase" in
     links-up)
         ip link set dev "$host" up
         ip netns exec "$ns" ip link set dev "$peer" up
+        ;;
+    links-down)
+        ip link set dev "$host" down
+        ip netns exec "$ns" ip link set dev "$peer" down
         ;;
     counters)
         "$root/l2-loop-hostcheck" 'counters' --journal "$journal"
@@ -517,7 +524,7 @@ $CleanupAction = {
     if (-not $CleanupComplete) {
         $Result = Invoke-IsolatedRemotePhase -Phase 'cleanup' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds -AllowFailure
         if ($Result.ExitCode -ne 0) {
-            throw 'exact isolated cleanup failed and requires manual review'
+            throw "exact isolated cleanup failed and requires manual review: $($Result.Stderr.Trim())"
         }
         $CleanupComplete = $true
     }
@@ -554,7 +561,6 @@ try {
         throw 'daemon preflight did not approve the exact isolated veth'
     }
 
-    $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
     $PreparedState = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
 
     $BlockedArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
@@ -595,6 +601,7 @@ try {
     $Detached = $false
     switch ($Scenario) {
         'Success' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $BeforeCounters = Convert-Counters -Text (Invoke-IsolatedRemotePhase -Phase 'counters' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds).Stdout
             $null = Invoke-IsolatedMutation -Phase 'traffic' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $AfterCounters = Convert-Counters -Text (Invoke-IsolatedRemotePhase -Phase 'counters' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds).Stdout
@@ -606,9 +613,12 @@ try {
             }
         }
         'DaemonTermination' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $null = Invoke-IsolatedMutation -Phase 'stop-daemon' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedMutation -Phase 'links-down' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $AfterTermination = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
             Assert-IsolatedRemoteStateUnchanged -Before $PreparedState -After $AfterTermination
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $null = Invoke-IsolatedMutation -Phase 'traffic' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $Detached = $true
         }
@@ -625,6 +635,7 @@ try {
             $null = Invoke-IsolatedMutation -Phase 'restore-journal' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
         }
         'TrafficInterruption' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $Interrupted = Invoke-IsolatedRemotePhase -Phase 'traffic-interrupt' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds -AllowFailure
             if ($Interrupted.ExitCode -eq 0) {
                 throw 'bounded traffic sender was not interrupted'
