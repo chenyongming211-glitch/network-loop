@@ -392,10 +392,8 @@ mod tests {
                 .map(|(index, name)| {
                     OwnedMapPin::new(
                         *name,
-                        PathBuf::from(
-                            "/sys/fs/bpf/l2-loop/test/0123456789abcdef0123456789abcdef",
-                        )
-                        .join(name),
+                        PathBuf::from("/sys/fs/bpf/l2-loop/test/0123456789abcdef0123456789abcdef")
+                            .join(name),
                         301 + index as u32,
                     )
                     .unwrap()

@@ -72,10 +72,7 @@ pub fn plan_owned_cleanup(record: &OwnershipRecord, snapshot: &CleanupSnapshot) 
     }
 
     for owned_pin in record.map_pins.iter().rev() {
-        let current = snapshot
-            .pins
-            .iter()
-            .find(|pin| pin.path == owned_pin.path);
+        let current = snapshot.pins.iter().find(|pin| pin.path == owned_pin.path);
         match current {
             Some(pin) if pin.map_id == owned_pin.map_id => {
                 operations.push(CleanupOperation::UnpinMap(pin.clone()));
