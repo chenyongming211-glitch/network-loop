@@ -105,7 +105,15 @@ foreach ($Required in @(
     'l2-loop-hostcheck',
     "'snapshot'",
     "'verify-owned'",
-    "'counters'"
+    "'counters'",
+    "[ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption')]",
+    'L2_LOOP_ACCEPTANCE_FAULT',
+    'TC_ATTACH_FAILED',
+    'MAP_INITIALIZE_FAILED',
+    "'stop-daemon'",
+    "'alter-journal'",
+    "'restore-journal'",
+    "'traffic-interrupt'"
 )) {
     Assert-True ($Harness.Contains($Required)) "harness is missing required safety marker: $Required"
 }
