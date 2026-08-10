@@ -38,7 +38,14 @@ fn tc_fault_fails_before_the_inner_attach_and_preserves_cleanup_calls() {
     let mut tc = FaultInjectingTc::new(FakeTc(calls.clone()), AcceptanceFault::TcAttach);
 
     let error = tc
-        .attach_explicit(17, TcHook::Egress, LoadedTc { program_fd: 12, program_id: 102 })
+        .attach_explicit(
+            17,
+            TcHook::Egress,
+            LoadedTc {
+                program_fd: 12,
+                program_id: 102,
+            },
+        )
         .unwrap_err();
 
     assert!(matches!(error, PortError::Adapter(_)));
@@ -70,8 +77,15 @@ fn no_fault_delegates_without_changing_normal_behavior() {
     let mut tc = FaultInjectingTc::new(FakeTc(tc_calls.clone()), AcceptanceFault::None);
     let mut maps = FaultInjectingMaps::new(FakeMaps(map_calls.clone()), AcceptanceFault::None);
 
-    tc.attach_explicit(17, TcHook::Egress, LoadedTc { program_fd: 12, program_id: 102 })
-        .unwrap();
+    tc.attach_explicit(
+        17,
+        TcHook::Egress,
+        LoadedTc {
+            program_fd: 12,
+            program_id: 102,
+        },
+    )
+    .unwrap();
     maps.initialize_dependent(&loaded(), 17, 1).unwrap();
 
     assert_eq!(tc_calls.load(Ordering::SeqCst), 1);
