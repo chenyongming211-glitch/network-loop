@@ -98,6 +98,10 @@ foreach ($Required in @(
     'TimeoutSeconds',
     'Test-IsolatedRemoteState',
     'Assert-IsolatedRemoteStateUnchanged',
+    'Wait-IsolatedRemoteState',
+    '[ValidateRange(1, 5)] [int] $MaxAttempts = 5',
+    '[ValidateRange(10, 100)] [int] $DelayMilliseconds = 100',
+    "Start-Sleep -Milliseconds `$DelayMilliseconds",
     'Assert-NoSymlink',
     'Assert-GeneratedTarget',
     'SHA256SUMS',
@@ -123,6 +127,7 @@ Assert-True (-not [regex]::IsMatch($Harness, '(?m)command_name in[^\r\n]*\btc\b'
 
 Assert-True ($Harness.IndexOf('$ExitEvent = Register-IsolatedCleanup') -lt $Harness.IndexOf('$null = Invoke-IsolatedMutation')) 'cleanup is not registered before first mutation'
 Assert-True ($Harness.Contains("Where-Object { `$null -ne `$_ -and")) 'empty GitHub run queries are not rejected safely'
+Assert-True (($Harness.Split('Wait-IsolatedRemoteState').Count - 1) -ge 5) 'bounded exact-state convergence is not used at every rollback boundary'
 $PreparedMarker = '$PreparedState = Test-IsolatedRemoteState'
 $LinksUpMarker = '$null = Invoke-IsolatedMutation -Phase ''links-up'''
 Assert-True ($Harness.IndexOf($PreparedMarker) -ge 0 -and $Harness.IndexOf($PreparedMarker) -lt $Harness.IndexOf($LinksUpMarker)) 'generated veth is raised before the transaction completes isolated attach'
