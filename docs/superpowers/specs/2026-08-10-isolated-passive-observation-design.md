@@ -101,6 +101,20 @@ Userspace adds an injectable observation reader that:
 
 The reader does not enumerate unrelated bpffs roots and does not accept an arbitrary pin path from a control request.
 
+The current ephemeral ownership journal records pin paths but not kernel Map IDs. Delivery C upgrades the journal to schema version 2 and adds one fixed record per owned Map:
+
+```rust
+pub struct OwnedMapPin {
+    pub name: String,
+    pub path: PathBuf,
+    pub map_id: u32,
+}
+```
+
+The Aya loader captures the name, exact pin path, and non-zero kernel Map ID immediately after pin verification. The attachment transaction persists those values before publishing `IFACE_CONFIG`. Observation reopens each required pin and requires the fresh Map ID to equal the journal value.
+
+Schema version 1 journals are refused. They are ephemeral isolated-test state, so Delivery C does not migrate, adopt, or clean them. This journal change does not change any eBPF Map name, key layout, value layout, or capacity.
+
 ### 4.4 Observation service and daemon dispatch
 
 An observation service combines the reader with an injectable clock. The daemon dispatches `Observe` and `Status` through a bounded blocking adapter, just as real Linux preflight isolates synchronous platform I/O from the async socket worker.
