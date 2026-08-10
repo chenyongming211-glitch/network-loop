@@ -122,6 +122,9 @@ Assert-True (-not $Harness.Contains('bpftool')) 'harness requires bpftool on the
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)command_name in[^\r\n]*\btc\b')) 'harness requires tc on the target host'
 
 Assert-True ($Harness.IndexOf('$ExitEvent = Register-IsolatedCleanup') -lt $Harness.IndexOf('$null = Invoke-IsolatedMutation')) 'cleanup is not registered before first mutation'
+$PreparedMarker = '$PreparedState = Test-IsolatedRemoteState'
+$LinksUpMarker = '$null = Invoke-IsolatedMutation -Phase ''links-up'''
+Assert-True ($Harness.IndexOf($PreparedMarker) -ge 0 -and $Harness.IndexOf($PreparedMarker) -lt $Harness.IndexOf($LinksUpMarker)) 'generated veth is raised before the transaction completes isolated attach'
 Assert-True (-not $Harness.Contains("prepare-pins")) 'harness creates the transaction-owned pin parents'
 Assert-True ($Harness.IndexOf('ulimit -l unlimited') -ge 0 -and $Harness.IndexOf('ulimit -l unlimited') -lt $Harness.IndexOf('./l2-loopd')) 'daemon is launched before the isolated child memlock limit is raised'
 Assert-True ($Workflow.Contains('script-tests:')) 'CI script-tests job is missing'
