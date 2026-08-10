@@ -11,9 +11,7 @@ use std::{
 
 use l2_loop_agent::{
     Clock, ObservationReader, ObservationService, PortError, RawObservation,
-    ownership::{
-        OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnershipRecord,
-    },
+    ownership::{OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnershipRecord},
 };
 use l2_loop_common::ABI_VERSION;
 use l2_loop_core::{
@@ -39,9 +37,7 @@ fn observe_builds_a_generation_scoped_snapshot() {
     let active = interface();
     let ownership = ownership(41, 7);
 
-    let snapshot = service
-        .observe(&active, &active, &ownership)
-        .unwrap();
+    let snapshot = service.observe(&active, &active, &ownership).unwrap();
 
     assert_eq!(snapshot.ifindex, 41);
     assert_eq!(snapshot.generation, 7);
@@ -159,9 +155,7 @@ fn filtered_status_without_an_active_session_is_rejected() {
     let mut service = ObservationService::new(reader, FixedClock::unix_ms(1));
     let requested = interface();
 
-    let error = service
-        .status(Some(&requested), None, None)
-        .unwrap_err();
+    let error = service.status(Some(&requested), None, None).unwrap_err();
 
     assert_eq!(error.code(), "OBS_SESSION_NOT_FOUND");
 }
@@ -191,9 +185,7 @@ fn inconsistent_active_status_identity_is_rejected_before_reader_io() {
     let mut service = ObservationService::new(reader, FixedClock::unix_ms(1));
     let active = interface();
 
-    let error = service
-        .status(None, Some(&active), None)
-        .unwrap_err();
+    let error = service.status(None, Some(&active), None).unwrap_err();
 
     assert_eq!(error.code(), "OBS_OWNERSHIP_MISMATCH");
 }
@@ -314,9 +306,7 @@ fn ownership(ifindex: u32, generation: u64) -> OwnershipRecord {
         map_pins: OWNED_MAP_NAMES
             .iter()
             .enumerate()
-            .map(|(index, name)| {
-                OwnedMapPin::new(*name, pin(name), 301 + index as u32).unwrap()
-            })
+            .map(|(index, name)| OwnedMapPin::new(*name, pin(name), 301 + index as u32).unwrap())
             .collect(),
         created_at_unix_seconds: 1_787_000_000,
     }
