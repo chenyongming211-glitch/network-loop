@@ -53,30 +53,32 @@ impl MapPublisher for AyaMapPublisher {
             .ok_or_else(|| adapter("validated HOOK_STATS map disappeared"))?;
         let mut stats = PerCpuHashMap::<_, StatsKey, CounterValue>::try_from(map)
             .map_err(|error| adapter(format!("invalid HOOK_STATS map: {error}")))?;
-        stats
-            .insert(
-                keys[0],
-                PerCpuValues::try_from(vec![zero; cpu_count]).map_err(|error| {
-                    adapter(format!(
-                        "failed to allocate per-CPU counter values: {error}"
-                    ))
-                })?,
-                BPF_NOEXIST,
-            )
-            .map_err(|error| adapter(format!("failed to initialize XDP stats: {error}")))?;
-        if let Err(error) = stats.insert(
-            keys[1],
-            PerCpuValues::try_from(vec![zero; cpu_count]).map_err(|error| {
-                adapter(format!(
-                    "failed to allocate per-CPU counter values: {error}"
-                ))
-            })?,
-            BPF_NOEXIST,
-        ) {
-            let rollback = stats.remove(&keys[0]);
-            return Err(adapter(format!(
-                "failed to initialize TC stats: {error}; first entry rollback: {rollback:?}"
-            )));
+        let mut inserted = Vec::with_capacity(keys.len());
+        for key in keys {
+            let values = match PerCpuValues::try_from(vec![zero; cpu_count]) {
+                Ok(values) => values,
+                Err(error) => {
+                    let rollback = inserted
+                        .iter()
+                        .rev()
+                        .map(|inserted_key| stats.remove(inserted_key))
+                        .collect::<Vec<_>>();
+                    return Err(adapter(format!(
+                        "failed to allocate per-CPU counter values: {error}; rollback: {rollback:?}"
+                    )));
+                }
+            };
+            if let Err(error) = stats.insert(key, values, BPF_NOEXIST) {
+                let rollback = inserted
+                    .iter()
+                    .rev()
+                    .map(|inserted_key| stats.remove(inserted_key))
+                    .collect::<Vec<_>>();
+                return Err(adapter(format!(
+                    "failed to initialize passive stats: {error}; rollback: {rollback:?}"
+                )));
+            }
+            inserted.push(key);
         }
         active.initialized = Some((ifindex, generation));
         Ok(())
@@ -180,6 +182,8 @@ impl MapPublisher for AyaMapPublisher {
             stats
                 .get(key, 0)
                 .map_err(|error| adapter(format!("failed to requery HOOK_STATS: {error}")))?;
+        }
+        for key in keys.iter().rev() {
             stats
                 .remove(key)
                 .map_err(|error| adapter(format!("failed to remove HOOK_STATS: {error}")))?;
@@ -189,10 +193,12 @@ impl MapPublisher for AyaMapPublisher {
     }
 }
 
-fn stats_keys(ifindex: u32, generation: u64) -> [StatsKey; 2] {
+fn stats_keys(ifindex: u32, generation: u64) -> [StatsKey; 16] {
+    let xdp = StatsKey::observation_keys(generation, ifindex, hook_role::EXTERNAL_XDP_INGRESS);
+    let tc = StatsKey::observation_keys(generation, ifindex, hook_role::PHYSICAL_TC_EGRESS);
     [
-        StatsKey::total(generation, ifindex, hook_role::EXTERNAL_XDP_INGRESS),
-        StatsKey::total(generation, ifindex, hook_role::PHYSICAL_TC_EGRESS),
+        xdp[0], xdp[1], xdp[2], xdp[3], xdp[4], xdp[5], xdp[6], xdp[7], tc[0], tc[1], tc[2],
+        tc[3], tc[4], tc[5], tc[6], tc[7],
     ]
 }
 
