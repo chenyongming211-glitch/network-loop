@@ -200,6 +200,14 @@ snapshot() {
     } | sha256sum | awk '{print $1}'
 }
 
+snapshot_prepared() {
+    {
+        "$root/l2-loop-hostcheck" snapshot
+        ip -j link show | python3 -c 'import json,sys; excluded=sys.argv[1]; value=json.load(sys.stdin); sum(1 for item in value if item.get("ifname") == excluded) != 1 and sys.exit("generated host veth is not unique"); filtered=[item for item in value if item.get("ifname") != excluded]; print(json.dumps(filtered,sort_keys=True,separators=(",",":")))' "$host"
+        ip -j route show table all
+    } | sha256sum | awk '{print $1}'
+}
+
 cleanup_file() {
     path=$1
     if test -e "$path" || test -L "$path"; then
@@ -299,6 +307,9 @@ case "$phase" in
         ;;
     snapshot)
         snapshot
+        ;;
+    snapshot-prepared)
+        snapshot_prepared
         ;;
     stage)
         install -d -m 0700 /run/l2-loop
@@ -444,13 +455,14 @@ function Invoke-IsolatedRemotePhase {
 
 function Test-IsolatedRemoteState {
     param(
+        [ValidateSet('snapshot', 'snapshot-prepared')] [string] $Phase = 'snapshot',
         [Parameter(Mandatory)] [psobject] $Names,
         [Parameter(Mandatory)] [string] $Target,
         [Parameter(Mandatory)] [string] $KeyPath,
         [Parameter(Mandatory)] [int] $TimeoutSeconds
     )
 
-    (Invoke-IsolatedRemotePhase -Phase 'snapshot' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount 1 -TimeoutSeconds $TimeoutSeconds).Stdout.Trim()
+    (Invoke-IsolatedRemotePhase -Phase $Phase -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount 1 -TimeoutSeconds $TimeoutSeconds).Stdout.Trim()
 }
 
 function Assert-IsolatedRemoteStateUnchanged {
@@ -466,6 +478,7 @@ function Assert-IsolatedRemoteStateUnchanged {
 
 function Wait-IsolatedRemoteState {
     param(
+        [ValidateSet('snapshot', 'snapshot-prepared')] [string] $Phase = 'snapshot',
         [Parameter(Mandatory)] [string] $Expected,
         [Parameter(Mandatory)] $Names,
         [Parameter(Mandatory)] [string] $Target,
@@ -477,7 +490,7 @@ function Wait-IsolatedRemoteState {
 
     $Current = ''
     for ($Attempt = 1; $Attempt -le $MaxAttempts; $Attempt++) {
-        $Current = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+        $Current = Test-IsolatedRemoteState -Phase $Phase -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
         if ($Expected -ceq $Current) {
             return
         }
@@ -585,7 +598,7 @@ try {
         throw 'daemon preflight did not approve the exact isolated veth'
     }
 
-    $PreparedState = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+    $PreparedState = Test-IsolatedRemoteState -Phase 'snapshot-prepared' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
 
     $BlockedArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
         "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-attach', '--interface', 'lo', '--run-id', $RunId
@@ -609,7 +622,7 @@ try {
         if ($Attach.ExitCode -eq 0 -or -not $Attach.Stderr.Contains($FaultCode)) {
             throw "isolated attach did not fail at the expected bounded stage: $FaultCode"
         }
-        Wait-IsolatedRemoteState -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+        Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
         $null = Invoke-IsolatedMutation -Phase 'cleanup-state' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
         Wait-IsolatedRemoteState -Expected $BeforeState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
         & $CleanupAction
@@ -638,7 +651,7 @@ try {
             $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $null = Invoke-IsolatedMutation -Phase 'stop-daemon' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $null = Invoke-IsolatedMutation -Phase 'links-down' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
-            Wait-IsolatedRemoteState -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
             $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $null = Invoke-IsolatedMutation -Phase 'traffic' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $Detached = $true
