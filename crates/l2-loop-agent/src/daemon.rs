@@ -744,11 +744,408 @@ impl Drop for OwnedSocketPath {
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::HashMap,
         os::unix::net::UnixListener as StdUnixListener,
-        sync::atomic::{AtomicUsize, Ordering},
+        path::{Path, PathBuf},
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicUsize, Ordering},
+        },
+    };
+
+    use l2_loop_common::ABI_VERSION;
+    use l2_loop_core::{
+        ClassObservation, HookObservation, HookRole, OBSERVED_CLASS_COUNT, ObservationCounters,
+        RateWindowState, TrafficClass, VlanVisibility,
     };
 
     use super::*;
+    use crate::{
+        LoadedBpfObject, ObservationReadPurpose, PortError, RawObservation, SamplingService,
+        linux::{tc::LoadedTc, xdp::LoadedXdp},
+        ownership::{
+            OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnershipRecord,
+        },
+    };
+
+    const FIRST_RUN_ID: &str = "0123456789abcdef0123456789abcdef";
+    const SECOND_RUN_ID: &str = "fedcba9876543210fedcba9876543210";
+
+    #[test]
+    fn tick_without_active_session_is_idle_and_does_not_read() {
+        let (mut control, state) = lifecycle_control(0);
+
+        assert_eq!(
+            control.sample_tick().unwrap(),
+            IsolatedSamplingOutcome::Idle
+        );
+        assert_eq!(state.reader_reads.load(Ordering::SeqCst), 0);
+        assert!(state.events.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn attach_starts_an_empty_history_for_committed_identity() {
+        let (mut control, _) = lifecycle_control(0);
+        let run_id = run_id(FIRST_RUN_ID);
+        let interface = lifecycle_interface();
+
+        control.attach(&interface, &run_id).unwrap();
+        let snapshot = control.observe(&interface).unwrap();
+
+        assert_eq!(snapshot.generation, 7);
+        assert_eq!(snapshot.sampling, l2_loop_core::SamplingStatus::default());
+        assert!(
+            snapshot
+                .rate_windows
+                .iter()
+                .all(|window| window.state == RateWindowState::WarmingUp)
+        );
+    }
+
+    #[test]
+    fn tick_uses_the_canonical_journal_before_reader_io() {
+        let (mut control, state) = lifecycle_control(0);
+        let run_id = run_id(FIRST_RUN_ID);
+        control.attach(&lifecycle_interface(), &run_id).unwrap();
+        state.events.lock().unwrap().clear();
+
+        assert_eq!(
+            control.sample_tick().unwrap(),
+            IsolatedSamplingOutcome::Sampled
+        );
+        assert_eq!(
+            state.events.lock().unwrap().as_slice(),
+            [
+                format!("journal:{}", run_id.as_str()),
+                "read:background".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn successful_detach_clears_sampling_state() {
+        let (mut control, state) = lifecycle_control(0);
+        let run_id = run_id(FIRST_RUN_ID);
+        control.attach(&lifecycle_interface(), &run_id).unwrap();
+        assert_eq!(
+            control.sample_tick().unwrap(),
+            IsolatedSamplingOutcome::Sampled
+        );
+
+        control.detach(&run_id).unwrap();
+
+        assert_eq!(
+            control.sample_tick().unwrap(),
+            IsolatedSamplingOutcome::Idle
+        );
+        assert_eq!(state.reader_reads.load(Ordering::SeqCst), 1);
+        assert!(control.status(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn failed_detach_pauses_and_clears_but_preserves_active_ownership() {
+        let (mut control, state) = lifecycle_control(1);
+        let run_id = run_id(FIRST_RUN_ID);
+        control.attach(&lifecycle_interface(), &run_id).unwrap();
+
+        assert!(control.detach(&run_id).is_err());
+        assert_eq!(
+            control.sample_tick().unwrap(),
+            IsolatedSamplingOutcome::Rejected
+        );
+        assert_eq!(state.reader_reads.load(Ordering::SeqCst), 0);
+
+        control.detach(&run_id).unwrap();
+        let detach_calls = state
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| event.starts_with("detach:"))
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(
+            detach_calls,
+            [
+                format!("detach:{}", run_id.as_str()),
+                format!("detach:{}", run_id.as_str()),
+            ]
+        );
+    }
+
+    #[test]
+    fn reattach_uses_a_new_empty_generation() {
+        let (mut control, _) = lifecycle_control(0);
+        let first_run = run_id(FIRST_RUN_ID);
+        let second_run = run_id(SECOND_RUN_ID);
+        let interface = lifecycle_interface();
+        control.attach(&interface, &first_run).unwrap();
+        assert_eq!(
+            control.sample_tick().unwrap(),
+            IsolatedSamplingOutcome::Sampled
+        );
+        control.detach(&first_run).unwrap();
+
+        control.attach(&interface, &second_run).unwrap();
+        let snapshot = control.observe(&interface).unwrap();
+
+        assert_eq!(snapshot.generation, 8);
+        assert_eq!(snapshot.sampling, l2_loop_core::SamplingStatus::default());
+        assert!(
+            snapshot
+                .rate_windows
+                .iter()
+                .all(|window| window.state == RateWindowState::WarmingUp)
+        );
+    }
+
+    #[test]
+    fn shutdown_serializes_sampling_before_exact_cleanup() {
+        let (mut control, state) = lifecycle_control(0);
+        let run_id = run_id(FIRST_RUN_ID);
+        control.attach(&lifecycle_interface(), &run_id).unwrap();
+        state.events.lock().unwrap().clear();
+
+        assert_eq!(
+            control.sample_tick().unwrap(),
+            IsolatedSamplingOutcome::Sampled
+        );
+        control.shutdown().unwrap();
+
+        assert_eq!(
+            state.events.lock().unwrap().as_slice(),
+            [
+                format!("journal:{}", run_id.as_str()),
+                "read:background".to_owned(),
+                format!("journal:{}", run_id.as_str()),
+                format!("detach:{}", run_id.as_str()),
+            ]
+        );
+    }
+
+    struct LifecycleState {
+        events: Arc<Mutex<Vec<String>>>,
+        reader_reads: Arc<AtomicUsize>,
+    }
+
+    fn lifecycle_control(detach_failures: usize) -> (TransactionIsolatedControl, LifecycleState) {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let reader_reads = Arc::new(AtomicUsize::new(0));
+        let records = [
+            (FIRST_RUN_ID.to_owned(), lifecycle_ownership(FIRST_RUN_ID, 7)),
+            (
+                SECOND_RUN_ID.to_owned(),
+                lifecycle_ownership(SECOND_RUN_ID, 8),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let control = TransactionIsolatedControl {
+            driver: Box::new(FakeControlAttachmentDriver {
+                events: events.clone(),
+                detach_failures,
+            }),
+            ownership: Box::new(FakeCanonicalOwnershipReader {
+                events: events.clone(),
+                records,
+            }),
+            sampling: SamplingService::new(
+                Box::new(LifecycleObservationReader {
+                    events: events.clone(),
+                    reads: reader_reads.clone(),
+                }),
+                SystemClock::new(),
+            ),
+            active: None,
+        };
+        (
+            control,
+            LifecycleState {
+                events,
+                reader_reads,
+            },
+        )
+    }
+
+    struct FakeControlAttachmentDriver {
+        events: Arc<Mutex<Vec<String>>>,
+        detach_failures: usize,
+    }
+
+    impl ControlAttachmentDriver for FakeControlAttachmentDriver {
+        fn attach(
+            &mut self,
+            interface: &InterfaceName,
+            run_id: &RunId,
+            _: u64,
+        ) -> Result<AttachmentSession, IsolatedControlError> {
+            self.events.lock().unwrap().push(format!(
+                "attach:{}:{}",
+                interface.as_str(),
+                run_id.as_str()
+            ));
+            let generation = if run_id.as_str() == FIRST_RUN_ID { 7 } else { 8 };
+            Ok(lifecycle_session(run_id.as_str(), generation))
+        }
+
+        fn detach_exact(
+            &mut self,
+            session: &AttachmentSession,
+        ) -> Result<(), IsolatedControlError> {
+            let run_id = session
+                .ownership
+                .map_pins
+                .first()
+                .and_then(|pin| pin.path.parent())
+                .and_then(Path::file_name)
+                .and_then(|value| value.to_str())
+                .unwrap();
+            self.events
+                .lock()
+                .unwrap()
+                .push(format!("detach:{run_id}"));
+            if self.detach_failures > 0 {
+                self.detach_failures -= 1;
+                Err(IsolatedControlError::internal(
+                    "OWNED_CLEANUP_INCOMPLETE",
+                ))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    struct FakeCanonicalOwnershipReader {
+        events: Arc<Mutex<Vec<String>>>,
+        records: HashMap<String, OwnershipRecord>,
+    }
+
+    impl CanonicalOwnershipReader for FakeCanonicalOwnershipReader {
+        fn load(&self, run_id: &RunId) -> Result<OwnershipRecord, PortError> {
+            self.events
+                .lock()
+                .unwrap()
+                .push(format!("journal:{}", run_id.as_str()));
+            self.records
+                .get(run_id.as_str())
+                .cloned()
+                .ok_or_else(|| PortError::Adapter("missing canonical ownership".to_owned()))
+        }
+    }
+
+    struct LifecycleObservationReader {
+        events: Arc<Mutex<Vec<String>>>,
+        reads: Arc<AtomicUsize>,
+    }
+
+    impl ObservationReader for LifecycleObservationReader {
+        fn read_exact(
+            &mut self,
+            ownership: &OwnershipRecord,
+            purpose: ObservationReadPurpose,
+        ) -> Result<RawObservation, PortError> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            self.events.lock().unwrap().push(match purpose {
+                ObservationReadPurpose::Request => "read:request".to_owned(),
+                ObservationReadPurpose::BackgroundSample => "read:background".to_owned(),
+            });
+            Ok(lifecycle_raw(ownership))
+        }
+    }
+
+    fn lifecycle_session(run_id: &str, generation: u64) -> AttachmentSession {
+        let ownership = lifecycle_ownership(run_id, generation);
+        AttachmentSession {
+            state: InterfaceState::Observing,
+            generation,
+            loaded: LoadedBpfObject {
+                xdp: LoadedXdp {
+                    program_fd: -1,
+                    program_id: 101,
+                    program_tag: [1; 8],
+                },
+                tc_egress: LoadedTc {
+                    program_fd: -1,
+                    program_id: 102,
+                },
+                map_pins: ownership.map_pins.clone(),
+            },
+            ownership,
+        }
+    }
+
+    fn lifecycle_ownership(run_id: &str, generation: u64) -> OwnershipRecord {
+        OwnershipRecord {
+            schema_version: OWNERSHIP_SCHEMA_VERSION,
+            abi_version: ABI_VERSION,
+            generation,
+            ifindex: 41,
+            xdp: None,
+            tc: Vec::new(),
+            map_pins: OWNED_MAP_NAMES
+                .iter()
+                .enumerate()
+                .map(|(index, name)| {
+                    OwnedMapPin::new(
+                        *name,
+                        PathBuf::from(format!("/sys/fs/bpf/l2-loop/test/{run_id}/{name}")),
+                        301 + u32::try_from(index).unwrap(),
+                    )
+                    .unwrap()
+                })
+                .collect(),
+            created_at_unix_seconds: 1_787_000_000,
+        }
+    }
+
+    fn lifecycle_raw(ownership: &OwnershipRecord) -> RawObservation {
+        RawObservation {
+            ifindex: ownership.ifindex,
+            generation: ownership.generation,
+            vlan_visibility: VlanVisibility::VerifiedVisible,
+            hooks: [
+                lifecycle_hook(HookRole::ExternalXdpIngress),
+                lifecycle_hook(HookRole::PhysicalTcEgress),
+            ],
+        }
+    }
+
+    fn lifecycle_hook(role: HookRole) -> HookObservation {
+        const CLASS_ORDER: [TrafficClass; OBSERVED_CLASS_COUNT] = [
+            TrafficClass::L2Broadcast,
+            TrafficClass::Ipv4Multicast,
+            TrafficClass::Ipv6Multicast,
+            TrafficClass::OtherL2Multicast,
+            TrafficClass::LinkLocalControl,
+            TrafficClass::UnicastOrUnclassified,
+        ];
+        HookObservation {
+            role,
+            total: ObservationCounters {
+                packets: 10,
+                bytes: 600,
+            },
+            classes: CLASS_ORDER.map(|traffic_class| ClassObservation {
+                traffic_class,
+                counters: ObservationCounters {
+                    packets: 1,
+                    bytes: 60,
+                },
+            }),
+            parse_errors: ObservationCounters {
+                packets: 0,
+                bytes: 0,
+            },
+        }
+    }
+
+    fn lifecycle_interface() -> InterfaceName {
+        InterfaceName::new("l2h0123456789").unwrap()
+    }
+
+    fn run_id(value: &str) -> RunId {
+        RunId::parse(value).unwrap()
+    }
 
     #[test]
     fn never_unlinks_a_replacement_at_a_stale_socket_path() {

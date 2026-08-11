@@ -4,7 +4,9 @@ use std::sync::{Arc, Mutex};
 
 use l2_loop_agent::{
     PlatformInspector, PortError, PreflightService,
-    daemon::{DaemonDispatcher, IsolatedControl, IsolatedControlError},
+    daemon::{
+        DaemonDispatcher, IsolatedControl, IsolatedControlError, IsolatedSamplingOutcome,
+    },
     ownership::RunId,
     protocol::{ControlRequest, ResponseBody},
 };
@@ -252,6 +254,10 @@ impl IsolatedControl for FakeControl {
         Ok(())
     }
 
+    fn sample_tick(&mut self) -> Result<IsolatedSamplingOutcome, IsolatedControlError> {
+        Ok(IsolatedSamplingOutcome::Idle)
+    }
+
     fn observe(
         &mut self,
         interface: &InterfaceName,
@@ -292,6 +298,10 @@ impl IsolatedControl for FailingControl {
         Ok(())
     }
 
+    fn sample_tick(&mut self) -> Result<IsolatedSamplingOutcome, IsolatedControlError> {
+        Ok(IsolatedSamplingOutcome::Idle)
+    }
+
     fn observe(&mut self, _: &InterfaceName) -> Result<ObservationSnapshot, IsolatedControlError> {
         Ok(fixture_snapshot())
     }
@@ -317,6 +327,10 @@ impl IsolatedControl for FailingObservationControl {
 
     fn detach(&mut self, _: &RunId) -> Result<(), IsolatedControlError> {
         Ok(())
+    }
+
+    fn sample_tick(&mut self) -> Result<IsolatedSamplingOutcome, IsolatedControlError> {
+        Ok(IsolatedSamplingOutcome::Idle)
     }
 
     fn observe(&mut self, _: &InterfaceName) -> Result<ObservationSnapshot, IsolatedControlError> {
