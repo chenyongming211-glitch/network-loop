@@ -51,8 +51,9 @@ fn hook(role: HookRole, units: u64, tc: bool) -> HookObservation {
     HookObservation {
         role,
         total: cumulative(100, 10_000, packet_step, byte_step, units),
-        classes: CLASS_ORDER.map(|traffic_class| {
-            let class_step = class_offset + u64::from(traffic_class as u8) - 1;
+        classes: std::array::from_fn(|index| {
+            let traffic_class = CLASS_ORDER[index];
+            let class_step = class_offset + u64::try_from(index).unwrap();
             ClassObservation {
                 traffic_class,
                 counters: cumulative(
