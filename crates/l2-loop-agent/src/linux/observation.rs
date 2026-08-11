@@ -1,7 +1,6 @@
 use aya::maps::{HashMap, Map, MapData, MapError, MapInfo, PerCpuHashMap};
 use l2_loop_common::{
-    ABI_VERSION, CounterValue, InterfaceConfig, StatsKey, agent_mode, hook_role, traffic_class,
-    vlan_visibility,
+    ABI_VERSION, CounterValue, InterfaceConfig, StatsKey, agent_mode, hook_role, vlan_visibility,
 };
 use l2_loop_core::{
     ClassObservation, HookObservation, HookRole, ObservationCounters, TrafficClass, VlanVisibility,
