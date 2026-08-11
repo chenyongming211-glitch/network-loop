@@ -331,7 +331,7 @@ fn wall_time_ms<C: Clock>(clock: &C) -> Option<u64> {
         .and_then(|duration| u64::try_from(duration.as_millis()).ok())
 }
 
-const fn is_identity_code(code: &str) -> bool {
+fn is_identity_code(code: &str) -> bool {
     matches!(code, OBS_OWNERSHIP_MISMATCH | OBS_MAP_IDENTITY_MISMATCH)
 }
 
