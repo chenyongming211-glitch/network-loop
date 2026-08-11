@@ -103,11 +103,7 @@ impl<I: ObservationIo> LinuxObservationReader<I> {
         raw_role: u8,
         role: HookRole,
     ) -> Result<HookObservation, PortError> {
-        let keys = StatsKey::observation_keys(
-            ownership.generation,
-            ownership.ifindex,
-            raw_role,
-        );
+        let keys = StatsKey::observation_keys(ownership.generation, ownership.ifindex, raw_role);
         Ok(HookObservation {
             role,
             total: self.read_aggregate(stats_pin, &keys[0])?,
@@ -203,9 +199,7 @@ fn validate_journal_identity(ownership: &OwnershipRecord) -> Result<(), PortErro
     Ok(())
 }
 
-fn required_pins(
-    ownership: &OwnershipRecord,
-) -> Result<(&OwnedMapPin, &OwnedMapPin), PortError> {
+fn required_pins(ownership: &OwnershipRecord) -> Result<(&OwnedMapPin, &OwnedMapPin), PortError> {
     let config = select_pin(ownership, IFACE_CONFIG)?;
     let stats = select_pin(ownership, HOOK_STATS)?;
     Ok((config, stats))
@@ -271,13 +265,12 @@ fn validate_current_keys(
         hook_role::PHYSICAL_TC_EGRESS,
     ]
     .into_iter()
-    .flat_map(|role| {
-        StatsKey::observation_keys(ownership.generation, ownership.ifindex, role)
-    })
+    .flat_map(|role| StatsKey::observation_keys(ownership.generation, ownership.ifindex, role))
     .collect::<Vec<_>>();
-    if current.iter().any(|key| {
-        key.interface_generation == ownership.generation && !approved.contains(key)
-    }) {
+    if current
+        .iter()
+        .any(|key| key.interface_generation == ownership.generation && !approved.contains(key))
+    {
         return Err(coded(
             OBS_MAP_UNAVAILABLE,
             "statistics map contains an unsupported current-generation key",
@@ -308,12 +301,10 @@ impl Default for AyaObservationIo {
 
 impl ObservationIo for AyaObservationIo {
     fn verify_hooks(&mut self, ownership: &OwnershipRecord) -> Result<(), PortError> {
-        let xdp = ownership.xdp.as_ref().ok_or_else(|| {
-            coded(
-                OBS_OWNERSHIP_MISMATCH,
-                "owned XDP hook identity is missing",
-            )
-        })?;
+        let xdp = ownership
+            .xdp
+            .as_ref()
+            .ok_or_else(|| coded(OBS_OWNERSHIP_MISMATCH, "owned XDP hook identity is missing"))?;
         let [tc] = ownership.tc.as_slice() else {
             return Err(coded(
                 OBS_OWNERSHIP_MISMATCH,
@@ -335,10 +326,7 @@ impl ObservationIo for AyaObservationIo {
             .query(ownership.ifindex)
             .map_err(|_| coded(OBS_OWNERSHIP_MISMATCH, "XDP hook identity is unavailable"))?;
         if classify_xdp(&xdp_inventory, Some(xdp)) != XdpState::Owned {
-            return Err(coded(
-                OBS_OWNERSHIP_MISMATCH,
-                "XDP hook identity changed",
-            ));
+            return Err(coded(OBS_OWNERSHIP_MISMATCH, "XDP hook identity changed"));
         }
 
         let tc_inventory = self
@@ -346,10 +334,7 @@ impl ObservationIo for AyaObservationIo {
             .query(ownership.ifindex)
             .map_err(|_| coded(OBS_OWNERSHIP_MISMATCH, "TC hook identity is unavailable"))?;
         if classify_tc(&tc_inventory, TcHook::Egress, Some(tc)) != TcState::Owned {
-            return Err(coded(
-                OBS_OWNERSHIP_MISMATCH,
-                "TC hook identity changed",
-            ));
+            return Err(coded(OBS_OWNERSHIP_MISMATCH, "TC hook identity changed"));
         }
         Ok(())
     }
@@ -366,8 +351,12 @@ impl ObservationIo for AyaObservationIo {
         ifindex: u32,
     ) -> Result<InterfaceConfig, PortError> {
         let map = open_map(pin)?;
-        let configs = HashMap::<MapData, u32, InterfaceConfig>::try_from(map)
-            .map_err(|_| coded(OBS_MAP_UNAVAILABLE, "interface configuration map is invalid"))?;
+        let configs = HashMap::<MapData, u32, InterfaceConfig>::try_from(map).map_err(|_| {
+            coded(
+                OBS_MAP_UNAVAILABLE,
+                "interface configuration map is invalid",
+            )
+        })?;
         configs.get(&ifindex, 0).map_err(|_| {
             coded(
                 OBS_MAP_UNAVAILABLE,
