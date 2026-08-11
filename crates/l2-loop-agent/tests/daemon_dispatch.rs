@@ -117,6 +117,27 @@ async fn observe_round_trips_through_the_real_bounded_unix_server() {
 }
 
 #[tokio::test]
+async fn dispatcher_sample_uses_spawn_blocking_and_returns_outcome() {
+    let caller_thread = std::thread::current().id();
+    let sampling_thread = Arc::new(Mutex::new(None));
+    let dispatcher = DaemonDispatcher::with_isolated_control(
+        PreflightService::new(FakeInspector::ok(
+            Arc::new(Mutex::new(Vec::new())),
+            valid_report("veth-test"),
+        )),
+        ThreadRecordingControl {
+            sampling_thread: sampling_thread.clone(),
+        },
+    );
+
+    let outcome = dispatcher.sample_isolated().await.unwrap();
+
+    assert_eq!(outcome, IsolatedSamplingOutcome::Sampled);
+    let sampling_thread = sampling_thread.lock().unwrap().clone().unwrap();
+    assert_ne!(sampling_thread, caller_thread);
+}
+
+#[tokio::test]
 async fn hides_inspector_error_details_from_control_responses() {
     let socket = SocketFixture::new();
     let daemon = RunningDaemon::start(
@@ -240,6 +261,43 @@ impl RunningDaemon {
 struct ObserveControl {
     calls: Arc<Mutex<Vec<String>>>,
     snapshot: ObservationSnapshot,
+}
+
+struct ThreadRecordingControl {
+    sampling_thread: Arc<Mutex<Option<std::thread::ThreadId>>>,
+}
+
+impl IsolatedControl for ThreadRecordingControl {
+    fn attach(&mut self, _: &InterfaceName, _: &RunId) -> Result<(), IsolatedControlError> {
+        panic!("sampling must not invoke attach")
+    }
+
+    fn detach(&mut self, _: &RunId) -> Result<(), IsolatedControlError> {
+        panic!("sampling must not invoke detach")
+    }
+
+    fn sample_tick(&mut self) -> Result<IsolatedSamplingOutcome, IsolatedControlError> {
+        *self.sampling_thread.lock().unwrap() = Some(std::thread::current().id());
+        Ok(IsolatedSamplingOutcome::Sampled)
+    }
+
+    fn observe(
+        &mut self,
+        _: &InterfaceName,
+    ) -> Result<ObservationSnapshot, IsolatedControlError> {
+        panic!("sampling must not invoke observe")
+    }
+
+    fn status(
+        &mut self,
+        _: Option<&InterfaceName>,
+    ) -> Result<Vec<InterfaceStatus>, IsolatedControlError> {
+        panic!("sampling must not invoke status")
+    }
+
+    fn shutdown(&mut self) -> Result<(), IsolatedControlError> {
+        Ok(())
+    }
 }
 
 impl IsolatedControl for ObserveControl {
