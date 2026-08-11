@@ -143,8 +143,18 @@ fn renders_observation_and_status_as_stable_text_and_json() {
     assert_eq!(status_value["interfaces"][0]["xdp_ingress"]["packets"], 21);
 
     for output in [&text.stdout, &json.stdout, &status_json.stdout] {
-        assert_no_prohibited_fields(output);
-        for prohibited in ["pin_path", "map_id", "run_id", "ownership"] {
+        for prohibited in [
+            "ip_address",
+            "mac_address",
+            "hostname",
+            "machine_id",
+            "routes",
+            "customer",
+            "pin_path",
+            "map_id",
+            "run_id",
+            "ownership",
+        ] {
             assert!(!output.contains(prohibited));
         }
     }
