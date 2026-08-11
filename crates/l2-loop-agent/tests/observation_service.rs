@@ -235,9 +235,7 @@ fn current_counter_regression_clears_before_response_rates() {
     service.sample_tick(&ownership);
     clock.set(2 * SECOND_NS, 3_000);
 
-    let error = service
-        .observe(&active, &active, &ownership)
-        .unwrap_err();
+    let error = service.observe(&active, &active, &ownership).unwrap_err();
     assert_eq!(error.code(), OBS_RATE_COUNTER_REGRESSION);
 
     let snapshot = service.observe(&active, &active, &ownership).unwrap();
@@ -267,9 +265,7 @@ fn request_read_error_never_falls_back_to_cached_cumulative_data() {
     clock.set(SECOND_NS, 2_000);
     service.sample_tick(&ownership);
 
-    let error = service
-        .observe(&active, &active, &ownership)
-        .unwrap_err();
+    let error = service.observe(&active, &active, &ownership).unwrap_err();
 
     assert_eq!(error.code(), OBS_MAP_UNAVAILABLE);
     assert_eq!(
@@ -383,12 +379,7 @@ fn raw_observation(units: u64) -> RawObservation {
     }
 }
 
-fn hook(
-    role: HookRole,
-    units: u64,
-    packet_step: u64,
-    byte_step: u64,
-) -> HookObservation {
+fn hook(role: HookRole, units: u64, packet_step: u64, byte_step: u64) -> HookObservation {
     HookObservation {
         role,
         total: counters(100 + packet_step * units, 10_000 + byte_step * units),
