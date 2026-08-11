@@ -6,7 +6,7 @@ use std::{
 };
 
 use l2_loop_agent::{
-    ObservationReader, PortError,
+    ObservationReadPurpose, ObservationReader, PortError,
     linux::observation::{LinuxObservationReader, ObservationIo},
     ownership::{
         OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnedTc, OwnedXdp, OwnershipRecord,
@@ -34,7 +34,7 @@ fn changed_hook_identity_is_refused_before_map_io() {
     let events = io.events();
 
     let error = LinuxObservationReader::new(io)
-        .read_exact(&ownership())
+        .read_exact(&ownership(), ObservationReadPurpose::BackgroundSample)
         .unwrap_err();
 
     assert_eq!(error.stable_code(), Some("OBS_OWNERSHIP_MISMATCH"));
@@ -47,7 +47,7 @@ fn changed_hook_stats_pin_is_refused_before_content_reads() {
     let events = io.events();
 
     let error = LinuxObservationReader::new(io)
-        .read_exact(&ownership())
+        .read_exact(&ownership(), ObservationReadPurpose::Request)
         .unwrap_err();
 
     assert_eq!(error.stable_code(), Some("OBS_MAP_IDENTITY_MISMATCH"));
@@ -68,7 +68,7 @@ fn incomplete_owned_map_set_is_refused_before_map_io() {
     let events = io.events();
 
     let error = LinuxObservationReader::new(io)
-        .read_exact(&record)
+        .read_exact(&record, ObservationReadPurpose::Request)
         .unwrap_err();
 
     assert_eq!(error.stable_code(), Some("OBS_MAP_IDENTITY_MISMATCH"));
@@ -84,7 +84,7 @@ fn duplicate_required_map_name_is_refused_before_map_io() {
     let events = io.events();
 
     let error = LinuxObservationReader::new(io)
-        .read_exact(&record)
+        .read_exact(&record, ObservationReadPurpose::Request)
         .unwrap_err();
 
     assert_eq!(error.stable_code(), Some("OBS_MAP_IDENTITY_MISMATCH"));
@@ -99,7 +99,7 @@ fn per_cpu_values_are_aggregated_with_checked_addition() {
         .counter(total_tc(), vec![counter(4, 240)]);
 
     let raw = LinuxObservationReader::new(io)
-        .read_exact(&ownership())
+        .read_exact(&ownership(), ObservationReadPurpose::Request)
         .unwrap();
 
     assert_eq!(raw.ifindex, IFINDEX);
@@ -118,7 +118,7 @@ fn per_cpu_values_are_aggregated_with_checked_addition() {
 #[test]
 fn absent_fixed_counter_key_is_reported_as_zero() {
     let raw = LinuxObservationReader::new(FakeIo::complete())
-        .read_exact(&ownership())
+        .read_exact(&ownership(), ObservationReadPurpose::Request)
         .unwrap();
 
     for hook in raw.hooks {
@@ -144,7 +144,7 @@ fn unexpected_current_generation_key_is_refused_before_counter_reads() {
     let events = io.events();
 
     let error = LinuxObservationReader::new(io)
-        .read_exact(&ownership())
+        .read_exact(&ownership(), ObservationReadPurpose::Request)
         .unwrap_err();
 
     assert_eq!(error.stable_code(), Some("OBS_MAP_UNAVAILABLE"));
@@ -170,7 +170,7 @@ fn non_current_config_generation_is_an_ownership_mismatch() {
     );
 
     let error = LinuxObservationReader::new(FakeIo::complete().config(config))
-        .read_exact(&ownership())
+        .read_exact(&ownership(), ObservationReadPurpose::Request)
         .unwrap_err();
 
     assert_eq!(error.stable_code(), Some("OBS_OWNERSHIP_MISMATCH"));
@@ -189,7 +189,7 @@ fn invalid_interface_config_mode_is_refused() {
     );
 
     let error = LinuxObservationReader::new(FakeIo::complete().config(config))
-        .read_exact(&ownership())
+        .read_exact(&ownership(), ObservationReadPurpose::Request)
         .unwrap_err();
 
     assert_eq!(error.stable_code(), Some("OBS_MAP_UNAVAILABLE"));
@@ -200,7 +200,7 @@ fn per_cpu_aggregation_overflow_is_a_snapshot_failure() {
     let io = FakeIo::complete().counter(total_xdp(), vec![counter(u64::MAX, 1), counter(1, 1)]);
 
     let error = LinuxObservationReader::new(io)
-        .read_exact(&ownership())
+        .read_exact(&ownership(), ObservationReadPurpose::Request)
         .unwrap_err();
 
     assert_eq!(error.stable_code(), Some("OBS_SNAPSHOT_FAILED"));
@@ -226,7 +226,7 @@ fn supported_vlan_visibility_values_are_converted() {
         );
 
         let raw = LinuxObservationReader::new(FakeIo::complete().config(config))
-            .read_exact(&ownership())
+            .read_exact(&ownership(), ObservationReadPurpose::Request)
             .unwrap();
 
         assert_eq!(raw.vlan_visibility, expected);

@@ -152,8 +152,19 @@ pub struct RawObservation {
 }
 
 #[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObservationReadPurpose {
+    Request,
+    BackgroundSample,
+}
+
+#[cfg(target_os = "linux")]
 pub trait ObservationReader: Send {
-    fn read_exact(&mut self, ownership: &OwnershipRecord) -> Result<RawObservation, PortError>;
+    fn read_exact(
+        &mut self,
+        ownership: &OwnershipRecord,
+        purpose: ObservationReadPurpose,
+    ) -> Result<RawObservation, PortError>;
 }
 
 #[cfg(target_os = "linux")]
@@ -161,8 +172,12 @@ impl<T> ObservationReader for Box<T>
 where
     T: ObservationReader + ?Sized,
 {
-    fn read_exact(&mut self, ownership: &OwnershipRecord) -> Result<RawObservation, PortError> {
-        (**self).read_exact(ownership)
+    fn read_exact(
+        &mut self,
+        ownership: &OwnershipRecord,
+        purpose: ObservationReadPurpose,
+    ) -> Result<RawObservation, PortError> {
+        (**self).read_exact(ownership, purpose)
     }
 }
 

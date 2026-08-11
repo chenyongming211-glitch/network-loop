@@ -7,7 +7,7 @@ use l2_loop_core::{
 };
 
 use crate::{
-    ObservationReader, PortError, RawObservation,
+    ObservationReadPurpose, ObservationReader, PortError, RawObservation,
     ownership::{
         OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnershipRecord, RunId, TcHook, TestPinRoot,
     },
@@ -53,7 +53,11 @@ impl<I> LinuxObservationReader<I> {
 }
 
 impl<I: ObservationIo> ObservationReader for LinuxObservationReader<I> {
-    fn read_exact(&mut self, ownership: &OwnershipRecord) -> Result<RawObservation, PortError> {
+    fn read_exact(
+        &mut self,
+        ownership: &OwnershipRecord,
+        _purpose: ObservationReadPurpose,
+    ) -> Result<RawObservation, PortError> {
         self.io.verify_hooks(ownership)?;
         validate_journal_identity(ownership)?;
         let (config_pin, stats_pin) = required_pins(ownership)?;
