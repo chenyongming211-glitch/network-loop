@@ -2,8 +2,8 @@ use std::time::UNIX_EPOCH;
 
 use l2_loop_core::{
     InterfaceName, InterfaceState, InterfaceStatus, OBSERVED_HOOK_COUNT, ObservationHealth,
-    ObservationSnapshot, RATE_WINDOW_COUNT, RateHistory, RateHistoryError, RateIdentity, RateSample,
-    RateWindowState, SamplingStatus, StatusRateWindow, warming_detailed_rate_windows,
+    ObservationSnapshot, RATE_WINDOW_COUNT, RateHistory, RateHistoryError, RateIdentity,
+    RateSample, RateWindowState, SamplingStatus, StatusRateWindow, warming_detailed_rate_windows,
     warming_status_rate_windows,
 };
 
@@ -73,8 +73,7 @@ where
         let identity = RateIdentity::new(ownership.ifindex, ownership.generation)
             .map_err(|_| ownership_error())?;
         self.history = Some(
-            RateHistory::new(identity, self.clock.monotonic_ns())
-                .map_err(|_| snapshot_error())?,
+            RateHistory::new(identity, self.clock.monotonic_ns()).map_err(|_| snapshot_error())?,
         );
         Ok(())
     }
@@ -186,10 +185,8 @@ where
         requested: &InterfaceName,
         active_interface: &InterfaceName,
         ownership: &OwnershipRecord,
-    ) -> Result<
-        (ObservationSnapshot, [StatusRateWindow; RATE_WINDOW_COUNT]),
-        ObservationError,
-    > {
+    ) -> Result<(ObservationSnapshot, [StatusRateWindow; RATE_WINDOW_COUNT]), ObservationError>
+    {
         if requested != active_interface {
             return Err(ObservationError::new(
                 OBS_INTERFACE_MISMATCH,
