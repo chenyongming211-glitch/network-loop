@@ -568,6 +568,8 @@ impl RateHistory {
     }
 }
 
+// The fixed two-hook/six-class payload is bounded and avoids per-window heap indirection.
+#[allow(clippy::large_enum_variant)]
 enum CalculatedRateWindow {
     Warming {
         window_ms: u64,
