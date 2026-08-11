@@ -9,8 +9,8 @@ use l2_loop_agent::{
     ObservationReader, PortError,
     linux::observation::{LinuxObservationReader, ObservationIo},
     ownership::{
-        OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnedTc, OwnedXdp,
-        OwnershipRecord, TcHook, XdpAttachMode,
+        OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnedTc, OwnedXdp, OwnershipRecord,
+        TcHook, XdpAttachMode,
     },
 };
 use l2_loop_common::{
@@ -94,10 +94,7 @@ fn duplicate_required_map_name_is_refused_before_map_io() {
 #[test]
 fn per_cpu_values_are_aggregated_with_checked_addition() {
     let io = FakeIo::complete()
-        .counter(
-            total_xdp(),
-            vec![counter(2, 120), counter(3, 180)],
-        )
+        .counter(total_xdp(), vec![counter(2, 120), counter(3, 180)])
         .counter(class_xdp(traffic_class::L2_BROADCAST), vec![counter(1, 60)])
         .counter(total_tc(), vec![counter(4, 240)]);
 
@@ -109,7 +106,10 @@ fn per_cpu_values_are_aggregated_with_checked_addition() {
     assert_eq!(raw.generation, GENERATION);
     assert_eq!(raw.hooks[0].role, HookRole::ExternalXdpIngress);
     assert_eq!(raw.hooks[0].total, counters(5, 300));
-    assert_eq!(raw.hooks[0].classes[0].traffic_class, TrafficClass::L2Broadcast);
+    assert_eq!(
+        raw.hooks[0].classes[0].traffic_class,
+        TrafficClass::L2Broadcast
+    );
     assert_eq!(raw.hooks[0].classes[0].counters, counters(1, 60));
     assert_eq!(raw.hooks[1].role, HookRole::PhysicalTcEgress);
     assert_eq!(raw.hooks[1].total, counters(4, 240));
@@ -140,12 +140,7 @@ fn unexpected_current_generation_key_is_refused_before_counter_reads() {
         hook_role::TEMPORARY_PATH_INGRESS,
         traffic_class::L2_BROADCAST,
     );
-    let io = FakeIo::complete().keys(
-        approved_keys()
-            .into_iter()
-            .chain([unexpected])
-            .collect(),
-    );
+    let io = FakeIo::complete().keys(approved_keys().into_iter().chain([unexpected]).collect());
     let events = io.events();
 
     let error = LinuxObservationReader::new(io)
@@ -202,10 +197,7 @@ fn invalid_interface_config_mode_is_refused() {
 
 #[test]
 fn per_cpu_aggregation_overflow_is_a_snapshot_failure() {
-    let io = FakeIo::complete().counter(
-        total_xdp(),
-        vec![counter(u64::MAX, 1), counter(1, 1)],
-    );
+    let io = FakeIo::complete().counter(total_xdp(), vec![counter(u64::MAX, 1), counter(1, 1)]);
 
     let error = LinuxObservationReader::new(io)
         .read_exact(&ownership())
