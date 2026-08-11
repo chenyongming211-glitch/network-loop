@@ -1,9 +1,11 @@
 # 二层环路检测 Agent 设计方案
 
 日期：2026-08-06  
-状态：设计基线；Rust/eBPF 基础契约已实现，真实采集与挂载尚未实现
+状态：产品设计基线；Delivery A/B/C 已实现只读预检、隔离安全挂载和隔离被动累计观测
 实现语言：Rust + eBPF/XDP/TC  
 范围：独立物理 Agent，不依赖 Neutron，不进行跨节点通信
+
+当前实现边界比完整产品设计更窄：只允许生成的隔离 network namespace/veth 会话，已实现单层 VLAN 二层分类、XDP ingress/TC egress 按 generation 累计 packets/bytes、真实 `observe/status` 和身份精确回滚。PPS/BPS 窗口、动态基线、指纹、环路状态机、证据包、主动探针、限速及生产/物理接口挂载仍是后续阶段，不能把本文件中的完整产品能力理解为当前可用命令。
 
 ## 1. 设计结论
 

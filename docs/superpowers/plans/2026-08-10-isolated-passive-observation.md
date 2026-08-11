@@ -913,7 +913,13 @@ $Markers = @(("TO"+"DO"),("T"+"BD"),("PLACE"+"HOLDER")) -join '|'
 if (rg -n $Markers crates ebpf scripts .github README.md docs/development.md docs/superpowers) {
     throw 'incomplete marker remains'
 }
-if (git grep -n -E '([0-9]{1,3}\.){3}[0-9]{1,3}|root@|\.ssh[\\/]|BEGIN (OPENSSH|RSA|EC) PRIVATE KEY' -- $Tracked) {
+$IdentityPattern = @(
+    '([0-9]{1,3}\.){3}[0-9]{1,3}',
+    ("ro" + "ot@"),
+    ("\.s" + "sh[\\/]"),
+    ("BEGIN " + "(OPENSSH|RSA|EC) PRIVATE KEY")
+) -join '|'
+if (git grep -n -E $IdentityPattern -- $Tracked) {
     throw 'target identity or credential material remains'
 }
 rg -n '0x4c32_0001|0x4c32_0002|49_600|49_699|UPDATE_IF_NOEXIST' crates

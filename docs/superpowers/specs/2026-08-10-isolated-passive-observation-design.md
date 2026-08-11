@@ -1,7 +1,7 @@
 # Delivery C Isolated Passive Observation Design
 
 **Date:** 2026-08-10  
-**Status:** Approved  
+**Status:** Implemented; exact-artifact acceptance gated by Section 16
 **Parent designs:** `docs/l2-loop-agent-design.md`, `docs/superpowers/specs/2026-08-06-linux-preflight-safe-attach-design.md`
 
 ## 1. Goal
@@ -62,7 +62,7 @@ The delivery adds four bounded components.
 
 `l2-loop-common` owns a `no_std`, allocation-free parser and traffic classifier that can be exercised by ordinary userspace tests and called from the eBPF crate.
 
-The parser consumes a bounded packet prefix and returns an internal value equivalent to:
+The public userspace parser consumes a bounded packet prefix and returns:
 
 ```rust
 pub struct ParsedL2 {
@@ -74,13 +74,15 @@ pub struct ParsedL2 {
 
 `outer_vlan_id` and `nested_vlan` are parser facts used by tests and VLAN visibility handling. They are not added to `StatsKey` and are not exposed as per-VLAN counters.
 
+The eBPF-facing implementation uses an equivalent packed scalar `ParsedL2Word` rather than returning the `Option`-bearing struct directly. This preserves the same facts while avoiding an uninitialized enum payload that the authorized target's older verifier rejected. Userspace tests cover both representations.
+
 ### 4.2 eBPF accounting adapter
 
 Each eBPF entry point:
 
 1. resolves the current `InterfaceConfig` by ifindex;
 2. increments the generation-scoped aggregate counter;
-3. reads and classifies the bounded Layer 2 prefix;
+3. reads and classifies the bounded Layer 2 prefix through `parse_l2_word`;
 4. increments exactly one mutually exclusive class counter;
 5. records a parse failure as an error-pass observation;
 6. returns pass/continue regardless of the result.
@@ -445,6 +447,8 @@ The harness performs:
 
 Host acceptance does not require a physically truncated Ethernet frame. Truncation behavior is proved by deterministic parser tests because link-layer padding and raw-socket behavior make a host-level truncated-frame assertion unreliable.
 
+Acceptance receivers subscribe to all Ethernet protocols. When the veth path reports hardware-style VLAN stripping, they reconstruct the received comparison frame from `PACKET_AUXDATA`; this validates forwarding without changing offload state. The generated endpoints use `addrgenmode none` to suppress unrelated IPv6 DAD frames from the exact counter matrix. These are isolated-link properties, not host sysctl, route, address, or physical-interface changes.
+
 Fault acceptance covers:
 
 - observation before an isolated session exists;
@@ -459,15 +463,17 @@ No acceptance scenario mutates a physical or business interface, route, address,
 
 ## 15. Delivery sequence
 
-Implementation should be split into test-first tasks in this order:
+Implementation was split into nine test-first tasks in this order:
 
-1. parser and classification domain contracts;
-2. eBPF aggregate/class accounting and VLAN visibility promotion;
-3. ownership-aware observation reader and per-CPU aggregation;
-4. observation/status domain results and service;
-5. daemon dispatch, CLI rendering, and exit codes;
-6. isolated harness traffic matrix and fault scenarios;
-7. final GitHub-only safety, ABI, and authorized-host audit.
+1. shared single-VLAN parser and fixed statistics-key contract;
+2. ownership journal schema v2 and six journal-confirmed Map identities;
+3. eBPF aggregate/class accounting and VLAN visibility promotion;
+4. observation/status domain models;
+5. observation reader port, injected clock, and service;
+6. real Linux Aya reader and checked per-CPU aggregation;
+7. daemon dispatch, CLI rendering, and Unix-socket round trips;
+8. isolated harness traffic matrix and observation fault scenarios;
+9. final documentation, non-compiling safety audit, exact GitHub artifact, and authorized-host gate.
 
 Every compiling change follows red/green GitHub Actions evidence. No local Rust compilation is permitted.
 
