@@ -133,7 +133,7 @@ async fn dispatcher_sample_uses_spawn_blocking_and_returns_outcome() {
     let outcome = dispatcher.sample_isolated().await.unwrap();
 
     assert_eq!(outcome, IsolatedSamplingOutcome::Sampled);
-    let sampling_thread = sampling_thread.lock().unwrap().clone().unwrap();
+    let sampling_thread = (*sampling_thread.lock().unwrap()).unwrap();
     assert_ne!(sampling_thread, caller_thread);
 }
 
