@@ -152,7 +152,10 @@ fn truncated_ethernet_and_first_vlan_headers_are_errors() {
 fn packed_parser_result_initializes_every_verifier_visible_bit() {
     let untagged = parse_l2_word(&ethernet([0x02, 0, 0, 0, 0, 2], 0x0800));
     assert!(!untagged.is_error());
-    assert_eq!(untagged.traffic_class(), traffic_class::UNICAST_OR_UNCLASSIFIED);
+    assert_eq!(
+        untagged.traffic_class(),
+        traffic_class::UNICAST_OR_UNCLASSIFIED
+    );
     assert_eq!(untagged.outer_vlan_id(), NO_VLAN);
     assert!(!untagged.has_outer_vlan());
     assert!(!untagged.nested_vlan());
