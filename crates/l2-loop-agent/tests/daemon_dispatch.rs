@@ -11,7 +11,10 @@ use std::{
 
 use l2_loop_agent::{
     PlatformInspector, PortError, PreflightService,
-    daemon::{BoundedUnixServer, DaemonDispatcher, DaemonError},
+    daemon::{
+        BoundedUnixServer, DaemonDispatcher, DaemonError, IsolatedControl, IsolatedControlError,
+    },
+    ownership::RunId,
     protocol::{
         ControlRequest, ControlResponse, ERROR_COMMAND_NOT_IMPLEMENTED, ERROR_INTERNAL,
         ResponseBody, decode_response, encode_request,
@@ -19,9 +22,10 @@ use l2_loop_agent::{
     transport::{read_frame, write_frame},
 };
 use l2_loop_core::{
-    AgentCommand, AgentResult, AttachmentState, BpfInspection, InterfaceInspection, InterfaceKind,
-    InterfaceName, InterfaceRef, KernelInspection, MemlockInspection, PinRootState,
-    PreflightReport,
+    AgentCommand, AgentResult, AttachmentState, BpfInspection, ClassObservation, HookObservation,
+    HookRole, InterfaceInspection, InterfaceKind, InterfaceName, InterfaceRef, InterfaceStatus,
+    KernelInspection, MemlockInspection, OBSERVED_CLASS_COUNT, ObservationCounters,
+    ObservationSnapshot, PinRootState, PreflightReport, TrafficClass, VlanVisibility,
 };
 use tokio::{net::UnixStream, sync::oneshot, task::JoinHandle};
 
@@ -73,6 +77,40 @@ async fn rejects_unwired_commands_with_a_stable_error() {
         (ERROR_COMMAND_NOT_IMPLEMENTED, "command is not implemented")
     );
     assert!(calls.lock().unwrap().is_empty());
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn observe_round_trips_through_the_real_bounded_unix_server() {
+    let socket = SocketFixture::new();
+    let observation_calls = Arc::new(Mutex::new(Vec::new()));
+    let snapshot = observation();
+    let daemon = RunningDaemon::start_with_control(
+        &socket.path,
+        FakeInspector::ok(Arc::new(Mutex::new(Vec::new())), valid_report("veth-test")),
+        ObserveControl {
+            calls: observation_calls.clone(),
+            snapshot: snapshot.clone(),
+        },
+    )
+    .await;
+
+    let response = exchange(
+        &socket.path,
+        AgentCommand::Observe {
+            interface: InterfaceName::new("l2h0123456789").unwrap(),
+        },
+    )
+    .await;
+
+    assert_eq!(
+        response,
+        ControlResponse::success(AgentResult::Observation { snapshot })
+    );
+    assert_eq!(
+        observation_calls.lock().unwrap().as_slice(),
+        ["observe:l2h0123456789"]
+    );
     daemon.stop().await;
 }
 
@@ -171,9 +209,66 @@ impl RunningDaemon {
         Self { shutdown, task }
     }
 
+    async fn start_with_control<C>(path: &Path, inspector: FakeInspector, control: C) -> Self
+    where
+        C: IsolatedControl + 'static,
+    {
+        let server = BoundedUnixServer::bind(path).await.unwrap();
+        let dispatcher =
+            DaemonDispatcher::with_isolated_control(PreflightService::new(inspector), control);
+        let (shutdown, receiver) = oneshot::channel();
+        let task = tokio::spawn(server.serve(
+            move |request| {
+                let dispatcher = dispatcher.clone();
+                async move { dispatcher.dispatch(request).await }
+            },
+            async move {
+                let _ = receiver.await;
+            },
+        ));
+        Self { shutdown, task }
+    }
+
     async fn stop(self) {
         let _ = self.shutdown.send(());
         self.task.await.unwrap().unwrap();
+    }
+}
+
+struct ObserveControl {
+    calls: Arc<Mutex<Vec<String>>>,
+    snapshot: ObservationSnapshot,
+}
+
+impl IsolatedControl for ObserveControl {
+    fn attach(&mut self, _: &InterfaceName, _: &RunId) -> Result<(), IsolatedControlError> {
+        panic!("observe must not invoke attach")
+    }
+
+    fn detach(&mut self, _: &RunId) -> Result<(), IsolatedControlError> {
+        panic!("observe must not invoke detach")
+    }
+
+    fn observe(
+        &mut self,
+        interface: &InterfaceName,
+    ) -> Result<ObservationSnapshot, IsolatedControlError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("observe:{}", interface.as_str()));
+        Ok(self.snapshot.clone())
+    }
+
+    fn status(
+        &mut self,
+        _: Option<&InterfaceName>,
+    ) -> Result<Vec<InterfaceStatus>, IsolatedControlError> {
+        Ok(Vec::new())
+    }
+
+    fn shutdown(&mut self) -> Result<(), IsolatedControlError> {
+        Ok(())
     }
 }
 
@@ -257,4 +352,49 @@ fn valid_report(name: &str) -> PreflightReport {
         },
         Vec::new(),
     )
+}
+
+const CLASS_ORDER: [TrafficClass; OBSERVED_CLASS_COUNT] = [
+    TrafficClass::L2Broadcast,
+    TrafficClass::Ipv4Multicast,
+    TrafficClass::Ipv6Multicast,
+    TrafficClass::OtherL2Multicast,
+    TrafficClass::LinkLocalControl,
+    TrafficClass::UnicastOrUnclassified,
+];
+
+fn observation() -> ObservationSnapshot {
+    ObservationSnapshot::new(
+        InterfaceName::new("l2h0123456789").unwrap(),
+        41,
+        7,
+        1_786_300_000_000,
+        VlanVisibility::VerifiedVisible,
+        [
+            observation_hook(HookRole::ExternalXdpIngress),
+            observation_hook(HookRole::PhysicalTcEgress),
+        ],
+    )
+    .unwrap()
+}
+
+fn observation_hook(role: HookRole) -> HookObservation {
+    HookObservation {
+        role,
+        total: ObservationCounters {
+            packets: 21,
+            bytes: 1_260,
+        },
+        classes: CLASS_ORDER.map(|traffic_class| ClassObservation {
+            traffic_class,
+            counters: ObservationCounters {
+                packets: 1,
+                bytes: 60,
+            },
+        }),
+        parse_errors: ObservationCounters {
+            packets: 0,
+            bytes: 0,
+        },
+    }
 }

@@ -9,9 +9,11 @@ use l2_loop_agent::{
     protocol::{ControlRequest, ResponseBody},
 };
 use l2_loop_core::{
-    AgentCommand, AgentResult, AttachmentState, BpfInspection, InterfaceInspection, InterfaceKind,
-    InterfaceName, InterfaceRef, KernelInspection, MemlockInspection, PF_LIVE_INTERFACE,
-    PinRootState, PreflightReport,
+    AgentCommand, AgentResult, AttachmentState, BpfInspection, ClassObservation, HookObservation,
+    HookRole, InterfaceInspection, InterfaceKind, InterfaceName, InterfaceRef, InterfaceState,
+    InterfaceStatus, KernelInspection, MemlockInspection, OBSERVED_CLASS_COUNT,
+    ObservationCounters, ObservationHealth, ObservationSnapshot, PF_LIVE_INTERFACE, PinRootState,
+    PreflightReport, TrafficClass, VlanVisibility,
 };
 
 const RUN_ID: &str = "0123456789abcdef0123456789abcdef";
@@ -45,6 +47,64 @@ async fn dispatches_only_explicit_isolated_attach_and_detach_commands() {
             "detach:0123456789abcdef0123456789abcdef",
         ]
     );
+}
+
+#[tokio::test]
+async fn observe_and_status_read_the_active_session_without_mutating_it() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let snapshot = fixture_snapshot();
+    let dispatcher = DaemonDispatcher::with_isolated_control(
+        PreflightService::new(FakeInspector::ready()),
+        FakeControl::ok(calls.clone()),
+    );
+
+    let observe = dispatcher
+        .dispatch(ControlRequest::new(AgentCommand::Observe {
+            interface: interface(),
+        }))
+        .await;
+    let status = dispatcher
+        .dispatch(ControlRequest::new(AgentCommand::Status {
+            interface: Some(interface()),
+        }))
+        .await;
+
+    assert_eq!(
+        success(&observe),
+        &AgentResult::Observation {
+            snapshot: snapshot.clone(),
+        }
+    );
+    assert_eq!(
+        success(&status),
+        &AgentResult::Status {
+            interfaces: vec![fixture_status(&snapshot)],
+        }
+    );
+    assert_eq!(
+        calls.lock().unwrap().as_slice(),
+        ["observe:l2h0123456789", "status:l2h0123456789"]
+    );
+}
+
+#[tokio::test]
+async fn observation_failures_expose_only_the_stable_obs_code() {
+    let dispatcher = DaemonDispatcher::with_isolated_control(
+        PreflightService::new(FakeInspector::ready()),
+        FailingObservationControl,
+    );
+
+    let response = dispatcher
+        .dispatch(ControlRequest::new(AgentCommand::Observe {
+            interface: interface(),
+        }))
+        .await;
+
+    assert_eq!(
+        error(&response),
+        ("OBS_MAP_IDENTITY_MISMATCH", "observation failed")
+    );
+    assert!(!format!("{response:?}").contains("private map path"));
 }
 
 #[tokio::test]
@@ -191,6 +251,29 @@ impl IsolatedControl for FakeControl {
         Ok(())
     }
 
+    fn observe(
+        &mut self,
+        interface: &InterfaceName,
+    ) -> Result<ObservationSnapshot, IsolatedControlError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("observe:{}", interface.as_str()));
+        Ok(fixture_snapshot())
+    }
+
+    fn status(
+        &mut self,
+        interface: Option<&InterfaceName>,
+    ) -> Result<Vec<InterfaceStatus>, IsolatedControlError> {
+        self.calls.lock().unwrap().push(format!(
+            "status:{}",
+            interface.map(InterfaceName::as_str).unwrap_or("all")
+        ));
+        let snapshot = fixture_snapshot();
+        Ok(vec![fixture_status(&snapshot)])
+    }
+
     fn shutdown(&mut self) -> Result<(), IsolatedControlError> {
         self.calls.lock().unwrap().push("shutdown".to_owned());
         Ok(())
@@ -206,6 +289,50 @@ impl IsolatedControl for FailingControl {
 
     fn detach(&mut self, _: &RunId) -> Result<(), IsolatedControlError> {
         Ok(())
+    }
+
+    fn observe(
+        &mut self,
+        _: &InterfaceName,
+    ) -> Result<ObservationSnapshot, IsolatedControlError> {
+        Ok(fixture_snapshot())
+    }
+
+    fn status(
+        &mut self,
+        _: Option<&InterfaceName>,
+    ) -> Result<Vec<InterfaceStatus>, IsolatedControlError> {
+        Ok(Vec::new())
+    }
+
+    fn shutdown(&mut self) -> Result<(), IsolatedControlError> {
+        Ok(())
+    }
+}
+
+struct FailingObservationControl;
+
+impl IsolatedControl for FailingObservationControl {
+    fn attach(&mut self, _: &InterfaceName, _: &RunId) -> Result<(), IsolatedControlError> {
+        Ok(())
+    }
+
+    fn detach(&mut self, _: &RunId) -> Result<(), IsolatedControlError> {
+        Ok(())
+    }
+
+    fn observe(
+        &mut self,
+        _: &InterfaceName,
+    ) -> Result<ObservationSnapshot, IsolatedControlError> {
+        Err(IsolatedControlError::internal("OBS_MAP_IDENTITY_MISMATCH"))
+    }
+
+    fn status(
+        &mut self,
+        _: Option<&InterfaceName>,
+    ) -> Result<Vec<InterfaceStatus>, IsolatedControlError> {
+        Err(IsolatedControlError::internal("OBS_MAP_IDENTITY_MISMATCH"))
     }
 
     fn shutdown(&mut self) -> Result<(), IsolatedControlError> {
@@ -268,4 +395,63 @@ fn report(kind: InterfaceKind, isolated: bool, live_shared: bool) -> PreflightRe
         },
         Vec::new(),
     )
+}
+
+const CLASS_ORDER: [TrafficClass; OBSERVED_CLASS_COUNT] = [
+    TrafficClass::L2Broadcast,
+    TrafficClass::Ipv4Multicast,
+    TrafficClass::Ipv6Multicast,
+    TrafficClass::OtherL2Multicast,
+    TrafficClass::LinkLocalControl,
+    TrafficClass::UnicastOrUnclassified,
+];
+
+fn interface() -> InterfaceName {
+    InterfaceName::new("l2h0123456789").unwrap()
+}
+
+fn fixture_snapshot() -> ObservationSnapshot {
+    ObservationSnapshot::new(
+        interface(),
+        41,
+        7,
+        1_786_300_000_000,
+        VlanVisibility::VerifiedVisible,
+        [
+            hook(HookRole::ExternalXdpIngress, 21, 1_260),
+            hook(HookRole::PhysicalTcEgress, 18, 1_080),
+        ],
+    )
+    .unwrap()
+}
+
+fn hook(role: HookRole, packets: u64, bytes: u64) -> HookObservation {
+    HookObservation {
+        role,
+        total: ObservationCounters { packets, bytes },
+        classes: CLASS_ORDER.map(|traffic_class| ClassObservation {
+            traffic_class,
+            counters: ObservationCounters {
+                packets: 1,
+                bytes: 60,
+            },
+        }),
+        parse_errors: ObservationCounters {
+            packets: 0,
+            bytes: 0,
+        },
+    }
+}
+
+fn fixture_status(snapshot: &ObservationSnapshot) -> InterfaceStatus {
+    InterfaceStatus {
+        interface: snapshot.interface.clone(),
+        state: InterfaceState::Observing,
+        generation: snapshot.generation,
+        captured_at_unix_ms: snapshot.captured_at_unix_ms,
+        health: ObservationHealth::Healthy,
+        vlan_visibility: snapshot.vlan_visibility,
+        xdp_ingress: snapshot.hooks[0].total,
+        tc_egress: snapshot.hooks[1].total,
+    }
 }
