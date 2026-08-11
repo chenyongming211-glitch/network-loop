@@ -9,6 +9,7 @@ pub mod inspector;
 pub mod interface;
 pub mod limits;
 pub mod maps;
+pub mod observation;
 pub mod tc;
 pub mod topology;
 pub mod xdp;
