@@ -281,10 +281,7 @@ impl IsolatedControl for ThreadRecordingControl {
         Ok(IsolatedSamplingOutcome::Sampled)
     }
 
-    fn observe(
-        &mut self,
-        _: &InterfaceName,
-    ) -> Result<ObservationSnapshot, IsolatedControlError> {
+    fn observe(&mut self, _: &InterfaceName) -> Result<ObservationSnapshot, IsolatedControlError> {
         panic!("sampling must not invoke observe")
     }
 

@@ -207,10 +207,7 @@ impl IsolatedControl for SamplerControl {
         result
     }
 
-    fn observe(
-        &mut self,
-        _: &InterfaceName,
-    ) -> Result<ObservationSnapshot, IsolatedControlError> {
+    fn observe(&mut self, _: &InterfaceName) -> Result<ObservationSnapshot, IsolatedControlError> {
         panic!("sampler must not invoke observe")
     }
 
