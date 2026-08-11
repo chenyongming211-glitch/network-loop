@@ -248,10 +248,7 @@ trait ControlAttachmentDriver: Send {
         created_at_unix_seconds: u64,
     ) -> Result<AttachmentSession, IsolatedControlError>;
 
-    fn detach_exact(
-        &mut self,
-        session: &AttachmentSession,
-    ) -> Result<(), IsolatedControlError>;
+    fn detach_exact(&mut self, session: &AttachmentSession) -> Result<(), IsolatedControlError>;
 }
 
 impl<T> ControlAttachmentDriver for T
@@ -268,10 +265,7 @@ where
             .map_err(attachment_control_error)
     }
 
-    fn detach_exact(
-        &mut self,
-        session: &AttachmentSession,
-    ) -> Result<(), IsolatedControlError> {
+    fn detach_exact(&mut self, session: &AttachmentSession) -> Result<(), IsolatedControlError> {
         IsolatedAttachmentDriver::detach_exact(self, session).map_err(attachment_control_error)
     }
 }
