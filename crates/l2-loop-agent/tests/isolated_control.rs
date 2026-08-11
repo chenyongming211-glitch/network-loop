@@ -291,10 +291,7 @@ impl IsolatedControl for FailingControl {
         Ok(())
     }
 
-    fn observe(
-        &mut self,
-        _: &InterfaceName,
-    ) -> Result<ObservationSnapshot, IsolatedControlError> {
+    fn observe(&mut self, _: &InterfaceName) -> Result<ObservationSnapshot, IsolatedControlError> {
         Ok(fixture_snapshot())
     }
 
@@ -321,10 +318,7 @@ impl IsolatedControl for FailingObservationControl {
         Ok(())
     }
 
-    fn observe(
-        &mut self,
-        _: &InterfaceName,
-    ) -> Result<ObservationSnapshot, IsolatedControlError> {
+    fn observe(&mut self, _: &InterfaceName) -> Result<ObservationSnapshot, IsolatedControlError> {
         Err(IsolatedControlError::internal("OBS_MAP_IDENTITY_MISMATCH"))
     }
 

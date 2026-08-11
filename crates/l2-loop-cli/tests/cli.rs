@@ -93,12 +93,7 @@ fn parses_every_canonical_command() {
 #[test]
 fn observe_supports_one_shot_text_and_json_without_rate_controls() {
     for (extra, expected_json) in [(&[][..], false), (&["--json"][..], true)] {
-        let mut args = vec![
-            "l2-loopctl",
-            "observe",
-            "--interface",
-            "l2h0123456789",
-        ];
+        let mut args = vec!["l2-loopctl", "observe", "--interface", "l2h0123456789"];
         args.extend_from_slice(extra);
         let parsed = ParsedCli::try_from(Cli::try_parse_from(args).unwrap()).unwrap();
 
