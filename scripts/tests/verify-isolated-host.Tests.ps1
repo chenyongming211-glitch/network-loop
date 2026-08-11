@@ -155,6 +155,9 @@ foreach ($Required in @(
 )) {
     Assert-True ($Harness.Contains($Required)) "harness is missing passive observation marker: $Required"
 }
+Assert-True (
+    [regex]::Matches($Harness, [regex]::Escape('socket.htons(0x0003)')).Count -ge 3
+) 'passive observation receivers do not subscribe to ETH_P_ALL'
 
 Assert-True (-not $Harness.Contains('bpftool')) 'harness requires bpftool on the target host'
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)command_name in[^\r\n]*\btc\b')) 'harness requires tc on the target host'
