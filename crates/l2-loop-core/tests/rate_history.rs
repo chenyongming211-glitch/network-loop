@@ -27,12 +27,7 @@ fn sample(monotonic_ns: u64, unix_ms: u64, units: u64) -> RateSample {
     sample_for(identity(), monotonic_ns, unix_ms, units)
 }
 
-fn sample_for(
-    identity: RateIdentity,
-    monotonic_ns: u64,
-    unix_ms: u64,
-    units: u64,
-) -> RateSample {
+fn sample_for(identity: RateIdentity, monotonic_ns: u64, unix_ms: u64, units: u64) -> RateSample {
     RateSample::new(
         identity,
         monotonic_ns,
@@ -69,13 +64,7 @@ fn hook(role: HookRole, units: u64, tc: bool) -> HookObservation {
                 ),
             }
         }),
-        parse_errors: cumulative(
-            300,
-            30_000,
-            parse_step,
-            parse_step * 100,
-            units,
-        ),
+        parse_errors: cumulative(300, 30_000, parse_step, parse_step * 100, units),
     }
 }
 
@@ -178,9 +167,7 @@ fn selection_uses_the_closest_sample_not_later_than_the_target() {
 fn rates_use_actual_elapsed_nanoseconds_and_round_down() {
     let mut history = history();
     history.insert(sample(0, 10_000, 0)).unwrap();
-    history
-        .insert(sample(1_500_000_000, 11_500, 1))
-        .unwrap();
+    history.insert(sample(1_500_000_000, 11_500, 1)).unwrap();
 
     let window = &detailed(&history, 1_500_000_000)[0];
     let rate = window.hooks.as_ref().unwrap()[0].total;
@@ -195,9 +182,7 @@ fn rates_use_actual_elapsed_nanoseconds_and_round_down() {
 fn all_hook_class_and_parse_error_deltas_are_calculated() {
     let mut history = history();
     history.insert(sample(0, 100_000, 0)).unwrap();
-    history
-        .insert(sample(SECOND_NS, 101_000, 1))
-        .unwrap();
+    history.insert(sample(SECOND_NS, 101_000, 1)).unwrap();
 
     let hooks = detailed(&history, SECOND_NS)[0].hooks.unwrap();
     assert_eq!(hooks[0].total.packet_delta, 7);
@@ -229,9 +214,7 @@ fn all_hook_class_and_parse_error_deltas_are_calculated() {
 fn missing_intermediate_samples_need_no_interpolation() {
     let mut history = history();
     history.insert(sample(0, 100_000, 0)).unwrap();
-    history
-        .insert(sample(60 * SECOND_NS, 160_000, 60))
-        .unwrap();
+    history.insert(sample(60 * SECOND_NS, 160_000, 60)).unwrap();
 
     let windows = detailed(&history, 60 * SECOND_NS);
     assert!(
@@ -354,9 +337,7 @@ fn identity_or_counter_regression_clears_before_output() {
 fn request_validation_never_inserts_a_sample() {
     let mut history = history();
     history.insert(sample(0, 100_000, 0)).unwrap();
-    history
-        .insert(sample(SECOND_NS, 101_000, 1))
-        .unwrap();
+    history.insert(sample(SECOND_NS, 101_000, 1)).unwrap();
     let before = history.sample_count();
 
     history
