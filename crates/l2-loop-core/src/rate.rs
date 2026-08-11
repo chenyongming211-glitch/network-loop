@@ -656,8 +656,7 @@ impl CalculatedRateWindow {
 fn validate_observation_hooks(
     hooks: &[HookObservation; OBSERVED_HOOK_COUNT],
 ) -> Result<(), DomainError> {
-    if hooks[0].role != HookRole::ExternalXdpIngress
-        || hooks[1].role != HookRole::PhysicalTcEgress
+    if hooks[0].role != HookRole::ExternalXdpIngress || hooks[1].role != HookRole::PhysicalTcEgress
     {
         return Err(DomainError::InvalidObservation(
             "rate samples must be ordered XDP ingress then TC egress",
@@ -721,11 +720,7 @@ fn calculate_hook_rate(
         role: end.role,
         total: calculate_rate_counters(start.total, end.total, elapsed_ns)?,
         classes: calculate_class_rates(&start.classes, &end.classes, elapsed_ns)?,
-        parse_errors: calculate_rate_counters(
-            start.parse_errors,
-            end.parse_errors,
-            elapsed_ns,
-        )?,
+        parse_errors: calculate_rate_counters(start.parse_errors, end.parse_errors, elapsed_ns)?,
     })
 }
 
