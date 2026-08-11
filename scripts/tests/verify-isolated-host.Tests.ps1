@@ -165,6 +165,10 @@ Assert-True (
 Assert-True (
     $Harness.Contains('universal_newlines=True') -and -not $Harness.Contains('text=True')
 ) 'isolated traffic receiver requires Python 3.7 or newer'
+Assert-True (
+    $Harness.Contains('ip link set dev "$host" addrgenmode none') -and
+    $Harness.Contains('ip netns exec "$ns" ip link set dev "$peer" addrgenmode none')
+) 'generated veth permits asynchronous IPv6 address-generation traffic'
 
 Assert-True (-not $Harness.Contains('bpftool')) 'harness requires bpftool on the target host'
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)command_name in[^\r\n]*\btc\b')) 'harness requires tc on the target host'
