@@ -18,9 +18,10 @@ use tokio::{
 
 use crate::{
     AttachmentSession, IsolatedAttachmentDriver, OBS_OWNERSHIP_MISMATCH, OBS_SESSION_NOT_FOUND,
-    ObservationReader, ObservationService, PlatformInspector, PreflightService, SystemClock,
+    ObservationReader, PlatformInspector, PortError, PreflightService, SamplingService,
+    SamplingTickOutcome, SystemClock,
     linux::acceptance_fault::ACCEPTANCE_DIAGNOSTICS_ENV,
-    ownership::{FileOwnershipRepository, RunId},
+    ownership::{FileOwnershipRepository, OwnershipRecord, RunId},
     protocol::{
         ControlRequest, ControlResponse, ERROR_COMMAND_NOT_IMPLEMENTED, ERROR_EARLY_EOF,
         ERROR_INTERNAL, ERROR_INVALID_REQUEST, ERROR_PAYLOAD_TOO_LARGE, ERROR_REQUEST_TIMEOUT,
@@ -195,6 +196,8 @@ pub trait IsolatedControl: Send {
 
     fn detach(&mut self, run_id: &RunId) -> Result<(), IsolatedControlError>;
 
+    fn sample_tick(&mut self) -> Result<IsolatedSamplingOutcome, IsolatedControlError>;
+
     fn observe(
         &mut self,
         interface: &InterfaceName,
@@ -206,6 +209,13 @@ pub trait IsolatedControl: Send {
     ) -> Result<Vec<InterfaceStatus>, IsolatedControlError>;
 
     fn shutdown(&mut self) -> Result<(), IsolatedControlError>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IsolatedSamplingOutcome {
+    Idle,
+    Sampled,
+    Rejected,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -230,10 +240,56 @@ impl IsolatedControlError {
     }
 }
 
+trait ControlAttachmentDriver: Send {
+    fn attach(
+        &mut self,
+        interface: &InterfaceName,
+        run_id: &RunId,
+        created_at_unix_seconds: u64,
+    ) -> Result<AttachmentSession, IsolatedControlError>;
+
+    fn detach_exact(
+        &mut self,
+        session: &AttachmentSession,
+    ) -> Result<(), IsolatedControlError>;
+}
+
+impl<T> ControlAttachmentDriver for T
+where
+    T: IsolatedAttachmentDriver,
+{
+    fn attach(
+        &mut self,
+        interface: &InterfaceName,
+        run_id: &RunId,
+        created_at_unix_seconds: u64,
+    ) -> Result<AttachmentSession, IsolatedControlError> {
+        IsolatedAttachmentDriver::attach(self, interface, run_id, created_at_unix_seconds)
+            .map_err(attachment_control_error)
+    }
+
+    fn detach_exact(
+        &mut self,
+        session: &AttachmentSession,
+    ) -> Result<(), IsolatedControlError> {
+        IsolatedAttachmentDriver::detach_exact(self, session).map_err(attachment_control_error)
+    }
+}
+
+trait CanonicalOwnershipReader: Send {
+    fn load(&self, run_id: &RunId) -> Result<OwnershipRecord, PortError>;
+}
+
+impl CanonicalOwnershipReader for FileOwnershipRepository {
+    fn load(&self, run_id: &RunId) -> Result<OwnershipRecord, PortError> {
+        FileOwnershipRepository::load(self, run_id)
+    }
+}
+
 pub struct TransactionIsolatedControl {
-    driver: Box<dyn IsolatedAttachmentDriver>,
-    ownership: FileOwnershipRepository,
-    observation: ObservationService<Box<dyn ObservationReader>, SystemClock>,
+    driver: Box<dyn ControlAttachmentDriver>,
+    ownership: Box<dyn CanonicalOwnershipReader>,
+    sampling: SamplingService<Box<dyn ObservationReader>, SystemClock>,
     active: Option<ActiveIsolatedSession>,
 }
 
@@ -241,6 +297,7 @@ struct ActiveIsolatedSession {
     run_id: RunId,
     interface: InterfaceName,
     attachment: AttachmentSession,
+    sampling_paused: bool,
 }
 
 impl TransactionIsolatedControl {
@@ -251,8 +308,8 @@ impl TransactionIsolatedControl {
     {
         Self {
             driver: Box::new(driver),
-            ownership: FileOwnershipRepository,
-            observation: ObservationService::new(Box::new(reader), SystemClock::new()),
+            ownership: Box::new(FileOwnershipRepository),
+            sampling: SamplingService::new(Box::new(reader), SystemClock::new()),
             active: None,
         }
     }
@@ -287,12 +344,15 @@ impl IsolatedControl for TransactionIsolatedControl {
             .as_secs();
         let session = self
             .driver
-            .attach(interface, run_id, created_at_unix_seconds)
-            .map_err(attachment_control_error)?;
+            .attach(interface, run_id, created_at_unix_seconds)?;
+        self.sampling
+            .start(&session.ownership)
+            .map_err(observation_control_error)?;
         self.active = Some(ActiveIsolatedSession {
             run_id: run_id.clone(),
             interface: interface.clone(),
             attachment: session,
+            sampling_paused: false,
         });
         Ok(())
     }
@@ -311,11 +371,30 @@ impl IsolatedControl for TransactionIsolatedControl {
         if committed != active.attachment.ownership {
             return Err(IsolatedControlError::blocked(PF_OWNERSHIP_MISMATCH));
         }
-        self.driver
-            .detach_exact(&active.attachment)
-            .map_err(attachment_control_error)?;
+        self.sampling.pause();
+        self.active
+            .as_mut()
+            .expect("active session was validated")
+            .sampling_paused = true;
+        let active = self.active.as_ref().expect("active session was validated");
+        self.driver.detach_exact(&active.attachment)?;
+        self.sampling.clear();
         self.active = None;
         Ok(())
+    }
+
+    fn sample_tick(&mut self) -> Result<IsolatedSamplingOutcome, IsolatedControlError> {
+        let Some(active) = self.active.as_ref() else {
+            return Ok(IsolatedSamplingOutcome::Idle);
+        };
+        if active.sampling_paused {
+            return Ok(IsolatedSamplingOutcome::Rejected);
+        }
+        let ownership = self.canonical_ownership(active)?;
+        Ok(match self.sampling.sample_tick(&ownership) {
+            SamplingTickOutcome::Sampled => IsolatedSamplingOutcome::Sampled,
+            SamplingTickOutcome::Rejected => IsolatedSamplingOutcome::Rejected,
+        })
     }
 
     fn observe(
@@ -326,7 +405,7 @@ impl IsolatedControl for TransactionIsolatedControl {
             return Err(IsolatedControlError::internal(OBS_SESSION_NOT_FOUND));
         };
         let ownership = self.canonical_ownership(active)?;
-        self.observation
+        self.sampling
             .observe(interface, &active.interface, &ownership)
             .map_err(observation_control_error)
     }
@@ -337,7 +416,7 @@ impl IsolatedControl for TransactionIsolatedControl {
     ) -> Result<Vec<InterfaceStatus>, IsolatedControlError> {
         let Some(active) = self.active.as_ref() else {
             return self
-                .observation
+                .sampling
                 .status(interface, None, None)
                 .map_err(observation_control_error);
         };
@@ -345,7 +424,7 @@ impl IsolatedControl for TransactionIsolatedControl {
             return Err(IsolatedControlError::internal(OBS_SESSION_NOT_FOUND));
         }
         let ownership = self.canonical_ownership(active)?;
-        self.observation
+        self.sampling
             .status(interface, Some(&active.interface), Some(&ownership))
             .map_err(observation_control_error)
     }
@@ -761,9 +840,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        LoadedBpfObject, ObservationReadPurpose, PortError, RawObservation, SamplingService,
+        LoadedBpfObject, ObservationReadPurpose, RawObservation,
         linux::{tc::LoadedTc, xdp::LoadedXdp},
-        ownership::{OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnershipRecord},
+        ownership::{OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin},
     };
 
     const FIRST_RUN_ID: &str = "0123456789abcdef0123456789abcdef";
