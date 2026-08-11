@@ -74,6 +74,8 @@ pub struct ObservationSnapshot {
 }
 
 impl ObservationSnapshot {
+    // Keep identity, cumulative evidence, and schema-2 rate evidence explicit at the boundary.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         interface: InterfaceName,
         ifindex: u32,
