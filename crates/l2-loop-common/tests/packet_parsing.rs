@@ -1,4 +1,4 @@
-use l2_loop_common::{ParseError, parse_l2, traffic_class};
+use l2_loop_common::{NO_VLAN, ParseError, parse_l2, parse_l2_word, traffic_class};
 
 fn ethernet(destination: [u8; 6], ether_type: u16) -> Vec<u8> {
     let mut frame = vec![0_u8; 14];
@@ -146,4 +146,25 @@ fn truncated_ethernet_and_first_vlan_headers_are_errors() {
         truncated.resize(length, 0);
         assert_eq!(parse_l2(&truncated), Err(ParseError::TruncatedVlan));
     }
+}
+
+#[test]
+fn packed_parser_result_initializes_every_verifier_visible_bit() {
+    let untagged = parse_l2_word(&ethernet([0x02, 0, 0, 0, 0, 2], 0x0800));
+    assert!(!untagged.is_error());
+    assert_eq!(untagged.traffic_class(), traffic_class::UNICAST_OR_UNCLASSIFIED);
+    assert_eq!(untagged.outer_vlan_id(), NO_VLAN);
+    assert!(!untagged.has_outer_vlan());
+    assert!(!untagged.nested_vlan());
+    assert_ne!(untagged.into_raw(), 0);
+
+    let tagged = parse_l2_word(&tagged([0x33, 0x33, 0, 0, 0, 1], 0x8100, 123, 0x86dd));
+    assert!(!tagged.is_error());
+    assert_eq!(tagged.traffic_class(), traffic_class::IPV6_MULTICAST);
+    assert_eq!(tagged.outer_vlan_id(), 123);
+    assert!(tagged.has_outer_vlan());
+    assert!(!tagged.nested_vlan());
+
+    assert!(parse_l2_word(&[]).is_error());
+    assert!(parse_l2_word(&ethernet([0xff; 6], 0x8100)).is_error());
 }

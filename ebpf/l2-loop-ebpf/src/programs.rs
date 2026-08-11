@@ -4,7 +4,7 @@ use aya_ebpf::{
     programs::{TcContext, XdpContext},
 };
 use l2_loop_common::{
-    CounterValue, ParseError, ParsedL2, StatsKey, hook_role, parse_l2, vlan_visibility,
+    CounterValue, ParsedL2Word, StatsKey, hook_role, parse_l2_word, vlan_visibility,
 };
 
 use crate::maps::{HOOK_STATS, IFACE_CONFIG};
@@ -34,16 +34,20 @@ fn packet_prefix<const N: usize>(data: usize, data_end: usize) -> Option<*const 
 }
 
 #[inline(always)]
-fn parse_packet(data: usize, data_end: usize) -> Result<ParsedL2, ParseError> {
-    let ethernet = packet_prefix::<14>(data, data_end).ok_or(ParseError::TruncatedEthernet)?;
+fn parse_packet(data: usize, data_end: usize) -> ParsedL2Word {
+    let Some(ethernet) = packet_prefix::<14>(data, data_end) else {
+        return ParsedL2Word::truncated_ethernet();
+    };
     let ethernet = unsafe { &*ethernet };
     let outer_ether_type = u16::from_be_bytes([ethernet[12], ethernet[13]]);
 
     if matches!(outer_ether_type, 0x8100 | 0x88a8) {
-        let tagged = packet_prefix::<18>(data, data_end).ok_or(ParseError::TruncatedVlan)?;
-        parse_l2(unsafe { &*tagged })
+        let Some(tagged) = packet_prefix::<18>(data, data_end) else {
+            return ParsedL2Word::truncated_vlan();
+        };
+        parse_l2_word(unsafe { &*tagged })
     } else {
-        parse_l2(ethernet)
+        parse_l2_word(ethernet)
     }
 }
 
@@ -60,34 +64,33 @@ fn account(ifindex: u32, hook_role: u8, bytes: u64, data: usize, data_end: usize
         bytes,
     );
 
-    match parse_packet(data, data_end) {
-        Ok(parsed) => {
-            increment_existing(
-                StatsKey::classified(
-                    interface_generation,
-                    ifindex,
-                    hook_role,
-                    parsed.traffic_class,
-                ),
-                bytes,
-            );
-            if parsed.outer_vlan_id.is_some() && current_vlan_visibility == vlan_visibility::UNKNOWN
-            {
-                if let Some(config) = IFACE_CONFIG.get_ptr_mut(&ifindex) {
-                    unsafe {
-                        if (*config).interface_generation == interface_generation
-                            && (*config).vlan_visibility == vlan_visibility::UNKNOWN
-                        {
-                            (*config).vlan_visibility = vlan_visibility::VERIFIED_VISIBLE;
-                        }
+    let parsed = parse_packet(data, data_end);
+    if parsed.is_error() {
+        increment_existing(
+            StatsKey::parse_error(interface_generation, ifindex, hook_role),
+            bytes,
+        );
+    } else {
+        increment_existing(
+            StatsKey::classified(
+                interface_generation,
+                ifindex,
+                hook_role,
+                parsed.traffic_class(),
+            ),
+            bytes,
+        );
+        if parsed.has_outer_vlan() && current_vlan_visibility == vlan_visibility::UNKNOWN {
+            if let Some(config) = IFACE_CONFIG.get_ptr_mut(&ifindex) {
+                unsafe {
+                    if (*config).interface_generation == interface_generation
+                        && (*config).vlan_visibility == vlan_visibility::UNKNOWN
+                    {
+                        (*config).vlan_visibility = vlan_visibility::VERIFIED_VISIBLE;
                     }
                 }
             }
         }
-        Err(_) => increment_existing(
-            StatsKey::parse_error(interface_generation, ifindex, hook_role),
-            bytes,
-        ),
     }
 }
 
