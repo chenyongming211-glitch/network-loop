@@ -184,7 +184,8 @@ fn all_hook_class_and_parse_error_deltas_are_calculated() {
     history.insert(sample(0, 100_000, 0)).unwrap();
     history.insert(sample(SECOND_NS, 101_000, 1)).unwrap();
 
-    let hooks = detailed(&history, SECOND_NS)[0].hooks.unwrap();
+    let windows = detailed(&history, SECOND_NS);
+    let hooks = windows[0].hooks.as_ref().unwrap();
     assert_eq!(hooks[0].total.packet_delta, 7);
     assert_eq!(hooks[0].total.byte_delta, 700);
     assert_eq!(hooks[1].total.packet_delta, 11);
