@@ -162,6 +162,9 @@ Assert-True (
     [regex]::Matches($Harness, [regex]::Escape('def recv_wire(channel):')).Count -ge 3 -and
     [regex]::Matches($Harness, [regex]::Escape('receiver.setsockopt(SOL_PACKET, PACKET_AUXDATA, 1)')).Count -ge 3
 ) 'passive observation receivers do not reconstruct offloaded VLAN headers'
+Assert-True (
+    $Harness.Contains('universal_newlines=True') -and -not $Harness.Contains('text=True')
+) 'isolated traffic receiver requires Python 3.7 or newer'
 
 Assert-True (-not $Harness.Contains('bpftool')) 'harness requires bpftool on the target host'
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)command_name in[^\r\n]*\btc\b')) 'harness requires tc on the target host'
