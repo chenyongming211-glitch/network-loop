@@ -71,8 +71,7 @@ fn account(ifindex: u32, hook_role: u8, bytes: u64, data: usize, data_end: usize
                 ),
                 bytes,
             );
-            if parsed.outer_vlan_id.is_some()
-                && current_vlan_visibility == vlan_visibility::UNKNOWN
+            if parsed.outer_vlan_id.is_some() && current_vlan_visibility == vlan_visibility::UNKNOWN
             {
                 if let Some(config) = IFACE_CONFIG.get_ptr_mut(&ifindex) {
                     unsafe {
