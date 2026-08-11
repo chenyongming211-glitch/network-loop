@@ -1,7 +1,10 @@
 use std::fmt::Write;
 
 use l2_loop_agent::protocol::{ControlResponse, ERROR_INTERNAL, ResponseBody};
-use l2_loop_core::{AgentResult, PreflightDecision, PreflightReport};
+use l2_loop_core::{
+    AgentResult, InterfaceStatus, ObservationSnapshot, PreflightDecision, PreflightReport,
+};
+use serde::Serialize;
 use serde_json::Value;
 
 pub const EXIT_SUCCESS: u8 = 0;
@@ -51,6 +54,8 @@ pub fn render_response(response: ControlResponse, format: OutputFormat) -> Rende
         ResponseBody::Success { result } => match *result {
             AgentResult::Preflight { report } => render_report(&report, format),
             AgentResult::Accepted => RenderedOutput::success("accepted".to_owned(), EXIT_SUCCESS),
+            AgentResult::Observation { snapshot } => render_observation(&snapshot, format),
+            AgentResult::Status { interfaces } => render_status(&interfaces, format),
             _ => RenderedOutput::failure(format!(
                 "{ERROR_INTERNAL}: daemon returned an unexpected result"
             )),
@@ -64,6 +69,33 @@ pub fn render_response(response: ControlResponse, format: OutputFormat) -> Rende
                 EXIT_FAILURE
             },
         },
+    }
+}
+
+fn render_observation(snapshot: &ObservationSnapshot, format: OutputFormat) -> RenderedOutput {
+    render_serializable(snapshot, format)
+}
+
+#[derive(Serialize)]
+struct StatusOutput<'a> {
+    interfaces: &'a [InterfaceStatus],
+}
+
+fn render_status(interfaces: &[InterfaceStatus], format: OutputFormat) -> RenderedOutput {
+    render_serializable(&StatusOutput { interfaces }, format)
+}
+
+fn render_serializable<T>(value: &T, format: OutputFormat) -> RenderedOutput
+where
+    T: Serialize,
+{
+    let rendered = match format {
+        OutputFormat::Text => render_text(value),
+        OutputFormat::Json => serde_json::to_string_pretty(value),
+    };
+    match rendered {
+        Ok(stdout) => RenderedOutput::success(stdout, EXIT_SUCCESS),
+        Err(_) => RenderedOutput::failure(format!("{ERROR_INTERNAL}: response rendering failed")),
     }
 }
 
@@ -85,8 +117,8 @@ fn render_report(report: &PreflightReport, format: OutputFormat) -> RenderedOutp
     RenderedOutput::success(stdout, exit_code)
 }
 
-fn render_text(report: &PreflightReport) -> Result<String, serde_json::Error> {
-    let value = serde_json::to_value(report)?;
+fn render_text<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
+    let value = serde_json::to_value(value)?;
     let mut output = String::new();
     write_value(&value, 0, &mut output);
     Ok(output.trim_end().to_owned())

@@ -17,7 +17,8 @@ use tokio::{
 };
 
 use crate::{
-    AttachmentSession, IsolatedAttachmentDriver, PlatformInspector, PreflightService,
+    AttachmentSession, IsolatedAttachmentDriver, OBS_OWNERSHIP_MISMATCH, OBS_SESSION_NOT_FOUND,
+    ObservationReader, ObservationService, PlatformInspector, PreflightService, SystemClock,
     ownership::{FileOwnershipRepository, RunId},
     protocol::{
         ControlRequest, ControlResponse, ERROR_COMMAND_NOT_IMPLEMENTED, ERROR_EARLY_EOF,
@@ -27,7 +28,10 @@ use crate::{
     },
     transport::{TransportError, read_frame, write_frame},
 };
-use l2_loop_core::{AgentCommand, PF_OWNERSHIP_MISMATCH};
+use l2_loop_core::{
+    AgentCommand, AgentResult, InterfaceName, InterfaceStatus, ObservationSnapshot,
+    PF_OWNERSHIP_MISMATCH,
+};
 
 pub const DEFAULT_SOCKET_PATH: &str = "/run/l2-loop/agent.sock";
 pub const MAX_ACTIVE_HANDLERS: usize = 16;
@@ -128,6 +132,38 @@ where
                 .await;
                 isolated_response(controlled)
             }
+            AgentCommand::Observe { interface } => {
+                let Some(isolated) = self.isolated.clone() else {
+                    return ControlResponse::error(
+                        ERROR_COMMAND_NOT_IMPLEMENTED,
+                        "command is not implemented",
+                    );
+                };
+                let controlled = tokio::task::spawn_blocking(move || {
+                    let mut control = isolated.lock().map_err(|_| IsolatedDispatchFailure::Lock)?;
+                    control
+                        .observe(&interface)
+                        .map_err(IsolatedDispatchFailure::Control)
+                })
+                .await;
+                observation_response(controlled, |snapshot| AgentResult::Observation { snapshot })
+            }
+            AgentCommand::Status { interface } => {
+                let Some(isolated) = self.isolated.clone() else {
+                    return ControlResponse::error(
+                        ERROR_COMMAND_NOT_IMPLEMENTED,
+                        "command is not implemented",
+                    );
+                };
+                let controlled = tokio::task::spawn_blocking(move || {
+                    let mut control = isolated.lock().map_err(|_| IsolatedDispatchFailure::Lock)?;
+                    control
+                        .status(interface.as_ref())
+                        .map_err(IsolatedDispatchFailure::Control)
+                })
+                .await;
+                observation_response(controlled, |interfaces| AgentResult::Status { interfaces })
+            }
             _ => {
                 ControlResponse::error(ERROR_COMMAND_NOT_IMPLEMENTED, "command is not implemented")
             }
@@ -158,6 +194,16 @@ pub trait IsolatedControl: Send {
 
     fn detach(&mut self, run_id: &RunId) -> Result<(), IsolatedControlError>;
 
+    fn observe(
+        &mut self,
+        interface: &InterfaceName,
+    ) -> Result<ObservationSnapshot, IsolatedControlError>;
+
+    fn status(
+        &mut self,
+        interface: Option<&InterfaceName>,
+    ) -> Result<Vec<InterfaceStatus>, IsolatedControlError>;
+
     fn shutdown(&mut self) -> Result<(), IsolatedControlError>;
 }
 
@@ -186,19 +232,42 @@ impl IsolatedControlError {
 pub struct TransactionIsolatedControl {
     driver: Box<dyn IsolatedAttachmentDriver>,
     ownership: FileOwnershipRepository,
-    active: Option<(RunId, AttachmentSession)>,
+    observation: ObservationService<Box<dyn ObservationReader>, SystemClock>,
+    active: Option<ActiveIsolatedSession>,
+}
+
+struct ActiveIsolatedSession {
+    run_id: RunId,
+    interface: InterfaceName,
+    attachment: AttachmentSession,
 }
 
 impl TransactionIsolatedControl {
-    pub fn new<D>(driver: D) -> Self
+    pub fn new<D, R>(driver: D, reader: R) -> Self
     where
         D: IsolatedAttachmentDriver + 'static,
+        R: ObservationReader + 'static,
     {
         Self {
             driver: Box::new(driver),
             ownership: FileOwnershipRepository,
+            observation: ObservationService::new(Box::new(reader), SystemClock::new()),
             active: None,
         }
+    }
+
+    fn canonical_ownership(
+        &self,
+        active: &ActiveIsolatedSession,
+    ) -> Result<crate::ownership::OwnershipRecord, IsolatedControlError> {
+        let committed = self
+            .ownership
+            .load(&active.run_id)
+            .map_err(|_| IsolatedControlError::internal(OBS_OWNERSHIP_MISMATCH))?;
+        if committed != active.attachment.ownership {
+            return Err(IsolatedControlError::internal(OBS_OWNERSHIP_MISMATCH));
+        }
+        Ok(committed)
     }
 }
 
@@ -219,36 +288,72 @@ impl IsolatedControl for TransactionIsolatedControl {
             .driver
             .attach(interface, run_id, created_at_unix_seconds)
             .map_err(attachment_control_error)?;
-        self.active = Some((run_id.clone(), session));
+        self.active = Some(ActiveIsolatedSession {
+            run_id: run_id.clone(),
+            interface: interface.clone(),
+            attachment: session,
+        });
         Ok(())
     }
 
     fn detach(&mut self, run_id: &RunId) -> Result<(), IsolatedControlError> {
-        let Some((active_run, session)) = self.active.as_ref() else {
+        let Some(active) = self.active.as_ref() else {
             return Err(IsolatedControlError::blocked(PF_OWNERSHIP_MISMATCH));
         };
-        if active_run != run_id {
+        if &active.run_id != run_id {
             return Err(IsolatedControlError::blocked(PF_OWNERSHIP_MISMATCH));
         }
         let committed = self
             .ownership
             .load(run_id)
             .map_err(|_| IsolatedControlError::blocked(PF_OWNERSHIP_MISMATCH))?;
-        if committed != session.ownership {
+        if committed != active.attachment.ownership {
             return Err(IsolatedControlError::blocked(PF_OWNERSHIP_MISMATCH));
         }
         self.driver
-            .detach_exact(session)
+            .detach_exact(&active.attachment)
             .map_err(attachment_control_error)?;
         self.active = None;
         Ok(())
     }
 
+    fn observe(
+        &mut self,
+        interface: &InterfaceName,
+    ) -> Result<ObservationSnapshot, IsolatedControlError> {
+        let Some(active) = self.active.as_ref() else {
+            return Err(IsolatedControlError::internal(OBS_SESSION_NOT_FOUND));
+        };
+        let ownership = self.canonical_ownership(active)?;
+        self.observation
+            .observe(interface, &active.interface, &ownership)
+            .map_err(observation_control_error)
+    }
+
+    fn status(
+        &mut self,
+        interface: Option<&InterfaceName>,
+    ) -> Result<Vec<InterfaceStatus>, IsolatedControlError> {
+        let Some(active) = self.active.as_ref() else {
+            return self
+                .observation
+                .status(interface, None, None)
+                .map_err(observation_control_error);
+        };
+        if interface.is_some_and(|requested| requested != &active.interface) {
+            return Err(IsolatedControlError::internal(OBS_SESSION_NOT_FOUND));
+        }
+        let ownership = self.canonical_ownership(active)?;
+        self.observation
+            .status(interface, Some(&active.interface), Some(&ownership))
+            .map_err(observation_control_error)
+    }
+
     fn shutdown(&mut self) -> Result<(), IsolatedControlError> {
-        let Some((run_id, _)) = self.active.as_ref() else {
+        let Some(active) = self.active.as_ref() else {
             return Ok(());
         };
-        let run_id = run_id.clone();
+        let run_id = active.run_id.clone();
         self.detach(&run_id)
     }
 }
@@ -259,6 +364,10 @@ fn attachment_control_error(error: crate::AttachmentError) -> IsolatedControlErr
     } else {
         IsolatedControlError::internal(error.code())
     }
+}
+
+fn observation_control_error(error: crate::ObservationError) -> IsolatedControlError {
+    IsolatedControlError::internal(error.code())
 }
 
 fn parse_run_id(value: &str) -> Option<RunId> {
@@ -284,6 +393,24 @@ fn isolated_response(
         }
         Ok(Err(IsolatedDispatchFailure::Lock)) | Err(_) => {
             ControlResponse::error(ERROR_INTERNAL, "isolated control failed")
+        }
+    }
+}
+
+fn observation_response<T, F>(
+    controlled: Result<Result<T, IsolatedDispatchFailure>, tokio::task::JoinError>,
+    result: F,
+) -> ControlResponse
+where
+    F: FnOnce(T) -> AgentResult,
+{
+    match controlled {
+        Ok(Ok(value)) => ControlResponse::success(result(value)),
+        Ok(Err(IsolatedDispatchFailure::Control(error))) => {
+            ControlResponse::error(error.code, "observation failed")
+        }
+        Ok(Err(IsolatedDispatchFailure::Lock)) | Err(_) => {
+            ControlResponse::error(ERROR_INTERNAL, "observation failed")
         }
     }
 }

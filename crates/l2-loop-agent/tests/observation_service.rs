@@ -161,6 +161,20 @@ fn filtered_status_without_an_active_session_is_rejected() {
 }
 
 #[test]
+fn filtered_status_for_a_different_interface_is_rejected_before_reader_io() {
+    let reader = FakeReader::panic_on_read();
+    let mut service = ObservationService::new(reader, FixedClock::unix_ms(1));
+    let active = interface();
+    let requested = InterfaceName::new("foreign0").unwrap();
+
+    let error = service
+        .status(Some(&requested), Some(&active), Some(&ownership(41, 7)))
+        .unwrap_err();
+
+    assert_eq!(error.code(), "OBS_SESSION_NOT_FOUND");
+}
+
+#[test]
 fn status_summarizes_the_single_active_session() {
     let reader = FakeReader::returning(raw_observation(41, 7));
     let mut service = ObservationService::new(reader, FixedClock::unix_ms(42));

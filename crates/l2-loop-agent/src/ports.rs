@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
 use l2_loop_core::{HookRole, InterfaceName, PolicyRequest, PreflightReport, ProbeRequest};
 use thiserror::Error;
@@ -113,6 +113,35 @@ pub trait Clock {
     fn wall_time(&self) -> SystemTime;
 }
 
+#[derive(Debug)]
+pub struct SystemClock {
+    monotonic_origin: Instant,
+}
+
+impl SystemClock {
+    pub fn new() -> Self {
+        Self {
+            monotonic_origin: Instant::now(),
+        }
+    }
+}
+
+impl Default for SystemClock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Clock for SystemClock {
+    fn monotonic_ns(&self) -> u64 {
+        u64::try_from(self.monotonic_origin.elapsed().as_nanos()).unwrap_or(u64::MAX)
+    }
+
+    fn wall_time(&self) -> SystemTime {
+        SystemTime::now()
+    }
+}
+
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawObservation {
@@ -125,6 +154,16 @@ pub struct RawObservation {
 #[cfg(target_os = "linux")]
 pub trait ObservationReader: Send {
     fn read_exact(&mut self, ownership: &OwnershipRecord) -> Result<RawObservation, PortError>;
+}
+
+#[cfg(target_os = "linux")]
+impl<T> ObservationReader for Box<T>
+where
+    T: ObservationReader + ?Sized,
+{
+    fn read_exact(&mut self, ownership: &OwnershipRecord) -> Result<RawObservation, PortError> {
+        (**self).read_exact(ownership)
+    }
 }
 
 #[cfg(target_os = "linux")]

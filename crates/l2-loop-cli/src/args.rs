@@ -53,6 +53,8 @@ pub struct PreflightArgs {
 pub struct ObserveArgs {
     #[arg(long)]
     pub interface: String,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]

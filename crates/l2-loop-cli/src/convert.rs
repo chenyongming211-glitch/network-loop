@@ -53,7 +53,7 @@ impl TryFrom<Cli> for ParsedCli {
                 AgentCommand::Observe {
                     interface: InterfaceName::new(args.interface)?,
                 },
-                false,
+                args.json,
             ),
             CliCommand::Status(args) => (
                 AgentCommand::Status {

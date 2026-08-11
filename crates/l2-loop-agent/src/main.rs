@@ -13,6 +13,7 @@ use l2_loop_agent::{
         bpf_object::AyaObjectRuntime,
         inspector::SystemLinuxInspector,
         limits::ProcessResourceLimits,
+        observation::{AyaObservationIo, LinuxObservationReader},
         tc::{RtnetlinkTcIo, SafeTc},
         xdp::{RtnetlinkXdpIo, SafeXdp},
     },
@@ -69,7 +70,10 @@ async fn run() -> Result<(), DaemonError> {
     );
     let dispatcher = DaemonDispatcher::with_isolated_control(
         PreflightService::new(SystemLinuxInspector::system()),
-        TransactionIsolatedControl::new(transaction),
+        TransactionIsolatedControl::new(
+            transaction,
+            LinuxObservationReader::new(AyaObservationIo::new()),
+        ),
     );
     let request_dispatcher = dispatcher.clone();
     let serve_result = server

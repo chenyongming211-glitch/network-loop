@@ -6,11 +6,11 @@ use l2_loop_core::{
 
 use crate::{Clock, ObservationReader, PortError, RawObservation, ownership::OwnershipRecord};
 
-const OBS_SESSION_NOT_FOUND: &str = "OBS_SESSION_NOT_FOUND";
-const OBS_INTERFACE_MISMATCH: &str = "OBS_INTERFACE_MISMATCH";
-const OBS_OWNERSHIP_MISMATCH: &str = "OBS_OWNERSHIP_MISMATCH";
-const OBS_MAP_UNAVAILABLE: &str = "OBS_MAP_UNAVAILABLE";
-const OBS_SNAPSHOT_FAILED: &str = "OBS_SNAPSHOT_FAILED";
+pub const OBS_SESSION_NOT_FOUND: &str = "OBS_SESSION_NOT_FOUND";
+pub const OBS_INTERFACE_MISMATCH: &str = "OBS_INTERFACE_MISMATCH";
+pub const OBS_OWNERSHIP_MISMATCH: &str = "OBS_OWNERSHIP_MISMATCH";
+pub const OBS_MAP_UNAVAILABLE: &str = "OBS_MAP_UNAVAILABLE";
+pub const OBS_SNAPSHOT_FAILED: &str = "OBS_SNAPSHOT_FAILED";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObservationError {
@@ -114,6 +114,12 @@ where
             }
         };
         let requested = requested.unwrap_or(active_interface);
+        if requested != active_interface {
+            return Err(ObservationError::new(
+                OBS_SESSION_NOT_FOUND,
+                "no active isolated session matches the request",
+            ));
+        }
         let snapshot = self.observe(requested, active_interface, ownership)?;
         let xdp_ingress = snapshot.hooks[0].total;
         let tc_egress = snapshot.hooks[OBSERVED_HOOK_COUNT - 1].total;
