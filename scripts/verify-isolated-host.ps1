@@ -388,13 +388,33 @@ PY
         ;;
     vlan-probe)
         python3 - "$host" "$ns" "$peer" <<'PY'
-import socket, subprocess, sys, time
+import socket, struct, subprocess, sys, time
 
 host, namespace, peer = sys.argv[1:]
 source = bytes.fromhex("020000000001")
 frame = bytes.fromhex("333300000001") + source + bytes.fromhex("8100007b86dd") + bytes(42)
 if len(frame) != 60:
     raise SystemExit("invalid VLAN probe length")
+
+SOL_PACKET = 263
+PACKET_AUXDATA = 8
+TP_STATUS_VLAN_VALID = 1 << 4
+TP_STATUS_VLAN_TPID_VALID = 1 << 6
+
+def recv_wire(channel):
+    frame, ancillary, _, _ = channel.recvmsg(65535, 1024)
+    for level, kind, value in ancillary:
+        if level == SOL_PACKET and kind == PACKET_AUXDATA and len(value) >= 20:
+            status, _, _, _, _, vlan_tci, vlan_tpid = struct.unpack("=IIIHHHH", value[:20])
+            if status & TP_STATUS_VLAN_VALID:
+                tpid = vlan_tpid if status & TP_STATUS_VLAN_TPID_VALID else 0x8100
+                return (
+                    frame[:12]
+                    + tpid.to_bytes(2, "big")
+                    + vlan_tci.to_bytes(2, "big")
+                    + frame[12:]
+                )
+    return frame
 
 sender = """
 import socket, sys
@@ -405,6 +425,7 @@ with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
     channel.send(frame)
 """
 with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003)) as receiver:
+    receiver.setsockopt(SOL_PACKET, PACKET_AUXDATA, 1)
     receiver.bind((host, 0))
     receiver.settimeout(5.0)
     subprocess.run(
@@ -415,17 +436,36 @@ with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003)) as r
     deadline = time.monotonic() + 5.0
     while True:
         receiver.settimeout(max(0.01, deadline - time.monotonic()))
-        if receiver.recv(65535) == frame:
+        if recv_wire(receiver) == frame:
             break
 PY
         ;;
     traffic-matrix)
         python3 - "$host" "$ns" "$peer" "$count" <<'PY'
-import json, select, socket, subprocess, sys, time
+import json, select, socket, struct, subprocess, sys, time
 
 host, namespace, peer, raw_count = sys.argv[1:]
 frame_count = int(raw_count)
 source = bytes.fromhex("020000000001")
+SOL_PACKET = 263
+PACKET_AUXDATA = 8
+TP_STATUS_VLAN_VALID = 1 << 4
+TP_STATUS_VLAN_TPID_VALID = 1 << 6
+
+def recv_wire(channel):
+    frame, ancillary, _, _ = channel.recvmsg(65535, 1024)
+    for level, kind, value in ancillary:
+        if level == SOL_PACKET and kind == PACKET_AUXDATA and len(value) >= 20:
+            status, _, _, _, _, vlan_tci, vlan_tpid = struct.unpack("=IIIHHHH", value[:20])
+            if status & TP_STATUS_VLAN_VALID:
+                tpid = vlan_tpid if status & TP_STATUS_VLAN_TPID_VALID else 0x8100
+                return (
+                    frame[:12]
+                    + tpid.to_bytes(2, "big")
+                    + vlan_tci.to_bytes(2, "big")
+                    + frame[12:]
+                )
+    return frame
 
 def untagged(destination, ether_type):
     return bytes.fromhex(destination) + source + bytes.fromhex(ether_type) + bytes(46)
@@ -462,7 +502,7 @@ def receive_exact(channel, expected, timeout_seconds):
     deadline = time.monotonic() + timeout_seconds
     while any(remaining.values()):
         channel.settimeout(max(0.01, deadline - time.monotonic()))
-        frame = channel.recv(65535)
+        frame = recv_wire(channel)
         if frame in remaining and remaining[frame] > 0:
             remaining[frame] -= 1
     if any(remaining.values()):
@@ -480,8 +520,9 @@ with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
             channel.send(frame)
 """
 frame_json = json.dumps([frame.hex() for frame in frames.values()], separators=(",", ":"))
-with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003)) as host_receiver:
-    host_receiver.bind((host, 0))
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003)) as receiver:
+    receiver.setsockopt(SOL_PACKET, PACKET_AUXDATA, 1)
+    receiver.bind((host, 0))
     subprocess.run(
         [
             "ip", "netns", "exec", namespace, "python3", "-c", sender,
@@ -490,19 +531,40 @@ with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003)) as h
         check=True,
         timeout=15,
     )
-    receive_exact(host_receiver, frames, 10.0)
+    receive_exact(receiver, frames, 10.0)
 
 receiver = """
-import json, socket, sys, time
+import json, socket, struct, sys, time
 interface, raw_frames, raw_count = sys.argv[1:]
 frames = {bytes.fromhex(value): int(raw_count) for value in json.loads(raw_frames)}
-with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003)) as channel:
-    channel.bind((interface, 0))
+SOL_PACKET = 263
+PACKET_AUXDATA = 8
+TP_STATUS_VLAN_VALID = 1 << 4
+TP_STATUS_VLAN_TPID_VALID = 1 << 6
+
+def recv_wire(channel):
+    frame, ancillary, _, _ = channel.recvmsg(65535, 1024)
+    for level, kind, value in ancillary:
+        if level == SOL_PACKET and kind == PACKET_AUXDATA and len(value) >= 20:
+            status, _, _, _, _, vlan_tci, vlan_tpid = struct.unpack("=IIIHHHH", value[:20])
+            if status & TP_STATUS_VLAN_VALID:
+                tpid = vlan_tpid if status & TP_STATUS_VLAN_TPID_VALID else 0x8100
+                return (
+                    frame[:12]
+                    + tpid.to_bytes(2, "big")
+                    + vlan_tci.to_bytes(2, "big")
+                    + frame[12:]
+                )
+    return frame
+
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003)) as receiver:
+    receiver.setsockopt(SOL_PACKET, PACKET_AUXDATA, 1)
+    receiver.bind((interface, 0))
     print("ready", flush=True)
     deadline = time.monotonic() + 10.0
     while any(frames.values()):
-        channel.settimeout(max(0.01, deadline - time.monotonic()))
-        frame = channel.recv(65535)
+        receiver.settimeout(max(0.01, deadline - time.monotonic()))
+        frame = recv_wire(receiver)
         if frame in frames and frames[frame] > 0:
             frames[frame] -= 1
     if any(frames.values()):
