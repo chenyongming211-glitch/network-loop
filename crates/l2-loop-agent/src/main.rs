@@ -4,7 +4,7 @@ use l2_loop_agent::{
     AttachmentTransaction, PreflightService,
     daemon::{
         BoundedUnixServer, DEFAULT_SOCKET_PATH, DaemonDispatcher, DaemonError,
-        TransactionIsolatedControl,
+        TransactionIsolatedControl, coordinate_daemon, run_sampling_loop,
     },
     linux::{
         acceptance_fault::{
@@ -21,6 +21,7 @@ use l2_loop_agent::{
     ownership::FileOwnershipRepository,
 };
 use tokio::signal::unix::{SignalKind, signal};
+use tokio::sync::watch;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -79,22 +80,29 @@ async fn run() -> Result<(), DaemonError> {
             )),
         ),
     );
+    let (shutdown, shutdown_receiver) = watch::channel(false);
     let request_dispatcher = dispatcher.clone();
-    let serve_result = server
-        .serve(
-            move |request| {
-                let dispatcher = request_dispatcher.clone();
-                async move { dispatcher.dispatch(request).await }
-            },
-            async move {
-                tokio::select! {
-                    _ = tokio::signal::ctrl_c() => {}
-                    _ = terminate.recv() => {}
+    let mut server_shutdown = shutdown_receiver.clone();
+    let server = server.serve(
+        move |request| {
+            let dispatcher = request_dispatcher.clone();
+            async move { dispatcher.dispatch(request).await }
+        },
+        async move {
+            loop {
+                if *server_shutdown.borrow() || server_shutdown.changed().await.is_err() {
+                    break;
                 }
-            },
-        )
-        .await;
-    let cleanup_result = dispatcher.shutdown_isolated().await;
-    serve_result?;
-    cleanup_result.map_err(|_| DaemonError::IsolatedCleanup)
+            }
+        },
+    );
+    let sampler = tokio::spawn(run_sampling_loop(dispatcher.clone(), shutdown_receiver));
+    let shutdown_signal = async move {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = terminate.recv() => {}
+        }
+    };
+
+    coordinate_daemon(dispatcher, server, sampler, shutdown, shutdown_signal).await
 }

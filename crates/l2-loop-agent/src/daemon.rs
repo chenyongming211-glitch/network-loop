@@ -12,8 +12,9 @@ use thiserror::Error;
 use tokio::{
     io::{AsyncWrite, AsyncWriteExt},
     net::{UnixListener, UnixStream},
-    sync::Semaphore,
+    sync::{Semaphore, watch},
     task::JoinSet,
+    time::{Instant, MissedTickBehavior},
 };
 
 use crate::{
@@ -185,6 +186,113 @@ where
         .await
         .map_err(|_| IsolatedControlError::internal("ISOLATED_CONTROL_JOIN"))?
     }
+
+    pub async fn sample_isolated(&self) -> Result<IsolatedSamplingOutcome, DaemonError> {
+        let Some(isolated) = self.isolated.clone() else {
+            return Ok(IsolatedSamplingOutcome::Idle);
+        };
+        tokio::task::spawn_blocking(move || {
+            let mut control = isolated.lock().map_err(|_| DaemonError::Sampler)?;
+            control.sample_tick().map_err(|_| DaemonError::Sampler)
+        })
+        .await
+        .map_err(|_| DaemonError::Sampler)?
+    }
+}
+
+pub async fn run_sampling_loop<P>(
+    dispatcher: DaemonDispatcher<P>,
+    shutdown: watch::Receiver<bool>,
+) -> Result<(), DaemonError>
+where
+    P: PlatformInspector + Send + 'static,
+{
+    run_sampling_loop_with_period(dispatcher, shutdown, Duration::from_secs(1)).await
+}
+
+#[doc(hidden)]
+pub async fn run_sampling_loop_with_period<P>(
+    dispatcher: DaemonDispatcher<P>,
+    mut shutdown: watch::Receiver<bool>,
+    period: Duration,
+) -> Result<(), DaemonError>
+where
+    P: PlatformInspector + Send + 'static,
+{
+    if period.is_zero() {
+        return Err(DaemonError::Sampler);
+    }
+
+    let mut interval = tokio::time::interval_at(Instant::now() + period, period);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    loop {
+        if *shutdown.borrow() {
+            return Ok(());
+        }
+
+        tokio::select! {
+            biased;
+            changed = shutdown.changed() => {
+                if changed.is_err() || *shutdown.borrow() {
+                    return Ok(());
+                }
+                continue;
+            }
+            _ = interval.tick() => {}
+        }
+
+        if *shutdown.borrow() {
+            return Ok(());
+        }
+        dispatcher.sample_isolated().await?;
+    }
+}
+
+pub async fn coordinate_daemon<P, Server, Signal>(
+    dispatcher: DaemonDispatcher<P>,
+    server: Server,
+    mut sampler: tokio::task::JoinHandle<Result<(), DaemonError>>,
+    shutdown: watch::Sender<bool>,
+    signal: Signal,
+) -> Result<(), DaemonError>
+where
+    P: PlatformInspector + Send + 'static,
+    Server: Future<Output = Result<(), DaemonError>> + Send,
+    Signal: Future<Output = ()> + Send,
+{
+    enum FirstExit {
+        Signal,
+        Server(Result<(), DaemonError>),
+        Sampler(Result<Result<(), DaemonError>, tokio::task::JoinError>),
+    }
+
+    let mut server = Box::pin(server);
+    let mut signal = Box::pin(signal);
+    let first = tokio::select! {
+        _ = &mut signal => FirstExit::Signal,
+        result = &mut server => FirstExit::Server(result),
+        result = &mut sampler => FirstExit::Sampler(result),
+    };
+
+    let _ = shutdown.send(true);
+
+    let (server_result, sampler_result, sampler_exited_first) = match first {
+        FirstExit::Signal => (server.await, sampler.await, false),
+        FirstExit::Server(result) => (result, sampler.await, false),
+        FirstExit::Sampler(result) => (server.await, result, true),
+    };
+    let cleanup_result = dispatcher
+        .shutdown_isolated()
+        .await
+        .map_err(|_| DaemonError::IsolatedCleanup);
+
+    match sampler_result {
+        Ok(Ok(())) if !sampler_exited_first => {}
+        Ok(Ok(())) | Ok(Err(_)) | Err(_) => return Err(DaemonError::Sampler),
+    }
+    server_result?;
+    cleanup_result
 }
 
 pub trait IsolatedControl: Send {
@@ -510,6 +618,8 @@ pub enum DaemonError {
     SocketInUse,
     #[error("exact isolated cleanup failed during daemon shutdown")]
     IsolatedCleanup,
+    #[error("daemon sampler failed")]
+    Sampler,
     #[error("isolated acceptance fault configuration is invalid")]
     InvalidAcceptanceFault,
     #[error("control socket operation failed: {operation}")]
