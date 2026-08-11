@@ -384,6 +384,10 @@ fn validate_hook_rates(hooks: &[HookRate; OBSERVED_HOOK_COUNT]) -> Result<(), Do
 pub struct RateHistory {
     identity: RateIdentity,
     history_epoch_started_at_monotonic_ns: u64,
+    latest_success_at_unix_ms: Option<u64>,
+    last_error_code: Option<String>,
+    consecutive_failures: u32,
+    sampling_paused: bool,
     samples: VecDeque<RateSample>,
 }
 
@@ -396,12 +400,17 @@ impl RateHistory {
         Ok(Self {
             identity,
             history_epoch_started_at_monotonic_ns,
+            latest_success_at_unix_ms: None,
+            last_error_code: None,
+            consecutive_failures: 0,
+            sampling_paused: false,
             samples: VecDeque::with_capacity(RATE_HISTORY_CAPACITY),
         })
     }
 
     pub fn insert(&mut self, sample: RateSample) -> Result<(), RateHistoryError> {
         let sample_time = sample.captured_at_monotonic_ns;
+        let sample_unix_ms = sample.captured_at_unix_ms;
         if sample.identity != self.identity {
             self.clear_at(sample_time);
             return Err(RateHistoryError::IdentityMismatch);
@@ -428,7 +437,43 @@ impl RateHistory {
         if self.samples.len() > RATE_HISTORY_CAPACITY {
             self.samples.pop_front();
         }
+        self.latest_success_at_unix_ms = Some(sample_unix_ms);
+        self.last_error_code = None;
+        self.consecutive_failures = 0;
         Ok(())
+    }
+
+    pub fn record_success(&mut self, sample: RateSample) -> Result<(), RateHistoryError> {
+        self.insert(sample)
+    }
+
+    pub fn record_transient_failure(&mut self, error_code: &str) {
+        self.record_failure(error_code);
+    }
+
+    pub fn record_identity_failure(&mut self, now_monotonic_ns: u64, error_code: &str) {
+        self.clear_at(now_monotonic_ns);
+        self.record_failure(error_code);
+    }
+
+    pub fn record_rate_failure(&mut self, now_monotonic_ns: u64, error_code: &str) {
+        self.clear_at(now_monotonic_ns);
+        self.record_failure(error_code);
+    }
+
+    pub fn pause(&mut self, now_monotonic_ns: u64, error_code: &str) {
+        self.clear_at(now_monotonic_ns);
+        self.last_error_code = Some(error_code.to_owned());
+        self.sampling_paused = true;
+    }
+
+    pub fn sampling_status(&self) -> SamplingStatus {
+        SamplingStatus {
+            latest_success_at_unix_ms: self.latest_success_at_unix_ms,
+            last_error_code: self.last_error_code.clone(),
+            consecutive_failures: self.consecutive_failures,
+            sampling_paused: self.sampling_paused,
+        }
     }
 
     pub fn validate_current(&mut self, current: &RateSample) -> Result<(), RateHistoryError> {
@@ -488,19 +533,38 @@ impl RateHistory {
         &self,
         now_monotonic_ns: u64,
     ) -> Result<[CalculatedRateWindow; RATE_WINDOW_COUNT], RateHistoryError> {
-        if self
-            .samples
-            .back()
-            .is_some_and(|latest| now_monotonic_ns < latest.captured_at_monotonic_ns)
-        {
-            return Err(RateHistoryError::ClockRegression);
-        }
-
         let coverage_ms = self.coverage_ms()?;
+        if self.is_stale(now_monotonic_ns)? {
+            return Ok(RATE_WINDOW_MS.map(|window_ms| CalculatedRateWindow::Stale {
+                window_ms,
+                coverage_ms,
+            }));
+        }
         let first = self.calculate_window(RATE_WINDOW_MS[0], coverage_ms)?;
         let second = self.calculate_window(RATE_WINDOW_MS[1], coverage_ms)?;
         let third = self.calculate_window(RATE_WINDOW_MS[2], coverage_ms)?;
         Ok([first, second, third])
+    }
+
+    fn is_stale(&self, now_monotonic_ns: u64) -> Result<bool, RateHistoryError> {
+        if self.sampling_paused {
+            return Ok(true);
+        }
+        let freshness_reference = self
+            .samples
+            .back()
+            .map_or(self.history_epoch_started_at_monotonic_ns, |latest| {
+                latest.captured_at_monotonic_ns
+            });
+        let age_ns = now_monotonic_ns
+            .checked_sub(freshness_reference)
+            .ok_or(RateHistoryError::ClockRegression)?;
+        Ok(age_ns > RATE_STALE_AFTER_NS)
+    }
+
+    fn record_failure(&mut self, error_code: &str) {
+        self.last_error_code = Some(error_code.to_owned());
+        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
     }
 
     fn calculate_window(
@@ -575,6 +639,10 @@ enum CalculatedRateWindow {
         window_ms: u64,
         coverage_ms: u64,
     },
+    Stale {
+        window_ms: u64,
+        coverage_ms: u64,
+    },
     Ready {
         window_ms: u64,
         coverage_ms: u64,
@@ -594,6 +662,18 @@ impl CalculatedRateWindow {
             } => DetailedRateWindow {
                 window_ms,
                 state: RateWindowState::WarmingUp,
+                coverage_ms,
+                elapsed_ns: None,
+                start_unix_ms: None,
+                end_unix_ms: None,
+                hooks: None,
+            },
+            Self::Stale {
+                window_ms,
+                coverage_ms,
+            } => DetailedRateWindow {
+                window_ms,
+                state: RateWindowState::Stale,
                 coverage_ms,
                 elapsed_ns: None,
                 start_unix_ms: None,
@@ -627,6 +707,19 @@ impl CalculatedRateWindow {
             } => StatusRateWindow {
                 window_ms,
                 state: RateWindowState::WarmingUp,
+                coverage_ms,
+                elapsed_ns: None,
+                start_unix_ms: None,
+                end_unix_ms: None,
+                xdp_ingress: None,
+                tc_egress: None,
+            },
+            Self::Stale {
+                window_ms,
+                coverage_ms,
+            } => StatusRateWindow {
+                window_ms,
+                state: RateWindowState::Stale,
                 coverage_ms,
                 elapsed_ns: None,
                 start_unix_ms: None,
