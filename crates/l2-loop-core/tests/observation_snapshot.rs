@@ -1,9 +1,11 @@
 use std::collections::BTreeSet;
 
 use l2_loop_core::{
-    AgentResult, ClassObservation, DomainError, HookObservation, HookRole, InterfaceName,
-    OBSERVATION_SCHEMA_VERSION, OBSERVED_CLASS_COUNT, OBSERVED_HOOK_COUNT, ObservationCounters,
-    ObservationHealth, ObservationSnapshot, TrafficClass, VlanVisibility,
+    AgentResult, ClassObservation, ClassRate, DetailedRateWindow, DomainError, HookObservation,
+    HookRate, HookRole, InterfaceName, OBSERVATION_SCHEMA_VERSION, OBSERVED_CLASS_COUNT,
+    OBSERVED_HOOK_COUNT, ObservationCounters, ObservationHealth, ObservationSnapshot,
+    RATE_HISTORY_CAPACITY, RATE_SAMPLE_PERIOD_NS, RATE_STALE_AFTER_NS, RATE_WINDOW_COUNT,
+    RATE_WINDOW_MS, RateCounters, RateWindowState, SamplingStatus, TrafficClass, VlanVisibility,
 };
 
 const CLASS_ORDER: [TrafficClass; OBSERVED_CLASS_COUNT] = [
@@ -50,12 +52,166 @@ fn fixture_snapshot() -> ObservationSnapshot {
     .unwrap()
 }
 
+fn rate_counters(packets: u64, bytes: u64) -> RateCounters {
+    RateCounters {
+        packet_delta: packets,
+        byte_delta: bytes,
+        packets_per_second: packets,
+        bytes_per_second: bytes,
+    }
+}
+
+fn rate_classes() -> [ClassRate; OBSERVED_CLASS_COUNT] {
+    CLASS_ORDER.map(|traffic_class| ClassRate {
+        traffic_class,
+        counters: rate_counters(u64::from(traffic_class as u8), 60),
+    })
+}
+
+fn rate_hook(role: HookRole) -> HookRate {
+    HookRate {
+        role,
+        total: rate_counters(7, 700),
+        classes: rate_classes(),
+        parse_errors: rate_counters(1, 13),
+    }
+}
+
+fn fixed_rate_windows() -> [DetailedRateWindow; RATE_WINDOW_COUNT] {
+    [
+        DetailedRateWindow {
+            window_ms: 1_000,
+            state: RateWindowState::Ready,
+            coverage_ms: 1_000,
+            elapsed_ns: Some(1_000_000_000),
+            start_unix_ms: Some(1_786_300_000_000),
+            end_unix_ms: Some(1_786_300_001_000),
+            hooks: Some([
+                rate_hook(HookRole::ExternalXdpIngress),
+                rate_hook(HookRole::PhysicalTcEgress),
+            ]),
+        },
+        DetailedRateWindow {
+            window_ms: 10_000,
+            state: RateWindowState::WarmingUp,
+            coverage_ms: 1_000,
+            elapsed_ns: None,
+            start_unix_ms: None,
+            end_unix_ms: None,
+            hooks: None,
+        },
+        DetailedRateWindow {
+            window_ms: 60_000,
+            state: RateWindowState::WarmingUp,
+            coverage_ms: 1_000,
+            elapsed_ns: None,
+            start_unix_ms: None,
+            end_unix_ms: None,
+            hooks: None,
+        },
+    ]
+}
+
+fn schema_two_snapshot() -> ObservationSnapshot {
+    ObservationSnapshot::new(
+        InterfaceName::new("l2h0123456789").unwrap(),
+        41,
+        7,
+        1_786_300_001_000,
+        VlanVisibility::VerifiedVisible,
+        [
+            hook(HookRole::ExternalXdpIngress),
+            hook(HookRole::PhysicalTcEgress),
+        ],
+        SamplingStatus {
+            latest_success_at_unix_ms: Some(1_786_300_001_000),
+            last_error_code: None,
+            consecutive_failures: 0,
+            sampling_paused: false,
+        },
+        fixed_rate_windows(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn fixed_rate_contract_uses_only_the_approved_bounds() {
+    assert_eq!(RATE_WINDOW_COUNT, 3);
+    assert_eq!(RATE_WINDOW_MS, [1_000, 10_000, 60_000]);
+    assert_eq!(RATE_HISTORY_CAPACITY, 64);
+    assert_eq!(RATE_SAMPLE_PERIOD_NS, 1_000_000_000);
+    assert_eq!(RATE_STALE_AFTER_NS, 3_000_000_000);
+    assert_eq!(OBSERVATION_SCHEMA_VERSION, 2);
+}
+
+#[test]
+fn schema_two_has_fixed_unambiguous_rate_fields() {
+    let value = serde_json::to_value(schema_two_snapshot()).unwrap();
+    let object = value.as_object().unwrap();
+    let actual = object.keys().map(String::as_str).collect::<BTreeSet<_>>();
+    let expected = [
+        "captured_at_unix_ms",
+        "generation",
+        "health",
+        "hooks",
+        "ifindex",
+        "interface",
+        "rate_windows",
+        "sampling",
+        "schema_version",
+        "vlan_visibility",
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+
+    assert_eq!(actual, expected);
+    assert_eq!(value["schema_version"], 2);
+    assert_eq!(value["rate_windows"][0]["window_ms"], 1_000);
+    assert_eq!(value["rate_windows"][0]["state"], "ready");
+    assert_eq!(value["rate_windows"][0]["elapsed_ns"], 1_000_000_000_u64);
+    assert_eq!(
+        value["rate_windows"][0]["hooks"][0]["total"]["packet_delta"],
+        7,
+    );
+    assert_eq!(
+        value["rate_windows"][0]["hooks"][0]["total"]["byte_delta"],
+        700,
+    );
+    assert_eq!(
+        value["rate_windows"][0]["hooks"][0]["total"]["packets_per_second"],
+        7,
+    );
+    assert_eq!(
+        value["rate_windows"][0]["hooks"][0]["total"]["bytes_per_second"],
+        700,
+    );
+    assert_eq!(
+        value["rate_windows"][0]["hooks"][0]["role"],
+        "external_xdp_ingress",
+    );
+    assert_eq!(
+        value["rate_windows"][0]["hooks"][1]["role"],
+        "physical_tc_egress",
+    );
+    assert_eq!(
+        value["rate_windows"][0]["hooks"][0]["classes"][0]["traffic_class"],
+        "l2_broadcast",
+    );
+    for index in [1, 2] {
+        assert_eq!(value["rate_windows"][index]["state"], "warming_up");
+        assert!(value["rate_windows"][index]["elapsed_ns"].is_null());
+        assert!(value["rate_windows"][index]["start_unix_ms"].is_null());
+        assert!(value["rate_windows"][index]["end_unix_ms"].is_null());
+        assert!(value["rate_windows"][index]["hooks"].is_null());
+    }
+}
+
 #[test]
 fn snapshot_requires_exact_roles_classes_and_non_zero_identity() {
     let snapshot = fixture_snapshot();
 
     assert_eq!(snapshot.schema_version, OBSERVATION_SCHEMA_VERSION);
-    assert_eq!(snapshot.schema_version, 1);
+    assert_eq!(snapshot.schema_version, 2);
     assert_eq!(snapshot.ifindex, 41);
     assert_eq!(snapshot.generation, 7);
     assert_eq!(snapshot.health, ObservationHealth::Healthy);
