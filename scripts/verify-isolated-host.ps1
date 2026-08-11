@@ -320,6 +320,8 @@ case "$phase" in
         ip netns add "$ns"
         ip link add name "$host" type veth peer name "$peer"
         ip link set dev "$peer" netns "$ns"
+        ip link set dev "$host" addrgenmode none
+        ip netns exec "$ns" ip link set dev "$peer" addrgenmode none
         ;;
     install)
         assert_no_symlink "$root"
