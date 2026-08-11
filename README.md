@@ -20,7 +20,11 @@ The broader product design remains observe-first. Later deliveries may add NIC/k
 
 Compilation, tests, Clippy, formatting checks, and eBPF builds run only in GitHub Actions. The local workspace is used for authoring and static inspection.
 
+Repository-controlled build inputs are explicit: the GitHub-generated root `Cargo.lock` is tracked, every dependency-resolving permanent Cargo command uses locked resolution, GitHub Action implementations use reviewed full commit SHAs, and the stable Rust, dated eBPF nightly, and linker versions are fixed. Dependency and tool updates are manual, atomic changes; no updater or write-capable automation is enabled.
+
 Successful CI runs publish a six-file `l2-loop-linux-x86_64-<full-commit-sha>` artifact containing the daemon, CLI, self-contained host acceptance checker, eBPF object, `manifest.json`, and `SHA256SUMS`. All three userspace binaries are static MUSL executables. The full commit SHA in both the artifact name and manifest identifies the exact source revision.
+
+The GitHub-hosted runner image remains outside the repository-controlled boundary, so the project does not claim byte-for-byte reproducible rebuilds. Deployment and acceptance therefore use the artifact and checksum file from the exact successful commit.
 
 ## Read-only preflight
 

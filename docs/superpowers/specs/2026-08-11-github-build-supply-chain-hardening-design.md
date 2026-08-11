@@ -1,7 +1,7 @@
 # Delivery C.1 GitHub Build Supply-Chain Hardening Design
 
 **Date:** 2026-08-11
-**Status:** Approved for specification review
+**Status:** Implemented; final exact-artifact acceptance gated by Section 10
 **Parent:** `docs/superpowers/specs/2026-08-10-isolated-passive-observation-design.md`
 
 ## 1. Goal

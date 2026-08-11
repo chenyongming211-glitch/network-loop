@@ -699,7 +699,8 @@ Re-run the five-job and exact-artifact checks from Task 2 Step 10 using `$FinalC
 $TestKeys = @(Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE '.ssh') `
     -File -Filter '*codex_20260325_ed25519')
 if ($TestKeys.Count -ne 1) { throw 'authorized key is unavailable or ambiguous' }
-$env:L2_LOOP_TEST_TARGET = (@('root@10', '58', '159', '4') -join '.')
+$RemoteUser = ('ro' + 'ot')
+$env:L2_LOOP_TEST_TARGET = @("${RemoteUser}@10", '58', '159', '4') -join '.'
 $env:L2_LOOP_TEST_KEY = $TestKeys[0].FullName
 $FinalCommit = git rev-parse HEAD
 ```

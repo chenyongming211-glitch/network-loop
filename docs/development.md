@@ -11,11 +11,14 @@ This single-developer repository commits and pushes directly to `main`. The `CI`
 The stable Rust job verifies the default workspace members and does not compile the eBPF crate. It runs:
 
 ```text
+cargo metadata --locked --no-deps
 cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-cargo check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+cargo check --locked
 ```
+
+Stable Rust is exactly `1.97.1`. `cargo fmt` is the only permanent Cargo command without `--locked`, because rustfmt formats source and does not resolve workspace dependencies; every dependency-resolving path must refuse lock-file changes.
 
 This job covers ABI layout, fixed numeric values, domain validation, lifecycle transitions, protocol framing, CLI parsing and rendering, the bounded Unix server, daemon dispatch, Linux snapshot parsing, agent orchestration, and the public eBPF source contract.
 
@@ -24,14 +27,24 @@ This job covers ABI layout, fixed numeric values, domain validation, lifecycle t
 The isolated-host harness has self-contained static safety tests on both Linux
 PowerShell 7 and Windows PowerShell. They verify deterministic generated names,
 exact SSH argument arrays, bounded cleanup convergence, canonical ownership checks,
-and the absence of broad or wildcard cleanup. These jobs never contact a target host.
+and the absence of broad or wildcard cleanup. Both jobs also enforce the build
+supply-chain contract: a tracked format-v4 root lock, immutable Action SHAs,
+read-only workflow permissions, exact tool versions, and locked build commands.
+These jobs never contact a target host.
 
 ### eBPF job
 
-The eBPF job installs stable Rust for `xtask`, nightly Rust with `rust-src`, and `bpf-linker`. It then runs:
+The eBPF job installs stable Rust `1.97.1` for `xtask`, nightly Rust `nightly-2026-08-10` with `rust-src`, and `bpf-linker 0.10.4` using `cargo install bpf-linker --version 0.10.4 --locked`. It then runs through the locked workspace alias:
 
 ```text
+xtask = "run --locked --package xtask --"
 cargo xtask build-ebpf
+```
+
+The production xtask expands the inner build to the fixed command contract:
+
+```text
+cargo +nightly-2026-08-10 build --locked -Z build-std=core --release --target bpfel-unknown-none --package l2-loop-ebpf
 ```
 
 The resulting object targets `bpfel-unknown-none`. This job proves that all declared maps and pass-through programs compile; it does not attach them to a runner interface.
@@ -39,6 +52,10 @@ The resulting object targets `bpfel-unknown-none`. This job proves that all decl
 ### Bundle job
 
 After Userspace and eBPF both pass, the Bundle job builds `l2-loopd`, `l2-loopctl`, and `l2-loop-hostcheck` for `x86_64-unknown-linux-musl`, combines them with the exact eBPF object from the same workflow run, and publishes:
+
+```text
+cargo build --locked --release --target x86_64-unknown-linux-musl
+```
 
 ```text
 l2-loop-linux-x86_64-<full-commit-sha>
@@ -62,6 +79,12 @@ Get-ChildItem ".artifacts/$L2LoopCommit"
 ```
 
 Keep `.artifacts/` local and ignored. After transfer to Linux, verify `SHA256SUMS` before setting mode `0755` on `l2-loopd`, `l2-loopctl`, and `l2-loop-hostcheck`; GitHub artifact extraction does not preserve executable permission bits.
+
+## Build input update policy
+
+The tracked root `Cargo.lock` is generated only by an explicitly added, temporary GitHub workflow with `contents: read`; the local authoring workspace does not resolve dependencies. Dependency, stable/nightly Rust, `bpf-linker`, and Action-SHA updates are selected manually and committed atomically. The maintainer reviews the lock and workflow diffs, removes the temporary workflow, then requires all five CI jobs and exact-artifact host acceptance again. No dependency updater, bot write, scheduled update, or automatic pull request is enabled.
+
+The repository locks inputs it controls, but the GitHub-hosted runner image is still moving. This is not a byte-for-byte reproducible-build claim: the exact successful artifact, its full commit SHA, manifest, and `SHA256SUMS` remain authoritative for deployment and acceptance.
 
 ## Current safety boundary
 
@@ -159,4 +182,4 @@ GitHub runs only the self-contained static/unit safety tests for this harness. C
 
 Each development handoff must include the GitHub Actions run URL and commit SHA for `main`. A local static inspection is useful for scope review but is never reported as compilation success.
 
-The exact artifact name and manifest bind acceptance to one source commit, but the repository does not yet claim a bit-for-bit reproducible rebuild: the workspace currently has no committed `Cargo.lock`, GitHub Actions are referenced by release tags, and Rust toolchains are selected by channels. Pinning these inputs is a separate supply-chain hardening task; until then, preserve and verify the checksum file from the exact accepted workflow artifact.
+The tracked lock, immutable Action references, fixed Rust/linker versions, and locked Cargo commands make repository-controlled inputs reviewable. They do not freeze the GitHub-hosted runner image or establish byte-for-byte reproducibility, so preserve and verify the checksum file from the exact accepted workflow artifact.
