@@ -127,6 +127,26 @@ foreach ($Required in @(
     Assert-True ($Harness.Contains($Required)) "harness is missing required safety marker: $Required"
 }
 
+foreach ($Required in @(
+    "'PassiveObservation'",
+    "'ObservationMapFailure'",
+    "'ObservationIdentityChange'",
+    "'l2-broadcast'",
+    "'ipv4-multicast'",
+    "'ipv6-multicast'",
+    "'other-l2-multicast'",
+    "'link-local-control'",
+    "'unicast-or-unclassified'",
+    "'8021q'",
+    "'8021ad'",
+    "'nested-vlan'",
+    "l2-loopctl', 'observe'",
+    "l2-loopctl', 'status'",
+    'observation-map-read'
+)) {
+    Assert-True ($Harness.Contains($Required)) "harness is missing passive observation marker: $Required"
+}
+
 Assert-True (-not $Harness.Contains('bpftool')) 'harness requires bpftool on the target host'
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)command_name in[^\r\n]*\btc\b')) 'harness requires tc on the target host'
 
