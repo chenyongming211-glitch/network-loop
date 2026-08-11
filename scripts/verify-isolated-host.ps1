@@ -577,7 +577,7 @@ child = subprocess.Popen(
     ],
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
-    text=True,
+    universal_newlines=True,
 )
 try:
     ready, _, _ = select.select([child.stdout], [], [], 5.0)
