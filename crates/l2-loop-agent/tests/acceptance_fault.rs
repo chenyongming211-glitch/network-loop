@@ -8,9 +8,6 @@ use std::{
     },
 };
 
-use l2_loop_common::{
-    CounterValue, InterfaceConfig, StatsKey, agent_mode, hook_role, vlan_visibility,
-};
 use l2_loop_agent::{
     LoadedBpfObject, MapPublisher, PortError, SafeTcPort,
     linux::{
@@ -22,6 +19,9 @@ use l2_loop_agent::{
         xdp::LoadedXdp,
     },
     ownership::{OwnedMapPin, OwnedTc, OwnershipRecord, TcHook},
+};
+use l2_loop_common::{
+    CounterValue, InterfaceConfig, StatsKey, agent_mode, hook_role, vlan_visibility,
 };
 
 #[test]
@@ -65,7 +65,12 @@ fn observation_map_fault_fails_only_the_config_read() {
 
     assert_eq!(
         calls.lock().unwrap().as_slice(),
-        ["verify-hooks", "fresh-map-id", "read-counter", "current-keys"]
+        [
+            "verify-hooks",
+            "fresh-map-id",
+            "read-counter",
+            "current-keys"
+        ]
     );
 }
 
