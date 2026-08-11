@@ -246,6 +246,7 @@ where
             return Ok(());
         }
         dispatcher.sample_isolated().await?;
+        interval.reset();
     }
 }
 
