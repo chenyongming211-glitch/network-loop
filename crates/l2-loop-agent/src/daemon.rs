@@ -19,6 +19,7 @@ use tokio::{
 use crate::{
     AttachmentSession, IsolatedAttachmentDriver, OBS_OWNERSHIP_MISMATCH, OBS_SESSION_NOT_FOUND,
     ObservationReader, ObservationService, PlatformInspector, PreflightService, SystemClock,
+    linux::acceptance_fault::ACCEPTANCE_DIAGNOSTICS_ENV,
     ownership::{FileOwnershipRepository, RunId},
     protocol::{
         ControlRequest, ControlResponse, ERROR_COMMAND_NOT_IMPLEMENTED, ERROR_EARLY_EOF,
@@ -359,6 +360,13 @@ impl IsolatedControl for TransactionIsolatedControl {
 }
 
 fn attachment_control_error(error: crate::AttachmentError) -> IsolatedControlError {
+    if std::env::var_os(ACCEPTANCE_DIAGNOSTICS_ENV).is_some() {
+        eprintln!(
+            "isolated acceptance detail: {}: {}",
+            error.code(),
+            error.evidence()
+        );
+    }
     if error.code().starts_with("PF_") {
         IsolatedControlError::blocked(error.code())
     } else {
