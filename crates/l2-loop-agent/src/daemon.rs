@@ -755,8 +755,8 @@ mod tests {
 
     use l2_loop_common::ABI_VERSION;
     use l2_loop_core::{
-        ClassObservation, HookObservation, HookRole, OBSERVED_CLASS_COUNT, ObservationCounters,
-        RateWindowState, TrafficClass, VlanVisibility,
+        ClassObservation, HookObservation, HookRole, InterfaceState, OBSERVED_CLASS_COUNT,
+        ObservationCounters, RateWindowState, TrafficClass, VlanVisibility,
     };
 
     use super::*;
