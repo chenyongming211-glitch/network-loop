@@ -1,9 +1,10 @@
+use l2_loop_common::{CounterValue, InterfaceConfig, StatsKey};
 use thiserror::Error;
 
 use crate::{
     LoadedBpfObject, MapPublisher, PortError, SafeTcPort,
-    linux::tc::LoadedTc,
-    ownership::{OwnedTc, TcHook},
+    linux::{observation::ObservationIo, tc::LoadedTc},
+    ownership::{OwnedMapPin, OwnedTc, OwnershipRecord, TcHook},
 };
 
 pub const ACCEPTANCE_FAULT_ENV: &str = "L2_LOOP_ACCEPTANCE_FAULT";
@@ -13,6 +14,7 @@ pub enum AcceptanceFault {
     None,
     TcAttach,
     MapInitialize,
+    ObservationMapRead,
 }
 
 impl AcceptanceFault {
@@ -21,8 +23,58 @@ impl AcceptanceFault {
             None => Ok(Self::None),
             Some("tc-attach") => Ok(Self::TcAttach),
             Some("map-initialize") => Ok(Self::MapInitialize),
+            Some("observation-map-read") => Ok(Self::ObservationMapRead),
             Some(_) => Err(AcceptanceFaultError),
         }
+    }
+}
+
+pub struct FaultInjectingObservation<I> {
+    inner: I,
+    fault: AcceptanceFault,
+}
+
+impl<I> FaultInjectingObservation<I> {
+    pub const fn new(inner: I, fault: AcceptanceFault) -> Self {
+        Self { inner, fault }
+    }
+}
+
+impl<I> ObservationIo for FaultInjectingObservation<I>
+where
+    I: ObservationIo,
+{
+    fn verify_hooks(&mut self, ownership: &OwnershipRecord) -> Result<(), PortError> {
+        self.inner.verify_hooks(ownership)
+    }
+
+    fn fresh_map_id(&mut self, pin: &OwnedMapPin) -> Result<u32, PortError> {
+        self.inner.fresh_map_id(pin)
+    }
+
+    fn read_config(
+        &mut self,
+        pin: &OwnedMapPin,
+        ifindex: u32,
+    ) -> Result<InterfaceConfig, PortError> {
+        if self.fault == AcceptanceFault::ObservationMapRead {
+            return Err(PortError::Adapter(
+                "authorized isolated observation map read failure".to_owned(),
+            ));
+        }
+        self.inner.read_config(pin, ifindex)
+    }
+
+    fn read_counter(
+        &mut self,
+        pin: &OwnedMapPin,
+        key: &StatsKey,
+    ) -> Result<Option<Vec<CounterValue>>, PortError> {
+        self.inner.read_counter(pin, key)
+    }
+
+    fn current_keys(&mut self, pin: &OwnedMapPin) -> Result<Vec<StatsKey>, PortError> {
+        self.inner.current_keys(pin)
     }
 }
 

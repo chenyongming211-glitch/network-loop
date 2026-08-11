@@ -115,7 +115,7 @@ foreach ($Required in @(
     "'snapshot'",
     "'verify-owned'",
     "'counters'",
-    "[ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption')]",
+    "[ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange')]",
     'L2_LOOP_ACCEPTANCE_FAULT',
     'TC_ATTACH_FAILED',
     'MAP_INITIALIZE_FAILED',
@@ -142,7 +142,16 @@ foreach ($Required in @(
     "'nested-vlan'",
     "l2-loopctl', 'observe'",
     "l2-loopctl', 'status'",
-    'observation-map-read'
+    'observation-map-read',
+    "'external_xdp_ingress'",
+    "'physical_tc_egress'",
+    "'verified_visible'",
+    'receive_exact',
+    'Get-CheckedCounterDelta',
+    'Assert-PassiveMatrixDelta',
+    'parse_errors',
+    'OBS_MAP_UNAVAILABLE',
+    'OBS_OWNERSHIP_MISMATCH'
 )) {
     Assert-True ($Harness.Contains($Required)) "harness is missing passive observation marker: $Required"
 }

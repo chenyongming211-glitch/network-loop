@@ -8,7 +8,8 @@ use l2_loop_agent::{
     },
     linux::{
         acceptance_fault::{
-            ACCEPTANCE_FAULT_ENV, AcceptanceFault, FaultInjectingMaps, FaultInjectingTc,
+            ACCEPTANCE_FAULT_ENV, AcceptanceFault, FaultInjectingMaps, FaultInjectingObservation,
+            FaultInjectingTc,
         },
         bpf_object::AyaObjectRuntime,
         inspector::SystemLinuxInspector,
@@ -72,7 +73,10 @@ async fn run() -> Result<(), DaemonError> {
         PreflightService::new(SystemLinuxInspector::system()),
         TransactionIsolatedControl::new(
             transaction,
-            LinuxObservationReader::new(AyaObservationIo::new()),
+            LinuxObservationReader::new(FaultInjectingObservation::new(
+                AyaObservationIo::new(),
+                acceptance_fault,
+            )),
         ),
     );
     let request_dispatcher = dispatcher.clone();

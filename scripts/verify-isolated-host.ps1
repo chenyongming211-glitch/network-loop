@@ -10,7 +10,7 @@ param(
     [ValidateRange(30, 600)]
     [int] $TimeoutSeconds = 180,
 
-    [ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption')]
+    [ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange')]
     [string] $Scenario = 'Success'
 )
 
@@ -188,7 +188,7 @@ assert_generated() {
 }
 assert_generated
 case "$scenario" in
-    Success|TcAttachFailure|MapInitializeFailure|DaemonTermination|IdentityChange|TrafficInterruption) ;;
+    Success|TcAttachFailure|MapInitializeFailure|DaemonTermination|IdentityChange|TrafficInterruption|PassiveObservation|ObservationMapFailure|ObservationIdentityChange) ;;
     *) fail "unknown isolated acceptance scenario" ;;
 esac
 
@@ -337,6 +337,9 @@ case "$phase" in
             MapInitializeFailure)
                 env L2_LOOP_ACCEPTANCE_FAULT=map-initialize ./l2-loopd >daemon.log 2>&1 &
                 ;;
+            ObservationMapFailure)
+                env L2_LOOP_ACCEPTANCE_FAULT=observation-map-read ./l2-loopd >daemon.log 2>&1 &
+                ;;
             *)
                 ./l2-loopd >daemon.log 2>&1 &
                 ;;
@@ -381,6 +384,155 @@ with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
     channel.bind((interface, 0))
     for _ in range(count):
         channel.send(frame)
+PY
+        ;;
+    vlan-probe)
+        python3 - "$host" "$ns" "$peer" <<'PY'
+import socket, subprocess, sys, time
+
+host, namespace, peer = sys.argv[1:]
+source = bytes.fromhex("020000000001")
+frame = bytes.fromhex("333300000001") + source + bytes.fromhex("8100007b86dd") + bytes(42)
+if len(frame) != 60:
+    raise SystemExit("invalid VLAN probe length")
+
+sender = """
+import socket, sys
+interface, frame_hex = sys.argv[1:]
+frame = bytes.fromhex(frame_hex)
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
+    channel.bind((interface, 0))
+    channel.send(frame)
+"""
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as receiver:
+    receiver.bind((host, 0))
+    receiver.settimeout(5.0)
+    subprocess.run(
+        ["ip", "netns", "exec", namespace, "python3", "-c", sender, peer, frame.hex()],
+        check=True,
+        timeout=8,
+    )
+    deadline = time.monotonic() + 5.0
+    while True:
+        receiver.settimeout(max(0.01, deadline - time.monotonic()))
+        if receiver.recv(65535) == frame:
+            break
+PY
+        ;;
+    traffic-matrix)
+        python3 - "$host" "$ns" "$peer" "$count" <<'PY'
+import json, select, socket, subprocess, sys, time
+
+host, namespace, peer, raw_count = sys.argv[1:]
+frame_count = int(raw_count)
+source = bytes.fromhex("020000000001")
+
+def untagged(destination, ether_type):
+    return bytes.fromhex(destination) + source + bytes.fromhex(ether_type) + bytes(46)
+
+def tagged(destination, tpid, tci, inner_type):
+    return (
+        bytes.fromhex(destination)
+        + source
+        + bytes.fromhex(tpid)
+        + bytes.fromhex(tci)
+        + bytes.fromhex(inner_type)
+        + bytes(42)
+    )
+
+frames = {
+    'l2-broadcast': untagged("ffffffffffff", "0806"),
+    'ipv4-multicast': untagged("01005e000001", "0800"),
+    'ipv6-multicast': untagged("333300000001", "86dd"),
+    'other-l2-multicast': untagged("01005f000001", "88b5"),
+    'link-local-control': untagged("0180c200000e", "88cc"),
+    'unicast-or-unclassified': untagged("020000000002", "0800"),
+    '8021q': tagged("333300000001", "8100", "007b", "86dd"),
+    '8021ad': tagged("01005e000001", "88a8", "0007", "0800"),
+    'nested-vlan': bytes.fromhex("01005f000001")
+        + source
+        + bytes.fromhex("88a80007810000080800")
+        + bytes(38),
+}
+if len(frames) != 9 or any(len(frame) != 60 for frame in frames.values()):
+    raise SystemExit("invalid classified traffic matrix")
+
+def receive_exact(channel, expected, timeout_seconds):
+    remaining = {frame: frame_count for frame in expected.values()}
+    deadline = time.monotonic() + timeout_seconds
+    while any(remaining.values()):
+        channel.settimeout(max(0.01, deadline - time.monotonic()))
+        frame = channel.recv(65535)
+        if frame in remaining and remaining[frame] > 0:
+            remaining[frame] -= 1
+    if any(remaining.values()):
+        raise SystemExit("classified traffic receiver count mismatch")
+
+sender = """
+import json, socket, sys
+interface, raw_frames, raw_count = sys.argv[1:]
+frames = [bytes.fromhex(value) for value in json.loads(raw_frames)]
+count = int(raw_count)
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
+    channel.bind((interface, 0))
+    for frame in frames:
+        for _ in range(count):
+            channel.send(frame)
+"""
+frame_json = json.dumps([frame.hex() for frame in frames.values()], separators=(",", ":"))
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as host_receiver:
+    host_receiver.bind((host, 0))
+    subprocess.run(
+        [
+            "ip", "netns", "exec", namespace, "python3", "-c", sender,
+            peer, frame_json, str(frame_count),
+        ],
+        check=True,
+        timeout=15,
+    )
+    receive_exact(host_receiver, frames, 10.0)
+
+receiver = """
+import json, socket, sys, time
+interface, raw_frames, raw_count = sys.argv[1:]
+frames = {bytes.fromhex(value): int(raw_count) for value in json.loads(raw_frames)}
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
+    channel.bind((interface, 0))
+    print("ready", flush=True)
+    deadline = time.monotonic() + 10.0
+    while any(frames.values()):
+        channel.settimeout(max(0.01, deadline - time.monotonic()))
+        frame = channel.recv(65535)
+        if frame in frames and frames[frame] > 0:
+            frames[frame] -= 1
+    if any(frames.values()):
+        raise SystemExit("classified traffic receiver count mismatch")
+"""
+child = subprocess.Popen(
+    [
+        "ip", "netns", "exec", namespace, "python3", "-c", receiver,
+        peer, frame_json, str(frame_count),
+    ],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+)
+try:
+    ready, _, _ = select.select([child.stdout], [], [], 5.0)
+    if not ready or child.stdout.readline().strip() != "ready":
+        raise RuntimeError("classified peer receiver was not ready")
+    with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as host_sender:
+        host_sender.bind((host, 0))
+        for frame in frames.values():
+            for _ in range(frame_count):
+                host_sender.send(frame)
+    child.communicate(timeout=12)
+    if child.returncode != 0:
+        raise RuntimeError("classified peer receiver failed")
+finally:
+    if child.poll() is None:
+        child.kill()
+        child.wait()
 PY
         ;;
     traffic-interrupt)
@@ -531,6 +683,203 @@ function Convert-Counters {
     $Counters
 }
 
+function Invoke-ObservationCli {
+    param(
+        [Parameter(Mandatory)] [psobject] $Names,
+        [Parameter(Mandatory)] [string] $Target,
+        [Parameter(Mandatory)] [string] $KeyPath,
+        [Parameter(Mandatory)] [string] $Interface,
+        [Parameter(Mandatory)] [int] $TimeoutSeconds,
+        [switch] $Json,
+        [switch] $AllowFailure
+    )
+
+    $RemoteCommand = @('l2-loopctl', 'observe', '--interface', $Interface)
+    $RemoteCommand[0] = "$($Names.RemoteRunRoot)/l2-loopctl"
+    if ($Json) { $RemoteCommand += '--json' }
+    $Arguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments $RemoteCommand
+    Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $Arguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds -AllowFailure:$AllowFailure
+}
+
+function Invoke-StatusCli {
+    param(
+        [Parameter(Mandatory)] [psobject] $Names,
+        [Parameter(Mandatory)] [string] $Target,
+        [Parameter(Mandatory)] [string] $KeyPath,
+        [AllowNull()] [string] $Interface,
+        [Parameter(Mandatory)] [int] $TimeoutSeconds,
+        [switch] $Json,
+        [switch] $AllowFailure
+    )
+
+    $RemoteCommand = @('l2-loopctl', 'status')
+    $RemoteCommand[0] = "$($Names.RemoteRunRoot)/l2-loopctl"
+    if (-not [string]::IsNullOrWhiteSpace($Interface)) {
+        $RemoteCommand += @('--interface', $Interface)
+    }
+    if ($Json) { $RemoteCommand += '--json' }
+    $Arguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments $RemoteCommand
+    Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $Arguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds -AllowFailure:$AllowFailure
+}
+
+function Assert-ObservationFailure {
+    param(
+        [Parameter(Mandatory)] [psobject] $Result,
+        [Parameter(Mandatory)] [string] $Code
+    )
+
+    if ($Result.ExitCode -ne 1 -or -not $Result.Stderr.Contains($Code)) {
+        throw "observation request did not fail with $Code"
+    }
+}
+
+function Convert-ObservationJson {
+    param([Parameter(Mandatory)] [psobject] $Result)
+
+    if ([string]::IsNullOrWhiteSpace($Result.Stdout) -or -not [string]::IsNullOrWhiteSpace($Result.Stderr)) {
+        throw 'observation JSON response streams are invalid'
+    }
+    $Result.Stdout | ConvertFrom-Json
+}
+
+function Get-ObservationHook {
+    param(
+        [Parameter(Mandatory)] [psobject] $Snapshot,
+        [Parameter(Mandatory)] [string] $Role
+    )
+
+    $Matches = @($Snapshot.hooks | Where-Object { $_.role -ceq $Role })
+    if ($Matches.Count -ne 1) { throw "observation hook $Role is not unique" }
+    $Matches[0]
+}
+
+function Get-ObservationClass {
+    param(
+        [Parameter(Mandatory)] [psobject] $Hook,
+        [Parameter(Mandatory)] [string] $Class
+    )
+
+    $Matches = @($Hook.classes | Where-Object { $_.traffic_class -ceq $Class })
+    if ($Matches.Count -ne 1) { throw "observation class $Class is not unique" }
+    $Matches[0].counters
+}
+
+function Get-CheckedCounterDelta {
+    param(
+        [Parameter(Mandatory)] [object] $Before,
+        [Parameter(Mandatory)] [object] $After,
+        [Parameter(Mandatory)] [string] $Evidence
+    )
+
+    $BeforeValue = [uint64]$Before
+    $AfterValue = [uint64]$After
+    if ($AfterValue -lt $BeforeValue) { throw "counter decreased: $Evidence" }
+    [uint64]($AfterValue - $BeforeValue)
+}
+
+function Assert-ObservationIdentity {
+    param(
+        [Parameter(Mandatory)] [psobject] $Snapshot,
+        [Parameter(Mandatory)] [psobject] $Names
+    )
+
+    if ($Snapshot.schema_version -ne 1 -or
+        $Snapshot.interface -cne $Names.HostVeth -or
+        [uint64]$Snapshot.generation -eq 0 -or
+        [uint64]$Snapshot.captured_at_unix_ms -eq 0 -or
+        $Snapshot.health -cne 'healthy' -or
+        @($Snapshot.hooks).Count -ne 2) {
+        throw 'observation snapshot identity is invalid'
+    }
+    $null = Get-ObservationHook -Snapshot $Snapshot -Role 'external_xdp_ingress'
+    $null = Get-ObservationHook -Snapshot $Snapshot -Role 'physical_tc_egress'
+}
+
+function Assert-VlanProbeDelta {
+    param(
+        [Parameter(Mandatory)] [psobject] $Before,
+        [Parameter(Mandatory)] [psobject] $After
+    )
+
+    if ($Before.vlan_visibility -cne 'unknown' -or $After.vlan_visibility -cne 'verified_visible') {
+        throw 'valid single-tag VLAN traffic did not promote visibility'
+    }
+    $BeforeXdp = Get-ObservationHook -Snapshot $Before -Role 'external_xdp_ingress'
+    $AfterXdp = Get-ObservationHook -Snapshot $After -Role 'external_xdp_ingress'
+    $BeforeTc = Get-ObservationHook -Snapshot $Before -Role 'physical_tc_egress'
+    $AfterTc = Get-ObservationHook -Snapshot $After -Role 'physical_tc_egress'
+    if ((Get-CheckedCounterDelta -Before $BeforeXdp.total.packets -After $AfterXdp.total.packets -Evidence 'VLAN XDP total packets') -ne 1 -or
+        (Get-CheckedCounterDelta -Before $BeforeXdp.total.bytes -After $AfterXdp.total.bytes -Evidence 'VLAN XDP total bytes') -le 0 -or
+        (Get-CheckedCounterDelta -Before (Get-ObservationClass -Hook $BeforeXdp -Class 'ipv6_multicast').packets -After (Get-ObservationClass -Hook $AfterXdp -Class 'ipv6_multicast').packets -Evidence 'VLAN IPv6 packets') -ne 1 -or
+        (Get-CheckedCounterDelta -Before $BeforeTc.total.packets -After $AfterTc.total.packets -Evidence 'VLAN TC total packets') -ne 0) {
+        throw 'single-tag VLAN probe produced unexpected hook counters'
+    }
+}
+
+function Assert-PassiveMatrixDelta {
+    param(
+        [Parameter(Mandatory)] [psobject] $Before,
+        [Parameter(Mandatory)] [psobject] $After,
+        [Parameter(Mandatory)] [int] $FrameCount
+    )
+
+    if ($Before.interface -cne $After.interface -or
+        [uint64]$Before.ifindex -ne [uint64]$After.ifindex -or
+        [uint64]$Before.generation -ne [uint64]$After.generation) {
+        throw 'observation identity changed across the traffic matrix'
+    }
+    $ExpectedMultipliers = [ordered]@{
+        l2_broadcast = 1
+        ipv4_multicast = 2
+        ipv6_multicast = 2
+        other_l2_multicast = 2
+        link_local_control = 1
+        unicast_or_unclassified = 1
+    }
+    foreach ($Role in @('external_xdp_ingress', 'physical_tc_egress')) {
+        $BeforeHook = Get-ObservationHook -Snapshot $Before -Role $Role
+        $AfterHook = Get-ObservationHook -Snapshot $After -Role $Role
+        $TotalPackets = Get-CheckedCounterDelta -Before $BeforeHook.total.packets -After $AfterHook.total.packets -Evidence "$Role total packets"
+        $TotalBytes = Get-CheckedCounterDelta -Before $BeforeHook.total.bytes -After $AfterHook.total.bytes -Evidence "$Role total bytes"
+        if ($TotalPackets -ne [uint64](9 * $FrameCount) -or $TotalBytes -eq 0) {
+            throw "classified traffic total mismatch for $Role"
+        }
+        foreach ($Class in $ExpectedMultipliers.Keys) {
+            $BeforeCounters = Get-ObservationClass -Hook $BeforeHook -Class $Class
+            $AfterCounters = Get-ObservationClass -Hook $AfterHook -Class $Class
+            $Packets = Get-CheckedCounterDelta -Before $BeforeCounters.packets -After $AfterCounters.packets -Evidence "$Role $Class packets"
+            $Bytes = Get-CheckedCounterDelta -Before $BeforeCounters.bytes -After $AfterCounters.bytes -Evidence "$Role $Class bytes"
+            if ($Packets -ne [uint64]($ExpectedMultipliers[$Class] * $FrameCount) -or $Bytes -eq 0) {
+                throw "classified traffic mismatch for $Role $Class"
+            }
+        }
+        if ((Get-CheckedCounterDelta -Before $BeforeHook.parse_errors.packets -After $AfterHook.parse_errors.packets -Evidence "$Role parse error packets") -ne 0 -or
+            (Get-CheckedCounterDelta -Before $BeforeHook.parse_errors.bytes -After $AfterHook.parse_errors.bytes -Evidence "$Role parse error bytes") -ne 0) {
+            throw "nested VLAN traffic raised a parse error for $Role"
+        }
+    }
+}
+
+function Assert-StatusMatchesObservation {
+    param(
+        [Parameter(Mandatory)] [psobject] $Status,
+        [Parameter(Mandatory)] [psobject] $Snapshot
+    )
+
+    $Interfaces = @($Status.interfaces)
+    if ($Interfaces.Count -ne 1) { throw 'status did not return exactly one active interface' }
+    $Interface = $Interfaces[0]
+    $Xdp = Get-ObservationHook -Snapshot $Snapshot -Role 'external_xdp_ingress'
+    $Tc = Get-ObservationHook -Snapshot $Snapshot -Role 'physical_tc_egress'
+    if ($Interface.interface -cne $Snapshot.interface -or
+        [uint64]$Interface.generation -ne [uint64]$Snapshot.generation -or
+        $Interface.vlan_visibility -cne $Snapshot.vlan_visibility -or
+        [uint64]$Interface.xdp_ingress.packets -ne [uint64]$Xdp.total.packets -or
+        [uint64]$Interface.tc_egress.packets -ne [uint64]$Tc.total.packets) {
+        throw 'status summary does not match the observation snapshot'
+    }
+}
+
 function Register-IsolatedCleanup {
     param([Parameter(Mandatory)] [scriptblock] $Action)
 
@@ -596,6 +945,17 @@ try {
     }
 
     $PreparedState = Test-IsolatedRemoteState -Phase 'snapshot-prepared' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+
+    if ($Scenario -ceq 'PassiveObservation') {
+        $MissingObservation = Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json -AllowFailure
+        Assert-ObservationFailure -Result $MissingObservation -Code 'OBS_SESSION_NOT_FOUND'
+        $MissingStatus = Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json -AllowFailure
+        Assert-ObservationFailure -Result $MissingStatus -Code 'OBS_SESSION_NOT_FOUND'
+        $EmptyStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $null -TimeoutSeconds $TimeoutSeconds -Json)
+        if (@($EmptyStatus.interfaces).Count -ne 0) {
+            throw 'status reported an interface before an isolated session was active'
+        }
+    }
 
     $BlockedArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
         "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-attach', '--interface', 'lo', '--run-id', $RunId
@@ -672,6 +1032,58 @@ try {
                 throw 'bounded traffic sender was not interrupted'
             }
             $null = Invoke-IsolatedRemotePhase -Phase 'verify-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+        }
+        'PassiveObservation' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+
+            $WrongObservation = Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface 'lo' -TimeoutSeconds $TimeoutSeconds -Json -AllowFailure
+            Assert-ObservationFailure -Result $WrongObservation -Code 'OBS_INTERFACE_MISMATCH'
+            $WrongStatus = Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface 'lo' -TimeoutSeconds $TimeoutSeconds -Json -AllowFailure
+            Assert-ObservationFailure -Result $WrongStatus -Code 'OBS_SESSION_NOT_FOUND'
+
+            $ObservationText = Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds
+            $StatusText = Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds
+            if ([string]::IsNullOrWhiteSpace($ObservationText.Stdout) -or [string]::IsNullOrWhiteSpace($StatusText.Stdout)) {
+                throw 'text observation control path returned an empty response'
+            }
+
+            $BeforeProbe = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-ObservationIdentity -Snapshot $BeforeProbe -Names $Names
+            $null = Invoke-IsolatedMutation -Phase 'vlan-probe' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount 1 -TimeoutSeconds $TimeoutSeconds
+            $AfterProbe = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-ObservationIdentity -Snapshot $AfterProbe -Names $Names
+            Assert-VlanProbeDelta -Before $BeforeProbe -After $AfterProbe
+
+            $BeforeMatrix = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            $null = Invoke-IsolatedMutation -Phase 'traffic-matrix' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $AfterMatrix = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-ObservationIdentity -Snapshot $AfterMatrix -Names $Names
+            Assert-PassiveMatrixDelta -Before $BeforeMatrix -After $AfterMatrix -FrameCount $FrameCount
+
+            $Status = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-StatusMatchesObservation -Status $Status -Snapshot $AfterMatrix
+        }
+        'ObservationMapFailure' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedMutation -Phase 'traffic-matrix' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $MapObservation = Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json -AllowFailure
+            Assert-ObservationFailure -Result $MapObservation -Code 'OBS_MAP_UNAVAILABLE'
+            $MapStatus = Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json -AllowFailure
+            Assert-ObservationFailure -Result $MapStatus -Code 'OBS_MAP_UNAVAILABLE'
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+        }
+        'ObservationIdentityChange' {
+            $InitialObservation = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-ObservationIdentity -Snapshot $InitialObservation -Names $Names
+            $null = Invoke-IsolatedMutation -Phase 'alter-journal' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $ChangedObservation = Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json -AllowFailure
+            Assert-ObservationFailure -Result $ChangedObservation -Code 'OBS_OWNERSHIP_MISMATCH'
+            $ChangedStatus = Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json -AllowFailure
+            Assert-ObservationFailure -Result $ChangedStatus -Code 'OBS_OWNERSHIP_MISMATCH'
+            $null = Invoke-IsolatedMutation -Phase 'restore-journal' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $RestoredObservation = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-ObservationIdentity -Snapshot $RestoredObservation -Names $Names
         }
     }
 
