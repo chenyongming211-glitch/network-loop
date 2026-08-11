@@ -49,10 +49,12 @@ fn parse_packet(data: usize, data_end: usize) -> Result<ParsedL2, ParseError> {
 
 #[inline(always)]
 fn account(ifindex: u32, hook_role: u8, bytes: u64, data: usize, data_end: usize) {
-    let Some(config) = IFACE_CONFIG.get_ptr_mut(&ifindex) else {
-        return;
+    let (interface_generation, current_vlan_visibility) = {
+        let Some(config) = IFACE_CONFIG.get_ptr(&ifindex) else {
+            return;
+        };
+        unsafe { ((*config).interface_generation, (*config).vlan_visibility) }
     };
-    let interface_generation = unsafe { (*config).interface_generation };
     increment_existing(
         StatsKey::total(interface_generation, ifindex, hook_role),
         bytes,
@@ -70,10 +72,16 @@ fn account(ifindex: u32, hook_role: u8, bytes: u64, data: usize, data_end: usize
                 bytes,
             );
             if parsed.outer_vlan_id.is_some()
-                && unsafe { (*config).vlan_visibility } == vlan_visibility::UNKNOWN
+                && current_vlan_visibility == vlan_visibility::UNKNOWN
             {
-                unsafe {
-                    (*config).vlan_visibility = vlan_visibility::VERIFIED_VISIBLE;
+                if let Some(config) = IFACE_CONFIG.get_ptr_mut(&ifindex) {
+                    unsafe {
+                        if (*config).interface_generation == interface_generation
+                            && (*config).vlan_visibility == vlan_visibility::UNKNOWN
+                        {
+                            (*config).vlan_visibility = vlan_visibility::VERIFIED_VISIBLE;
+                        }
+                    }
                 }
             }
         }
