@@ -3,7 +3,10 @@ use std::{
     process::{Command, ExitCode},
 };
 
-use xtask::bundle::{BundleInputs, create_bundle};
+use xtask::{
+    bundle::{BundleInputs, create_bundle},
+    ebpf::build_ebpf_args,
+};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -18,19 +21,7 @@ fn main() -> ExitCode {
 }
 
 fn build_ebpf() -> ExitCode {
-    let status = Command::new("cargo")
-        .args([
-            "+nightly",
-            "build",
-            "-Z",
-            "build-std=core",
-            "--release",
-            "--target",
-            "bpfel-unknown-none",
-            "--package",
-            "l2-loop-ebpf",
-        ])
-        .status();
+    let status = Command::new("cargo").args(build_ebpf_args()).status();
 
     match status {
         Ok(status) if status.success() => ExitCode::SUCCESS,

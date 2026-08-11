@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Test isolated host harness safety
         shell: pwsh
@@ -34,7 +34,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Test isolated host harness with Windows PowerShell
         shell: powershell
@@ -49,48 +49,55 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable at Delivery C gate
         with:
+          toolchain: 1.97.1
           components: clippy,rustfmt
+
+      - name: Verify locked dependency graph
+        run: cargo metadata --locked --no-deps
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Run Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: Run tests
-        run: cargo test
+        run: cargo test --locked
 
       - name: Check default workspace members
-        run: cargo check
+        run: cargo check --locked
 
   ebpf:
     name: eBPF
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install stable Rust for xtask
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable at Delivery C gate
+        with:
+          toolchain: 1.97.1
 
       - name: Install nightly Rust for eBPF
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@7c8d7d138f5c09cef361f8214cf96882cd029cdb # nightly at Delivery C gate
         with:
+          toolchain: nightly-2026-08-10
           components: rust-src
 
       - name: Install bpf-linker
-        run: cargo install bpf-linker --locked
+        run: cargo install bpf-linker --version 0.10.4 --locked
 
       - name: Build eBPF object
         run: cargo xtask build-ebpf
 
       - name: Upload eBPF object for bundle
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: l2-loop-ebpf-object-${{ github.sha }}
           path: target/bpfel-unknown-none/release/l2-loop-ebpf
@@ -105,20 +112,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Install stable Rust with MUSL target
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable at Delivery C gate
         with:
+          toolchain: 1.97.1
           targets: x86_64-unknown-linux-musl
 
       - name: Build MUSL userspace binaries
         run: >-
-          cargo build --release --target x86_64-unknown-linux-musl
+          cargo build --locked --release --target x86_64-unknown-linux-musl
           --package l2-loop-agent --package l2-loop-cli
 
       - name: Download eBPF object
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: l2-loop-ebpf-object-${{ github.sha }}
           path: .artifacts/ebpf
@@ -138,7 +146,7 @@ jobs:
         run: sha256sum --check SHA256SUMS
 
       - name: Upload release bundle
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: l2-loop-linux-x86_64-${{ github.sha }}
           path: .artifacts/bundle/
