@@ -1,7 +1,7 @@
 use l2_loop_core::{
     ClassObservation, DetailedRateWindow, DomainError, HookObservation, HookRole,
-    OBSERVED_CLASS_COUNT, ObservationCounters, RATE_HISTORY_CAPACITY, RATE_WINDOW_COUNT,
-    RATE_STALE_AFTER_NS, RateHistory, RateHistoryError, RateIdentity, RateSample, RateWindowState,
+    OBSERVED_CLASS_COUNT, ObservationCounters, RATE_HISTORY_CAPACITY, RATE_STALE_AFTER_NS,
+    RATE_WINDOW_COUNT, RateHistory, RateHistoryError, RateIdentity, RateSample, RateWindowState,
     TrafficClass, VlanVisibility,
 };
 
@@ -369,9 +369,7 @@ fn request_validation_never_inserts_a_sample() {
 #[test]
 fn transient_failure_retains_samples_and_saturates_failure_count() {
     let mut history = history();
-    history
-        .record_success(sample(0, 100_000, 0))
-        .unwrap();
+    history.record_success(sample(0, 100_000, 0)).unwrap();
     history
         .record_success(sample(SECOND_NS, 101_000, 1))
         .unwrap();
@@ -381,7 +379,10 @@ fn transient_failure_retains_samples_and_saturates_failure_count() {
     history.record_transient_failure(TRANSIENT_ERROR);
 
     assert_eq!(history.sample_count(), sample_count);
-    assert_eq!(detailed(&history, SECOND_NS)[0].state, RateWindowState::Ready);
+    assert_eq!(
+        detailed(&history, SECOND_NS)[0].state,
+        RateWindowState::Ready
+    );
     assert_eq!(
         history.sampling_status(),
         l2_loop_core::SamplingStatus {
@@ -396,9 +397,7 @@ fn transient_failure_retains_samples_and_saturates_failure_count() {
 #[test]
 fn identity_failure_clears_history_immediately() {
     let mut history = history();
-    history
-        .record_success(sample(0, 100_000, 0))
-        .unwrap();
+    history.record_success(sample(0, 100_000, 0)).unwrap();
     history
         .record_success(sample(SECOND_NS, 101_000, 1))
         .unwrap();
@@ -417,9 +416,7 @@ fn identity_failure_clears_history_immediately() {
 fn clock_counter_and_calculation_failures_start_a_new_epoch() {
     for error_code in [CLOCK_ERROR, COUNTER_ERROR, CALCULATION_ERROR] {
         let mut history = history();
-        history
-            .record_success(sample(0, 100_000, 0))
-            .unwrap();
+        history.record_success(sample(0, 100_000, 0)).unwrap();
         history
             .record_success(sample(SECOND_NS, 101_000, 1))
             .unwrap();
@@ -443,9 +440,7 @@ fn clock_counter_and_calculation_failures_start_a_new_epoch() {
 #[test]
 fn successful_sample_clears_transient_diagnostics() {
     let mut history = history();
-    history
-        .record_success(sample(0, 100_000, 0))
-        .unwrap();
+    history.record_success(sample(0, 100_000, 0)).unwrap();
     history.record_transient_failure(TRANSIENT_ERROR);
 
     history
@@ -466,9 +461,7 @@ fn successful_sample_clears_transient_diagnostics() {
 #[test]
 fn age_equal_to_three_seconds_is_fresh() {
     let mut history = history();
-    history
-        .record_success(sample(0, 100_000, 0))
-        .unwrap();
+    history.record_success(sample(0, 100_000, 0)).unwrap();
     history
         .record_success(sample(SECOND_NS, 101_000, 1))
         .unwrap();
@@ -482,9 +475,7 @@ fn age_equal_to_three_seconds_is_fresh() {
 #[test]
 fn age_greater_than_three_seconds_is_stale_and_has_no_rates() {
     let mut history = history();
-    history
-        .record_success(sample(0, 100_000, 0))
-        .unwrap();
+    history.record_success(sample(0, 100_000, 0)).unwrap();
     history
         .record_success(sample(SECOND_NS, 101_000, 1))
         .unwrap();
@@ -516,9 +507,7 @@ fn empty_epoch_warms_for_three_seconds_then_becomes_stale() {
 #[test]
 fn pause_clears_history_and_is_immediately_stale() {
     let mut history = history();
-    history
-        .record_success(sample(0, 100_000, 0))
-        .unwrap();
+    history.record_success(sample(0, 100_000, 0)).unwrap();
     history
         .record_success(sample(SECOND_NS, 101_000, 1))
         .unwrap();
@@ -535,17 +524,11 @@ fn pause_clears_history_and_is_immediately_stale() {
             sampling_paused: true,
         }
     );
-    assert_all_unavailable(
-        &detailed(&history, 2 * SECOND_NS),
-        RateWindowState::Stale,
-    );
+    assert_all_unavailable(&detailed(&history, 2 * SECOND_NS), RateWindowState::Stale);
 
     history
         .record_success(sample(3 * SECOND_NS, 103_000, 3))
         .unwrap();
     assert!(history.sampling_status().sampling_paused);
-    assert_all_unavailable(
-        &detailed(&history, 3 * SECOND_NS),
-        RateWindowState::Stale,
-    );
+    assert_all_unavailable(&detailed(&history, 3 * SECOND_NS), RateWindowState::Stale);
 }
