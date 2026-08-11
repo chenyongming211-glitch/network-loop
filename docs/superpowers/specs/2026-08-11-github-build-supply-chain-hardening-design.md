@@ -136,8 +136,8 @@ The temporary workflow:
 
 1. checks out the exact RED commit;
 2. installs stable Rust `1.97.1` through the fixed Action SHA;
-3. runs `cargo generate-lockfile`;
-4. runs `cargo metadata --locked --no-deps` to prove the generated lock is self-consistent;
+3. runs `cargo +1.97.1 generate-lockfile`, explicitly overriding the still-moving `rust-toolchain.toml` present in the RED commit;
+4. runs `cargo +1.97.1 metadata --locked --no-deps` to prove the generated lock is self-consistent with the same Cargo version;
 5. uploads exactly `Cargo.lock` as `l2-loop-cargo-lock-<full-commit-sha>` with one-day retention.
 
 It never compiles, commits, pushes, opens a pull request, or obtains write permission.
