@@ -1,11 +1,17 @@
 use l2_loop_core::{
     ClassObservation, DetailedRateWindow, DomainError, HookObservation, HookRole,
     OBSERVED_CLASS_COUNT, ObservationCounters, RATE_HISTORY_CAPACITY, RATE_WINDOW_COUNT,
-    RateHistory, RateHistoryError, RateIdentity, RateSample, RateWindowState, TrafficClass,
-    VlanVisibility,
+    RATE_STALE_AFTER_NS, RateHistory, RateHistoryError, RateIdentity, RateSample, RateWindowState,
+    TrafficClass, VlanVisibility,
 };
 
 const SECOND_NS: u64 = 1_000_000_000;
+const TRANSIENT_ERROR: &str = "OBS_MAP_UNAVAILABLE";
+const IDENTITY_ERROR: &str = "OBS_MAP_ID_MISMATCH";
+const CLOCK_ERROR: &str = "OBS_RATE_CLOCK_REGRESSION";
+const COUNTER_ERROR: &str = "OBS_RATE_COUNTER_REGRESSION";
+const CALCULATION_ERROR: &str = "OBS_RATE_CALCULATION_FAILED";
+const PAUSED_ERROR: &str = "OBS_RATE_SAMPLER_PAUSED";
 const CLASS_ORDER: [TrafficClass; OBSERVED_CLASS_COUNT] = [
     TrafficClass::L2Broadcast,
     TrafficClass::Ipv4Multicast,
@@ -87,8 +93,15 @@ fn detailed(history: &RateHistory, now_monotonic_ns: u64) -> [DetailedRateWindow
 }
 
 fn assert_all_warming(windows: &[DetailedRateWindow; RATE_WINDOW_COUNT]) {
+    assert_all_unavailable(windows, RateWindowState::WarmingUp);
+}
+
+fn assert_all_unavailable(
+    windows: &[DetailedRateWindow; RATE_WINDOW_COUNT],
+    expected_state: RateWindowState,
+) {
     assert!(windows.iter().all(|window| {
-        window.state == RateWindowState::WarmingUp
+        window.state == expected_state
             && window.elapsed_ns.is_none()
             && window.start_unix_ms.is_none()
             && window.end_unix_ms.is_none()
@@ -351,4 +364,188 @@ fn request_validation_never_inserts_a_sample() {
     assert_eq!(window.end_unix_ms, Some(101_000));
     assert_eq!(window.elapsed_ns, Some(SECOND_NS));
     assert_eq!(window.hooks.as_ref().unwrap()[0].total.packet_delta, 7);
+}
+
+#[test]
+fn transient_failure_retains_samples_and_saturates_failure_count() {
+    let mut history = history();
+    history
+        .record_success(sample(0, 100_000, 0))
+        .unwrap();
+    history
+        .record_success(sample(SECOND_NS, 101_000, 1))
+        .unwrap();
+    let sample_count = history.sample_count();
+
+    history.record_transient_failure(TRANSIENT_ERROR);
+    history.record_transient_failure(TRANSIENT_ERROR);
+
+    assert_eq!(history.sample_count(), sample_count);
+    assert_eq!(detailed(&history, SECOND_NS)[0].state, RateWindowState::Ready);
+    assert_eq!(
+        history.sampling_status(),
+        l2_loop_core::SamplingStatus {
+            latest_success_at_unix_ms: Some(101_000),
+            last_error_code: Some(TRANSIENT_ERROR.to_owned()),
+            consecutive_failures: 2,
+            sampling_paused: false,
+        }
+    );
+}
+
+#[test]
+fn identity_failure_clears_history_immediately() {
+    let mut history = history();
+    history
+        .record_success(sample(0, 100_000, 0))
+        .unwrap();
+    history
+        .record_success(sample(SECOND_NS, 101_000, 1))
+        .unwrap();
+
+    history.record_identity_failure(2 * SECOND_NS, IDENTITY_ERROR);
+
+    assert_eq!(history.sample_count(), 0);
+    assert_eq!(
+        history.sampling_status().last_error_code.as_deref(),
+        Some(IDENTITY_ERROR)
+    );
+    assert_all_warming(&detailed(&history, 2 * SECOND_NS));
+}
+
+#[test]
+fn clock_counter_and_calculation_failures_start_a_new_epoch() {
+    for error_code in [CLOCK_ERROR, COUNTER_ERROR, CALCULATION_ERROR] {
+        let mut history = history();
+        history
+            .record_success(sample(0, 100_000, 0))
+            .unwrap();
+        history
+            .record_success(sample(SECOND_NS, 101_000, 1))
+            .unwrap();
+        let new_epoch = 10 * SECOND_NS;
+
+        history.record_rate_failure(new_epoch, error_code);
+
+        assert_eq!(history.sample_count(), 0);
+        assert_eq!(
+            history.sampling_status().last_error_code.as_deref(),
+            Some(error_code)
+        );
+        assert_all_warming(&detailed(&history, new_epoch));
+        assert_all_unavailable(
+            &detailed(&history, new_epoch + RATE_STALE_AFTER_NS + 1),
+            RateWindowState::Stale,
+        );
+    }
+}
+
+#[test]
+fn successful_sample_clears_transient_diagnostics() {
+    let mut history = history();
+    history
+        .record_success(sample(0, 100_000, 0))
+        .unwrap();
+    history.record_transient_failure(TRANSIENT_ERROR);
+
+    history
+        .record_success(sample(SECOND_NS, 101_000, 1))
+        .unwrap();
+
+    assert_eq!(
+        history.sampling_status(),
+        l2_loop_core::SamplingStatus {
+            latest_success_at_unix_ms: Some(101_000),
+            last_error_code: None,
+            consecutive_failures: 0,
+            sampling_paused: false,
+        }
+    );
+}
+
+#[test]
+fn age_equal_to_three_seconds_is_fresh() {
+    let mut history = history();
+    history
+        .record_success(sample(0, 100_000, 0))
+        .unwrap();
+    history
+        .record_success(sample(SECOND_NS, 101_000, 1))
+        .unwrap();
+
+    let windows = detailed(&history, SECOND_NS + RATE_STALE_AFTER_NS);
+
+    assert_eq!(windows[0].state, RateWindowState::Ready);
+    assert!(windows[0].hooks.is_some());
+}
+
+#[test]
+fn age_greater_than_three_seconds_is_stale_and_has_no_rates() {
+    let mut history = history();
+    history
+        .record_success(sample(0, 100_000, 0))
+        .unwrap();
+    history
+        .record_success(sample(SECOND_NS, 101_000, 1))
+        .unwrap();
+    let now = SECOND_NS + RATE_STALE_AFTER_NS + 1;
+
+    assert_all_unavailable(&detailed(&history, now), RateWindowState::Stale);
+    assert!(history.status_windows(now).unwrap().iter().all(|window| {
+        window.state == RateWindowState::Stale
+            && window.elapsed_ns.is_none()
+            && window.start_unix_ms.is_none()
+            && window.end_unix_ms.is_none()
+            && window.xdp_ingress.is_none()
+            && window.tc_egress.is_none()
+    }));
+}
+
+#[test]
+fn empty_epoch_warms_for_three_seconds_then_becomes_stale() {
+    let epoch = 10 * SECOND_NS;
+    let history = RateHistory::new(identity(), epoch).unwrap();
+
+    assert_all_warming(&detailed(&history, epoch + RATE_STALE_AFTER_NS));
+    assert_all_unavailable(
+        &detailed(&history, epoch + RATE_STALE_AFTER_NS + 1),
+        RateWindowState::Stale,
+    );
+}
+
+#[test]
+fn pause_clears_history_and_is_immediately_stale() {
+    let mut history = history();
+    history
+        .record_success(sample(0, 100_000, 0))
+        .unwrap();
+    history
+        .record_success(sample(SECOND_NS, 101_000, 1))
+        .unwrap();
+
+    history.pause(2 * SECOND_NS, PAUSED_ERROR);
+
+    assert_eq!(history.sample_count(), 0);
+    assert_eq!(
+        history.sampling_status(),
+        l2_loop_core::SamplingStatus {
+            latest_success_at_unix_ms: Some(101_000),
+            last_error_code: Some(PAUSED_ERROR.to_owned()),
+            consecutive_failures: 0,
+            sampling_paused: true,
+        }
+    );
+    assert_all_unavailable(
+        &detailed(&history, 2 * SECOND_NS),
+        RateWindowState::Stale,
+    );
+
+    history
+        .record_success(sample(3 * SECOND_NS, 103_000, 3))
+        .unwrap();
+    assert!(history.sampling_status().sampling_paused);
+    assert_all_unavailable(
+        &detailed(&history, 3 * SECOND_NS),
+        RateWindowState::Stale,
+    );
 }
