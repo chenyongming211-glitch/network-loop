@@ -7,6 +7,7 @@ mod observation;
 mod policy;
 mod preflight;
 mod probe;
+mod rate;
 mod value;
 
 pub use command::*;
@@ -16,4 +17,5 @@ pub use observation::*;
 pub use policy::*;
 pub use preflight::*;
 pub use probe::*;
+pub use rate::*;
 pub use value::*;

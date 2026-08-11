@@ -25,7 +25,8 @@ use l2_loop_core::{
     AgentCommand, AgentResult, AttachmentState, BpfInspection, ClassObservation, HookObservation,
     HookRole, InterfaceInspection, InterfaceKind, InterfaceName, InterfaceRef, InterfaceStatus,
     KernelInspection, MemlockInspection, OBSERVED_CLASS_COUNT, ObservationCounters,
-    ObservationSnapshot, PinRootState, PreflightReport, TrafficClass, VlanVisibility,
+    ObservationSnapshot, PinRootState, PreflightReport, SamplingStatus, TrafficClass,
+    VlanVisibility, warming_detailed_rate_windows,
 };
 use tokio::{net::UnixStream, sync::oneshot, task::JoinHandle};
 
@@ -374,6 +375,8 @@ fn observation() -> ObservationSnapshot {
             observation_hook(HookRole::ExternalXdpIngress),
             observation_hook(HookRole::PhysicalTcEgress),
         ],
+        SamplingStatus::default(),
+        warming_detailed_rate_windows(),
     )
     .unwrap()
 }

@@ -1,6 +1,7 @@
 use l2_loop_core::{
     AgentMode, AgentResult, Direction, Generation, InterfaceName, InterfaceState, InterfaceStatus,
-    ObservationCounters, ObservationHealth, TrafficClass, VlanVisibility,
+    ObservationCounters, ObservationHealth, SamplingStatus, TrafficClass, VlanVisibility,
+    warming_status_rate_windows,
 };
 
 #[test]
@@ -97,6 +98,8 @@ fn status_supports_zero_or_one_bounded_session_summary() {
             packets: 9,
             bytes: 540,
         },
+        sampling: SamplingStatus::default(),
+        rate_windows: warming_status_rate_windows(),
     };
     let value = serde_json::to_value(AgentResult::Status {
         interfaces: vec![status],
@@ -107,4 +110,10 @@ fn status_supports_zero_or_one_bounded_session_summary() {
     assert_eq!(value["interfaces"][0]["generation"], 7);
     assert_eq!(value["interfaces"][0]["xdp_ingress"]["packets"], 11);
     assert_eq!(value["interfaces"][0]["tc_egress"]["bytes"], 540);
+    assert_eq!(value["interfaces"][0]["sampling"]["sampling_paused"], false);
+    assert_eq!(value["interfaces"][0]["rate_windows"][0]["window_ms"], 1_000);
+    assert_eq!(
+        value["interfaces"][0]["rate_windows"][2]["state"],
+        "warming_up",
+    );
 }

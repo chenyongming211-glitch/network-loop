@@ -13,7 +13,8 @@ use l2_loop_core::{
     HookRole, InterfaceInspection, InterfaceKind, InterfaceName, InterfaceRef, InterfaceState,
     InterfaceStatus, KernelInspection, MemlockInspection, OBSERVED_CLASS_COUNT,
     ObservationCounters, ObservationHealth, ObservationSnapshot, PF_LIVE_INTERFACE, PinRootState,
-    PreflightReport, TrafficClass, VlanVisibility,
+    PreflightReport, SamplingStatus, TrafficClass, VlanVisibility,
+    warming_detailed_rate_windows, warming_status_rate_windows,
 };
 
 const RUN_ID: &str = "0123456789abcdef0123456789abcdef";
@@ -415,6 +416,8 @@ fn fixture_snapshot() -> ObservationSnapshot {
             hook(HookRole::ExternalXdpIngress, 21, 1_260),
             hook(HookRole::PhysicalTcEgress, 18, 1_080),
         ],
+        SamplingStatus::default(),
+        warming_detailed_rate_windows(),
     )
     .unwrap()
 }
@@ -447,5 +450,7 @@ fn fixture_status(snapshot: &ObservationSnapshot) -> InterfaceStatus {
         vlan_visibility: snapshot.vlan_visibility,
         xdp_ingress: snapshot.hooks[0].total,
         tc_egress: snapshot.hooks[1].total,
+        sampling: snapshot.sampling.clone(),
+        rate_windows: warming_status_rate_windows(),
     }
 }

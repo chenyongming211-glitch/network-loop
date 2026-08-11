@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{DomainError, HookRole, InterfaceName, TrafficClass, VlanVisibility};
+use crate::{
+    DetailedRateWindow, DomainError, HookRole, InterfaceName, RATE_WINDOW_COUNT, SamplingStatus,
+    TrafficClass, VlanVisibility, rate::validate_detailed_rate_windows,
+};
 
-pub const OBSERVATION_SCHEMA_VERSION: u16 = 1;
+pub const OBSERVATION_SCHEMA_VERSION: u16 = 2;
 pub const OBSERVED_HOOK_COUNT: usize = 2;
 pub const OBSERVED_CLASS_COUNT: usize = 6;
 
@@ -66,6 +69,8 @@ pub struct ObservationSnapshot {
     pub vlan_visibility: VlanVisibility,
     pub health: ObservationHealth,
     pub hooks: [HookObservation; OBSERVED_HOOK_COUNT],
+    pub sampling: SamplingStatus,
+    pub rate_windows: [DetailedRateWindow; RATE_WINDOW_COUNT],
 }
 
 impl ObservationSnapshot {
@@ -76,6 +81,8 @@ impl ObservationSnapshot {
         captured_at_unix_ms: u64,
         vlan_visibility: VlanVisibility,
         hooks: [HookObservation; OBSERVED_HOOK_COUNT],
+        sampling: SamplingStatus,
+        rate_windows: [DetailedRateWindow; RATE_WINDOW_COUNT],
     ) -> Result<Self, DomainError> {
         if ifindex == 0 {
             return Err(DomainError::InvalidObservation("ifindex must be non-zero"));
@@ -102,6 +109,7 @@ impl ObservationSnapshot {
                 "class observations do not match the fixed class order",
             ));
         }
+        validate_detailed_rate_windows(&rate_windows)?;
 
         Ok(Self {
             schema_version: OBSERVATION_SCHEMA_VERSION,
@@ -112,6 +120,8 @@ impl ObservationSnapshot {
             vlan_visibility,
             health: ObservationHealth::Healthy,
             hooks,
+            sampling,
+            rate_windows,
         })
     }
 }

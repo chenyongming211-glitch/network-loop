@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     InterfaceName, ObservationCounters, ObservationHealth, ObservationSnapshot, PolicyRequest,
-    PreflightReport, ProbeRequest, VlanVisibility,
+    PreflightReport, ProbeRequest, RATE_WINDOW_COUNT, SamplingStatus, StatusRateWindow,
+    VlanVisibility,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,4 +68,6 @@ pub struct InterfaceStatus {
     pub vlan_visibility: VlanVisibility,
     pub xdp_ingress: ObservationCounters,
     pub tc_egress: ObservationCounters,
+    pub sampling: SamplingStatus,
+    pub rate_windows: [StatusRateWindow; RATE_WINDOW_COUNT],
 }

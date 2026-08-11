@@ -2,6 +2,7 @@ use std::time::UNIX_EPOCH;
 
 use l2_loop_core::{
     InterfaceName, InterfaceState, InterfaceStatus, OBSERVED_HOOK_COUNT, ObservationSnapshot,
+    SamplingStatus, warming_detailed_rate_windows, warming_status_rate_windows,
 };
 
 use crate::{Clock, ObservationReader, PortError, RawObservation, ownership::OwnershipRecord};
@@ -87,6 +88,8 @@ where
             captured_at_unix_ms,
             vlan_visibility,
             hooks,
+            SamplingStatus::default(),
+            warming_detailed_rate_windows(),
         )
         .map_err(|_| snapshot_error())
     }
@@ -133,6 +136,8 @@ where
             vlan_visibility: snapshot.vlan_visibility,
             xdp_ingress,
             tc_egress,
+            sampling: snapshot.sampling,
+            rate_windows: warming_status_rate_windows(),
         }])
     }
 }

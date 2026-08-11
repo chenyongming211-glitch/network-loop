@@ -20,7 +20,8 @@ use l2_loop_cli::{ClientError, EXIT_FAILURE, RenderedOutput, UnixControlClient};
 use l2_loop_core::{
     AgentCommand, AgentResult, ClassObservation, HookObservation, HookRole, InterfaceName,
     InterfaceStatus, OBSERVED_CLASS_COUNT, ObservationCounters, ObservationSnapshot,
-    PreflightReport, TrafficClass, VlanVisibility,
+    PreflightReport, SamplingStatus, TrafficClass, VlanVisibility,
+    warming_detailed_rate_windows,
 };
 use tokio::{io::AsyncReadExt, net::UnixListener, sync::oneshot};
 
@@ -198,6 +199,8 @@ fn observation() -> ObservationSnapshot {
             observation_hook(HookRole::ExternalXdpIngress),
             observation_hook(HookRole::PhysicalTcEgress),
         ],
+        SamplingStatus::default(),
+        warming_detailed_rate_windows(),
     )
     .unwrap()
 }

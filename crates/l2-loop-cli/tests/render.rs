@@ -5,7 +5,8 @@ use l2_loop_core::{
     InterfaceInspection, InterfaceKind, InterfaceName, InterfaceRef, InterfaceState,
     InterfaceStatus, KernelInspection, MemlockInspection, OBSERVED_CLASS_COUNT,
     ObservationCounters, ObservationSnapshot, PF_LIVE_INTERFACE, PinRootState, PreflightFinding,
-    PreflightReport, TrafficClass, VlanVisibility,
+    PreflightReport, SamplingStatus, TrafficClass, VlanVisibility,
+    warming_detailed_rate_windows, warming_status_rate_windows,
 };
 
 #[test]
@@ -108,6 +109,8 @@ fn renders_observation_and_status_as_stable_text_and_json() {
         vlan_visibility: snapshot.vlan_visibility,
         xdp_ingress: snapshot.hooks[0].total,
         tc_egress: snapshot.hooks[1].total,
+        sampling: snapshot.sampling.clone(),
+        rate_windows: warming_status_rate_windows(),
     };
 
     let text = render_response(
@@ -136,7 +139,7 @@ fn renders_observation_and_status_as_stable_text_and_json() {
     assert!(text.stdout.contains("packets: 21"));
     assert_eq!(json.exit_code, EXIT_SUCCESS);
     let value: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
-    assert_eq!(value["schema_version"], 1);
+    assert_eq!(value["schema_version"], 2);
     assert_eq!(value["hooks"][1]["role"], "physical_tc_egress");
     let status_value: serde_json::Value = serde_json::from_str(&status_json.stdout).unwrap();
     assert_eq!(status_value["interfaces"][0]["state"], "observing");
@@ -256,6 +259,8 @@ fn observation() -> ObservationSnapshot {
             observation_hook(HookRole::ExternalXdpIngress, 21, 1_260),
             observation_hook(HookRole::PhysicalTcEgress, 18, 1_080),
         ],
+        SamplingStatus::default(),
+        warming_detailed_rate_windows(),
     )
     .unwrap()
 }

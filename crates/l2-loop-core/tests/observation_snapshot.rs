@@ -6,6 +6,7 @@ use l2_loop_core::{
     OBSERVED_HOOK_COUNT, ObservationCounters, ObservationHealth, ObservationSnapshot,
     RATE_HISTORY_CAPACITY, RATE_SAMPLE_PERIOD_NS, RATE_STALE_AFTER_NS, RATE_WINDOW_COUNT,
     RATE_WINDOW_MS, RateCounters, RateWindowState, SamplingStatus, TrafficClass, VlanVisibility,
+    warming_detailed_rate_windows,
 };
 
 const CLASS_ORDER: [TrafficClass; OBSERVED_CLASS_COUNT] = [
@@ -48,6 +49,8 @@ fn fixture_snapshot() -> ObservationSnapshot {
             hook(HookRole::ExternalXdpIngress),
             hook(HookRole::PhysicalTcEgress),
         ],
+        SamplingStatus::default(),
+        warming_detailed_rate_windows(),
     )
     .unwrap()
 }
@@ -134,6 +137,24 @@ fn schema_two_snapshot() -> ObservationSnapshot {
     .unwrap()
 }
 
+fn snapshot_with_rate_windows(
+    rate_windows: [DetailedRateWindow; RATE_WINDOW_COUNT],
+) -> Result<ObservationSnapshot, DomainError> {
+    ObservationSnapshot::new(
+        InterfaceName::new("l2h0123456789").unwrap(),
+        41,
+        7,
+        1_786_300_001_000,
+        VlanVisibility::VerifiedVisible,
+        [
+            hook(HookRole::ExternalXdpIngress),
+            hook(HookRole::PhysicalTcEgress),
+        ],
+        SamplingStatus::default(),
+        rate_windows,
+    )
+}
+
 #[test]
 fn fixed_rate_contract_uses_only_the_approved_bounds() {
     assert_eq!(RATE_WINDOW_COUNT, 3);
@@ -207,6 +228,46 @@ fn schema_two_has_fixed_unambiguous_rate_fields() {
 }
 
 #[test]
+fn snapshot_rejects_invalid_rate_window_shapes_and_ordering() {
+    let mut reordered_windows = fixed_rate_windows();
+    reordered_windows.swap(0, 1);
+    assert!(matches!(
+        snapshot_with_rate_windows(reordered_windows),
+        Err(DomainError::InvalidObservation(_)),
+    ));
+
+    let mut ready_without_rates = fixed_rate_windows();
+    ready_without_rates[0].hooks = None;
+    assert!(matches!(
+        snapshot_with_rate_windows(ready_without_rates),
+        Err(DomainError::InvalidObservation(_)),
+    ));
+
+    let mut non_ready_with_rates = fixed_rate_windows();
+    non_ready_with_rates[0].state = RateWindowState::Stale;
+    assert!(matches!(
+        snapshot_with_rate_windows(non_ready_with_rates),
+        Err(DomainError::InvalidObservation(_)),
+    ));
+
+    let mut reordered_hooks = fixed_rate_windows();
+    reordered_hooks[0].hooks.as_mut().unwrap().swap(0, 1);
+    assert!(matches!(
+        snapshot_with_rate_windows(reordered_hooks),
+        Err(DomainError::InvalidObservation(_)),
+    ));
+
+    let mut reordered_classes = fixed_rate_windows();
+    reordered_classes[0].hooks.as_mut().unwrap()[0]
+        .classes
+        .swap(0, 1);
+    assert!(matches!(
+        snapshot_with_rate_windows(reordered_classes),
+        Err(DomainError::InvalidObservation(_)),
+    ));
+}
+
+#[test]
 fn snapshot_requires_exact_roles_classes_and_non_zero_identity() {
     let snapshot = fixture_snapshot();
 
@@ -239,6 +300,8 @@ fn snapshot_rejects_zero_ifindex_or_generation() {
                 hook(HookRole::ExternalXdpIngress),
                 hook(HookRole::PhysicalTcEgress),
             ],
+            SamplingStatus::default(),
+            warming_detailed_rate_windows(),
         );
         assert!(matches!(result, Err(DomainError::InvalidObservation(_))));
     }
@@ -263,6 +326,8 @@ fn snapshot_rejects_reordered_or_duplicate_hook_roles() {
             1,
             VlanVisibility::Unknown,
             hooks,
+            SamplingStatus::default(),
+            warming_detailed_rate_windows(),
         );
         assert!(matches!(result, Err(DomainError::InvalidObservation(_))));
     }
@@ -283,6 +348,8 @@ fn snapshot_rejects_reordered_or_duplicate_classes() {
             1,
             VlanVisibility::Unknown,
             [xdp, hook(HookRole::PhysicalTcEgress)],
+            SamplingStatus::default(),
+            warming_detailed_rate_windows(),
         );
         assert!(matches!(result, Err(DomainError::InvalidObservation(_))));
     }
@@ -318,6 +385,8 @@ fn json_contains_only_the_approved_observation_fields() {
         "vlan_visibility",
         "health",
         "hooks",
+        "sampling",
+        "rate_windows",
     ]
     .into_iter()
     .collect::<BTreeSet<_>>();
