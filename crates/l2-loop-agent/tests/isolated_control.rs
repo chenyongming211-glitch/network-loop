@@ -4,9 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use l2_loop_agent::{
     PlatformInspector, PortError, PreflightService,
-    daemon::{
-        DaemonDispatcher, IsolatedControl, IsolatedControlError, IsolatedSamplingOutcome,
-    },
+    daemon::{DaemonDispatcher, IsolatedControl, IsolatedControlError, IsolatedSamplingOutcome},
     ownership::RunId,
     protocol::{ControlRequest, ResponseBody},
 };

@@ -763,9 +763,7 @@ mod tests {
     use crate::{
         LoadedBpfObject, ObservationReadPurpose, PortError, RawObservation, SamplingService,
         linux::{tc::LoadedTc, xdp::LoadedXdp},
-        ownership::{
-            OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnershipRecord,
-        },
+        ownership::{OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnershipRecord},
     };
 
     const FIRST_RUN_ID: &str = "0123456789abcdef0123456789abcdef";
@@ -932,7 +930,10 @@ mod tests {
         let events = Arc::new(Mutex::new(Vec::new()));
         let reader_reads = Arc::new(AtomicUsize::new(0));
         let records = [
-            (FIRST_RUN_ID.to_owned(), lifecycle_ownership(FIRST_RUN_ID, 7)),
+            (
+                FIRST_RUN_ID.to_owned(),
+                lifecycle_ownership(FIRST_RUN_ID, 7),
+            ),
             (
                 SECOND_RUN_ID.to_owned(),
                 lifecycle_ownership(SECOND_RUN_ID, 8),
@@ -984,7 +985,11 @@ mod tests {
                 interface.as_str(),
                 run_id.as_str()
             ));
-            let generation = if run_id.as_str() == FIRST_RUN_ID { 7 } else { 8 };
+            let generation = if run_id.as_str() == FIRST_RUN_ID {
+                7
+            } else {
+                8
+            };
             Ok(lifecycle_session(run_id.as_str(), generation))
         }
 
@@ -1000,15 +1005,10 @@ mod tests {
                 .and_then(Path::file_name)
                 .and_then(|value| value.to_str())
                 .unwrap();
-            self.events
-                .lock()
-                .unwrap()
-                .push(format!("detach:{run_id}"));
+            self.events.lock().unwrap().push(format!("detach:{run_id}"));
             if self.detach_failures > 0 {
                 self.detach_failures -= 1;
-                Err(IsolatedControlError::internal(
-                    "OWNED_CLEANUP_INCOMPLETE",
-                ))
+                Err(IsolatedControlError::internal("OWNED_CLEANUP_INCOMPLETE"))
             } else {
                 Ok(())
             }
