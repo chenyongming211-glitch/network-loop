@@ -5,8 +5,8 @@ use l2_loop_core::{
     InterfaceInspection, InterfaceKind, InterfaceName, InterfaceRef, InterfaceState,
     InterfaceStatus, KernelInspection, MemlockInspection, OBSERVED_CLASS_COUNT,
     ObservationCounters, ObservationSnapshot, PF_LIVE_INTERFACE, PinRootState, PreflightFinding,
-    PreflightReport, SamplingStatus, TrafficClass, VlanVisibility,
-    warming_detailed_rate_windows, warming_status_rate_windows,
+    PreflightReport, SamplingStatus, TrafficClass, VlanVisibility, warming_detailed_rate_windows,
+    warming_status_rate_windows,
 };
 
 #[test]

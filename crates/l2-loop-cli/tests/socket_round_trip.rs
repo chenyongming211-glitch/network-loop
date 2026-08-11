@@ -20,8 +20,7 @@ use l2_loop_cli::{ClientError, EXIT_FAILURE, RenderedOutput, UnixControlClient};
 use l2_loop_core::{
     AgentCommand, AgentResult, ClassObservation, HookObservation, HookRole, InterfaceName,
     InterfaceStatus, OBSERVED_CLASS_COUNT, ObservationCounters, ObservationSnapshot,
-    PreflightReport, SamplingStatus, TrafficClass, VlanVisibility,
-    warming_detailed_rate_windows,
+    PreflightReport, SamplingStatus, TrafficClass, VlanVisibility, warming_detailed_rate_windows,
 };
 use tokio::{io::AsyncReadExt, net::UnixListener, sync::oneshot};
 

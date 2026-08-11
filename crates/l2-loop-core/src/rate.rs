@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{DomainError, HookRole, TrafficClass, OBSERVED_CLASS_COUNT, OBSERVED_HOOK_COUNT};
+use crate::{DomainError, HookRole, OBSERVED_CLASS_COUNT, OBSERVED_HOOK_COUNT, TrafficClass};
 
 pub const RATE_WINDOW_COUNT: usize = 3;
 pub const RATE_WINDOW_MS: [u64; RATE_WINDOW_COUNT] = [1_000, 10_000, 60_000];
@@ -224,14 +224,10 @@ fn validate_evidence_shape(
         ));
     }
 
-    let evidence_is_complete = elapsed_ns.is_some()
-        && start_unix_ms.is_some()
-        && end_unix_ms.is_some()
-        && has_rates;
-    let evidence_is_absent = elapsed_ns.is_none()
-        && start_unix_ms.is_none()
-        && end_unix_ms.is_none()
-        && !has_rates;
+    let evidence_is_complete =
+        elapsed_ns.is_some() && start_unix_ms.is_some() && end_unix_ms.is_some() && has_rates;
+    let evidence_is_absent =
+        elapsed_ns.is_none() && start_unix_ms.is_none() && end_unix_ms.is_none() && !has_rates;
 
     match state {
         RateWindowState::Ready => {
@@ -263,8 +259,7 @@ fn validate_evidence_shape(
 }
 
 fn validate_hook_rates(hooks: &[HookRate; OBSERVED_HOOK_COUNT]) -> Result<(), DomainError> {
-    if hooks[0].role != HookRole::ExternalXdpIngress
-        || hooks[1].role != HookRole::PhysicalTcEgress
+    if hooks[0].role != HookRole::ExternalXdpIngress || hooks[1].role != HookRole::PhysicalTcEgress
     {
         return Err(DomainError::InvalidObservation(
             "rate hooks must be ordered XDP ingress then TC egress",
