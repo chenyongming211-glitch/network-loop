@@ -404,7 +404,7 @@ with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
     channel.bind((interface, 0))
     channel.send(frame)
 """
-with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as receiver:
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003)) as receiver:
     receiver.bind((host, 0))
     receiver.settimeout(5.0)
     subprocess.run(
@@ -480,7 +480,7 @@ with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
             channel.send(frame)
 """
 frame_json = json.dumps([frame.hex() for frame in frames.values()], separators=(",", ":"))
-with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as host_receiver:
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003)) as host_receiver:
     host_receiver.bind((host, 0))
     subprocess.run(
         [
@@ -496,7 +496,7 @@ receiver = """
 import json, socket, sys, time
 interface, raw_frames, raw_count = sys.argv[1:]
 frames = {bytes.fromhex(value): int(raw_count) for value in json.loads(raw_frames)}
-with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003)) as channel:
     channel.bind((interface, 0))
     print("ready", flush=True)
     deadline = time.monotonic() + 10.0
