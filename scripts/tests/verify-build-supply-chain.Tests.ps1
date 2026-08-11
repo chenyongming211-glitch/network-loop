@@ -29,8 +29,8 @@ $Lock = if (Test-Path -LiteralPath $LockPath -PathType Leaf) {
 } else {
     ''
 }
-Assert-True ($Lock -match '(?m)^version = 4$') 'root Cargo.lock is not format version 4'
-Assert-True ($Lock -match '(?m)^\[\[package\]\]$') 'root Cargo.lock contains no package records'
+Assert-True ($Lock -match '(?m)^version = 4\r?$') 'root Cargo.lock is not format version 4'
+Assert-True ($Lock -match '(?m)^\[\[package\]\]\r?$') 'root Cargo.lock contains no package records'
 
 $WorkflowFiles = @(Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot '.github/workflows') -File -Filter '*.yml')
 Assert-True ($WorkflowFiles.Count -ge 1) 'repository has no active workflow files'
