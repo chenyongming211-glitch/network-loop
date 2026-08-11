@@ -11,7 +11,10 @@ use std::{
 
 use l2_loop_agent::{
     PlatformInspector, PortError, PreflightService,
-    daemon::{BoundedUnixServer, DaemonDispatcher, IsolatedControl, IsolatedControlError},
+    daemon::{
+        BoundedUnixServer, DaemonDispatcher, IsolatedControl, IsolatedControlError,
+        IsolatedSamplingOutcome,
+    },
     ownership::RunId,
     protocol::{ControlRequest, ControlResponse, decode_request, encode_response},
     transport::{read_frame, write_frame},
@@ -129,6 +132,10 @@ impl IsolatedControl for ObserveControl {
 
     fn detach(&mut self, _: &RunId) -> Result<(), IsolatedControlError> {
         panic!("observe must not invoke detach")
+    }
+
+    fn sample_tick(&mut self) -> Result<IsolatedSamplingOutcome, IsolatedControlError> {
+        panic!("observe must not invoke a background sample")
     }
 
     fn observe(
