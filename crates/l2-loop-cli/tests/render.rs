@@ -4,8 +4,8 @@ use l2_loop_core::{
     AgentResult, AttachmentState, BpfInspection, ClassObservation, HookObservation, HookRole,
     InterfaceInspection, InterfaceKind, InterfaceName, InterfaceRef, InterfaceState,
     InterfaceStatus, KernelInspection, MemlockInspection, OBSERVED_CLASS_COUNT,
-    ObservationCounters, ObservationHealth, ObservationSnapshot, PF_LIVE_INTERFACE, PinRootState,
-    PreflightFinding, PreflightReport, TrafficClass, VlanVisibility,
+    ObservationCounters, ObservationSnapshot, PF_LIVE_INTERFACE, PinRootState, PreflightFinding,
+    PreflightReport, TrafficClass, VlanVisibility,
 };
 
 #[test]
