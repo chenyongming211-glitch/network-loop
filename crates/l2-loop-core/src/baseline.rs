@@ -160,9 +160,7 @@ impl BaselineSeries {
     }
 
     pub fn latest_accepted_at_unix_ms(&self) -> Option<u64> {
-        self.samples
-            .back()
-            .map(|sample| sample.accepted_at_unix_ms)
+        self.samples.back().map(|sample| sample.accepted_at_unix_ms)
     }
 
     pub fn accept(
@@ -263,9 +261,7 @@ pub fn evaluate_metric(
     let ratio_milli = if median == 0 {
         None
     } else {
-        Some(
-            ((u128::from(current) * 1_000) / u128::from(median)).min(u128::from(u64::MAX)) as u64,
-        )
+        Some(((u128::from(current) * 1_000) / u128::from(median)).min(u128::from(u64::MAX)) as u64)
     };
 
     BaselineMetricReport {
