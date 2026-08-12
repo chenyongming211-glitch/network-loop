@@ -357,11 +357,13 @@ impl BaselineEngine {
             );
             BaselineError::InvalidSourceWindow
         })?;
-        let values = std::array::from_fn(|index| subject_rates(hooks, index));
-        let mut evaluations = std::array::from_fn(|index| {
-            let (packets, bytes) = values[index];
-            self.series[index].evaluate(packets, bytes)
-        });
+        let values: [(u64, u64); BASELINE_SUBJECT_COUNT] =
+            std::array::from_fn(|index| subject_rates(hooks, index));
+        let mut evaluations: [BaselineSeriesEvaluation; BASELINE_SUBJECT_COUNT] =
+            std::array::from_fn(|index| {
+                let (packets, bytes) = values[index];
+                self.series[index].evaluate(packets, bytes)
+            });
 
         for index in 0..BASELINE_SUBJECT_COUNT {
             let evaluation = evaluations[index];
