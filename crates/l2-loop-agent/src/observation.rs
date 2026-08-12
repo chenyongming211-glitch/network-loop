@@ -342,12 +342,8 @@ where
             .cached_report()
             .clone();
         let fingerprints = fingerprint_report(ifindex, generation, fingerprints)?;
-        let health = observation_health(
-            &sampling,
-            &rate_windows,
-            baseline.state,
-            fingerprints.state,
-        );
+        let health =
+            observation_health(&sampling, &rate_windows, baseline.state, fingerprints.state);
         let mut snapshot = ObservationSnapshot::new(
             requested.clone(),
             ifindex,
