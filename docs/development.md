@@ -93,6 +93,7 @@ The repository locks inputs it controls, but the GitHub-hosted runner image is s
 - Preflight reads only the explicitly requested interface and relevant kernel attachment metadata.
 - The daemon control socket accepts one bounded request and returns one bounded response per connection.
 - `observe` and `status` read only the one active journal-confirmed isolated session; they revalidate hook identities and the exact names, pins, and kernel IDs of required owned Maps before reading counters.
+- The daemon performs one non-overlapping background read per second, skips missed ticks, and keeps at most 64 successful samples in memory for the exact active generation.
 - No implementation sends a probe frame.
 - No implementation returns `XDP_DROP` or `TC_ACT_SHOT`.
 - Probe CLI parsing has no count, repeat, interval, or scheduling option.
@@ -113,14 +114,18 @@ SIGINT and SIGTERM use graceful shutdown. Cleanup verifies the socket device and
 
 Do not compile these binaries locally. Deploy only the bundle from the exact green GitHub commit being accepted.
 
-## Passive-observation semantics
+## Observation and bounded-rate semantics
 
 ```text
 l2-loopctl observe --interface <IFACE> [--json]
 l2-loopctl status [--interface <IFACE>] [--json]
 ```
 
-`observe` returns generation-scoped cumulative packets and bytes for XDP ingress and TC egress, split into the six fixed mutually exclusive classes plus aggregate and parse-error counters. `status` returns zero or one active session and summarizes only the two hook aggregates. Capture time states when the Map snapshot was read; it is not a window boundary. Neither command returns PPS/BPS, a baseline, a fingerprint, or a loop verdict.
+Each request performs a current identity-confirmed Map read but never inserts a history sample. `observe` returns generation-scoped cumulative packets and bytes for XDP ingress and TC egress, split into the six fixed mutually exclusive classes plus aggregate and parse-error counters, together with detailed rate windows. `status` returns zero or one active session and summarizes cumulative and rate data to the two hook aggregates. Observation schema 2 is transported through protocol version 1.
+
+The independent background sampler runs once per second with missed ticks skipped. Its memory-only history contains at most 64 successful samples and is destroyed on successful detach; samples from different generations are never compared. Windows are fixed in the order 1, 10, and 60 seconds. Rates use checked integer arithmetic and monotonic elapsed nanoseconds: packets are rendered as `pps`, and bytes as `B/s`. `ready` includes endpoint evidence, deltas, and rates. `warming_up` means retained endpoints do not cover the requested duration. `stale` means the newest successful sample is strictly more than three seconds old or sampling is paused. Warming and stale windows expose `null` endpoints and rates, not zero or interpolated values.
+
+Transient background-read failures retain trustworthy same-generation samples, increment a bounded diagnostic count, degrade health, and eventually make windows stale; they never fail a successful current cumulative request or trigger detach. Identity, clock, or counter failures clear rate history before any cross-identity or regressed rate can be returned. There is no 100 ms sampling, persistent history, caller-selected window, dynamic baseline, fingerprint, loop verdict, probe, drop, policy, or production attachment.
 
 The Layer 2 parser reads one optional outer VLAN tag. A nested tag is detected but not parsed through; the frame remains fail-open and uses destination-MAC-safe degraded classification. `verified_visible` means that at least one hook in the current session saw a real supported outer tag. It is not per-hook or per-VLAN proof.
 
@@ -134,6 +139,10 @@ Observation failures use stable codes:
 | `OBS_MAP_UNAVAILABLE` | a required owned Map cannot be opened or read |
 | `OBS_MAP_IDENTITY_MISMATCH` | a pin no longer resolves to its journal-confirmed Map identity |
 | `OBS_SNAPSHOT_FAILED` | checked aggregation, clock, or bounded model construction failed |
+| `OBS_RATE_CLOCK_REGRESSION` | monotonic rate time did not advance |
+| `OBS_RATE_COUNTER_REGRESSION` | a cumulative counter fell below retained same-generation evidence |
+| `OBS_RATE_CALCULATION_FAILED` | checked delta, elapsed, or conversion arithmetic failed |
+| `OBS_RATE_SAMPLER_PAUSED` | exact detach was attempted and the retained session is paused |
 
 These errors do not trigger adoption, repair, detach, or cleanup.
 
@@ -162,7 +171,10 @@ $L2LoopScenarios = @(
     'TrafficInterruption',
     'PassiveObservation',
     'ObservationMapFailure',
-    'ObservationIdentityChange'
+    'ObservationIdentityChange',
+    'RateWindows',
+    'RateSamplingFailure',
+    'RateGenerationReset'
 )
 foreach ($L2LoopScenario in $L2LoopScenarios) {
     pwsh -NoProfile -File scripts/verify-isolated-host.ps1 `
@@ -175,6 +187,8 @@ network/eBPF identities. An intentionally changed ownership identity is refused 
 retained for manual review until the original canonical journal is restored.
 
 `PassiveObservation` verifies the exact nine-frame-per-iteration classification matrix in both directions, real tagged visibility, nested-tag degradation, text/JSON Unix-socket round trips, and continued delivery to the peer. The receiver subscribes to all Ethernet protocols and reconstructs an offloaded VLAN header from `PACKET_AUXDATA` only for acceptance comparison. Generated veth endpoints use `addrgenmode none` to suppress unrelated IPv6 DAD traffic; the harness does not change a sysctl or NIC offload setting. `ObservationMapFailure` proves an injected read failure cannot affect forwarding or exact detach. `ObservationIdentityChange` proves observation refuses a changed journal before Map reads, then succeeds in exact cleanup only after the canonical journal is restored.
+
+`RateWindows` sends the fixed nine-frame matrix in both directions once per second for 65 iterations and validates warming-to-ready transitions, fixed hook/class order, cumulative monotonicity, forwarding, and independent recomputation of every rate from its returned delta and `elapsed_ns`. `RateSamplingFailure` injects only background-read failure and proves request reads and forwarding continue while all windows become stale with null rates and bounded diagnostics. `RateGenerationReset` performs identity-exact detach and reattach with a new run ID, proves the generation changes and all windows restart warming, then independently drives the new 1-second window ready. Every scenario retains full before/after network and eBPF identity equality and exact owned cleanup.
 
 GitHub runs only the self-contained static/unit safety tests for this harness. CI never reads the task-scoped environment inputs and never contacts a test host.
 

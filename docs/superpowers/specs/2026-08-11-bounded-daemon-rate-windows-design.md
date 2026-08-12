@@ -1,7 +1,7 @@
 # Bounded Daemon Sampler and Rate Windows Design
 
 **Date:** 2026-08-11
-**Status:** Approved for implementation
+**Status:** Implemented; final exact-artifact acceptance gated by Section 15
 **Parent:** `docs/superpowers/specs/2026-08-10-isolated-passive-observation-design.md`
 
 ## 1. Goal

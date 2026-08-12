@@ -1,11 +1,11 @@
 # 二层环路检测 Agent 设计方案
 
 日期：2026-08-06  
-状态：产品设计基线；Delivery A/B/C 已实现只读预检、隔离安全挂载和隔离被动累计观测
+状态：产品设计基线；已实现只读预检、隔离安全挂载、隔离被动累计观测和有界固定速率窗口
 实现语言：Rust + eBPF/XDP/TC  
 范围：独立物理 Agent，不依赖 Neutron，不进行跨节点通信
 
-当前实现边界比完整产品设计更窄：只允许生成的隔离 network namespace/veth 会话，已实现单层 VLAN 二层分类、XDP ingress/TC egress 按 generation 累计 packets/bytes、真实 `observe/status` 和身份精确回滚。PPS/BPS 窗口、动态基线、指纹、环路状态机、证据包、主动探针、限速及生产/物理接口挂载仍是后续阶段，不能把本文件中的完整产品能力理解为当前可用命令。
+当前实现边界比完整产品设计更窄：只允许生成的隔离 network namespace/veth 会话，已实现单层 VLAN 二层分类、XDP ingress/TC egress 按 generation 累计 packets/bytes、真实 `observe/status`、身份精确回滚，以及 daemon 内存中的 1 Hz 后台采样和固定 1/10/60 秒 PPS/BPS 窗口。每个 generation 最多保留 64 个成功样本；请求读取不进入采样序列；超过 3 秒才 stale；非 ready 窗口不输出数值速率。Observation schema 为 2，控制协议仍为 1。100 ms 采样、持久化历史、动态基线、指纹、环路状态机、证据包、主动探针、限速及生产/物理接口挂载仍是后续阶段，不能把本文件中的完整产品能力理解为当前可用命令。
 
 ## 1. 设计结论
 
@@ -763,7 +763,7 @@ EXTERNAL_LOOP_CONFIRMED
 
 1. crate、进程和 systemd 布局；
 2. map ABI、generation 和持久化格式；
-3. 默认采样率和 LRU 容量；PCAP 与证据保留边界已由本地告警和证据输出规范冻结；
+3. 100 ms 突发采样和后续证据历史容量；当前交付的 1 Hz、固定 1/10/60 秒窗口和 64 样本内存容量已经冻结；
 4. 动态基线算法及每类绝对安全上限；
 5. 各 bond mode 的 XDP/TC 挂载矩阵；
 6. Linux bridge 与 OVS 的 internal probe 安全注入点；
