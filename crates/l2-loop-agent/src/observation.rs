@@ -503,6 +503,29 @@ where
         }
     }
 
+    fn clear_request_integrity(
+        &mut self,
+        ownership: &OwnershipRecord,
+        cleared_at_monotonic_ns: u64,
+        cleared_at_unix_ms: u64,
+        baseline_code: &'static str,
+        detection_code: &'static str,
+    ) {
+        if let Some(baseline) = self.baseline.as_mut() {
+            baseline.clear_integrity(
+                baseline.identity(),
+                cleared_at_unix_ms,
+                baseline_code,
+            );
+        }
+        self.clear_detection_integrity(
+            ownership,
+            cleared_at_monotonic_ns,
+            cleared_at_unix_ms,
+            detection_code,
+        );
+    }
+
     fn current_snapshot(
         &mut self,
         requested: &InterfaceName,
@@ -519,25 +542,65 @@ where
         if self.history.is_none() {
             return Err(session_error());
         }
+        let now_monotonic_ns = self.clock.monotonic_ns();
+        let raw = match self
+            .reader
+            .read_exact(ownership, ObservationReadPurpose::Request)
+        {
+            Ok(raw) => raw,
+            Err(error) => {
+                let code = error.stable_code().unwrap_or(OBS_MAP_UNAVAILABLE);
+                if is_identity_code(code) {
+                    if let Some(history) = self.history.as_mut() {
+                        history.record_identity_failure(now_monotonic_ns, code);
+                    }
+                    self.clear_request_integrity(
+                        ownership,
+                        now_monotonic_ns,
+                        wall_time_ms(&self.clock).unwrap_or_default(),
+                        BASELINE_IDENTITY_CHANGED,
+                        DETECTION_IDENTITY_CHANGED,
+                    );
+                }
+                return Err(reader_error(error));
+            }
+        };
         let RawObservation {
             ifindex,
             generation,
             vlan_visibility,
             hooks,
             fingerprints,
-        } = self
-            .reader
-            .read_exact(ownership, ObservationReadPurpose::Request)
-            .map_err(reader_error)?;
-        let now_monotonic_ns = self.clock.monotonic_ns();
-        let Some(history) = self.history.as_mut() else {
-            return Err(session_error());
-        };
+        } = raw;
         if ifindex != ownership.ifindex || generation != ownership.generation {
-            history.record_identity_failure(now_monotonic_ns, OBS_OWNERSHIP_MISMATCH);
+            if let Some(history) = self.history.as_mut() {
+                history.record_identity_failure(now_monotonic_ns, OBS_OWNERSHIP_MISMATCH);
+            }
+            self.clear_request_integrity(
+                ownership,
+                now_monotonic_ns,
+                wall_time_ms(&self.clock).unwrap_or_default(),
+                BASELINE_IDENTITY_CHANGED,
+                DETECTION_IDENTITY_CHANGED,
+            );
             return Err(ownership_error());
         }
-        let captured_at_unix_ms = wall_time_ms(&self.clock).ok_or_else(snapshot_error)?;
+        let captured_at_unix_ms = match wall_time_ms(&self.clock) {
+            Some(value) => value,
+            None => {
+                if let Some(history) = self.history.as_mut() {
+                    history.record_rate_failure(now_monotonic_ns, OBS_SNAPSHOT_FAILED);
+                }
+                self.clear_request_integrity(
+                    ownership,
+                    now_monotonic_ns,
+                    0,
+                    BASELINE_CLOCK_REGRESSION,
+                    DETECTION_RATE_INVALID,
+                );
+                return Err(snapshot_error());
+            }
+        };
         let current = match RateSample::new(
             RateIdentity::new(ifindex, generation).map_err(|_| ownership_error())?,
             now_monotonic_ns,
@@ -547,32 +610,87 @@ where
         ) {
             Ok(current) => current,
             Err(_) => {
-                history.record_rate_failure(now_monotonic_ns, OBS_RATE_CALCULATION_FAILED);
+                if let Some(history) = self.history.as_mut() {
+                    history.record_rate_failure(now_monotonic_ns, OBS_RATE_CALCULATION_FAILED);
+                }
+                self.clear_request_integrity(
+                    ownership,
+                    now_monotonic_ns,
+                    captured_at_unix_ms,
+                    BASELINE_CALCULATION_FAILED,
+                    DETECTION_RATE_INVALID,
+                );
                 return Err(snapshot_error());
             }
         };
-        if let Err(error) = history.validate_current(&current) {
+        let validation = self
+            .history
+            .as_mut()
+            .ok_or_else(session_error)?
+            .validate_current(&current);
+        if let Err(error) = validation {
             let observation_error = rate_history_error(error);
-            record_history_failure(history, now_monotonic_ns, error);
+            if let Some(history) = self.history.as_mut() {
+                record_history_failure(history, now_monotonic_ns, error);
+            }
+            self.clear_request_integrity(
+                ownership,
+                now_monotonic_ns,
+                captured_at_unix_ms,
+                baseline_code_for_rate_error(error),
+                DETECTION_RATE_INVALID,
+            );
             return Err(observation_error);
         }
-        let rate_windows = match history.detailed_windows(now_monotonic_ns) {
+        let rate_windows = match self
+            .history
+            .as_ref()
+            .ok_or_else(session_error)?
+            .detailed_windows(now_monotonic_ns)
+        {
             Ok(windows) => windows,
             Err(error) => {
                 let observation_error = rate_history_error(error);
-                record_history_failure(history, now_monotonic_ns, error);
+                if let Some(history) = self.history.as_mut() {
+                    record_history_failure(history, now_monotonic_ns, error);
+                }
+                self.clear_request_integrity(
+                    ownership,
+                    now_monotonic_ns,
+                    captured_at_unix_ms,
+                    baseline_code_for_rate_error(error),
+                    DETECTION_RATE_INVALID,
+                );
                 return Err(observation_error);
             }
         };
-        let status_rate_windows = match history.status_windows(now_monotonic_ns) {
+        let status_rate_windows = match self
+            .history
+            .as_ref()
+            .ok_or_else(session_error)?
+            .status_windows(now_monotonic_ns)
+        {
             Ok(windows) => windows,
             Err(error) => {
                 let observation_error = rate_history_error(error);
-                record_history_failure(history, now_monotonic_ns, error);
+                if let Some(history) = self.history.as_mut() {
+                    record_history_failure(history, now_monotonic_ns, error);
+                }
+                self.clear_request_integrity(
+                    ownership,
+                    now_monotonic_ns,
+                    captured_at_unix_ms,
+                    baseline_code_for_rate_error(error),
+                    DETECTION_RATE_INVALID,
+                );
                 return Err(observation_error);
             }
         };
-        let sampling = history.sampling_status();
+        let sampling = self
+            .history
+            .as_ref()
+            .ok_or_else(session_error)?
+            .sampling_status();
         let baseline = self
             .baseline
             .as_ref()
