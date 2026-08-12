@@ -543,13 +543,18 @@ PY
         ;;
     detection-absolute-ingress)
         ip netns exec "$ns" python3 - "$peer" <<'PY'
-import socket, sys
+import socket, sys, time
 interface = sys.argv[1]
 frame = bytes.fromhex("ffffffffffff02000000000b88b5") + bytes(46)
 with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
     channel.bind((interface, 0))
-    for _ in range(110000):
-        channel.send(frame)
+    for _ in range(5):
+        started = time.monotonic()
+        for _ in range(100000):
+            channel.send(frame)
+        remaining = 1.0 - (time.monotonic() - started)
+        if remaining > 0:
+            time.sleep(remaining)
 PY
         ;;
     detection-relationship-seed)
@@ -1231,7 +1236,7 @@ function Wait-DetectionState {
         if ($Snapshot.detection.state -ceq $ExpectedState) { return $Snapshot }
         Start-Sleep -Seconds 1
     }
-    throw "passive detection did not reach $ExpectedState within the bounded poll"
+    throw "passive detection did not reach $ExpectedState within the bounded poll; last state=$($Snapshot.detection.state), candidate=$($Snapshot.detection.signals.candidate), streak=$($Snapshot.detection.candidate_streak)"
 }
 
 function Assert-CountersMonotonic {
@@ -2229,11 +2234,8 @@ try {
         }
         'DetectionAbsoluteStartup' {
             $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
-            for ($DetectionIteration = 1; $DetectionIteration -le 4; $DetectionIteration++) {
-                $null = Invoke-IsolatedMutation -Phase 'detection-absolute-ingress' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
-                Start-Sleep -Seconds 1
-            }
-            if ((4 * 110000) -gt $DETECTION_MAX_SCENARIO_FRAMES) { throw 'absolute detection frame bound is invalid' }
+            $null = Invoke-IsolatedMutation -Phase 'detection-absolute-ingress' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            if ((5 * 100000) -gt $DETECTION_MAX_SCENARIO_FRAMES) { throw 'absolute detection frame bound is invalid' }
             $Absolute = Wait-DetectionState -ExpectedState 'ingress_storm_confirmed' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
             Assert-DetectionReport -Snapshot $Absolute -ExpectedState 'ingress_storm_confirmed'
             $AbsoluteStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
