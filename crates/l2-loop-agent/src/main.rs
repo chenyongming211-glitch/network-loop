@@ -118,8 +118,7 @@ async fn run() -> Result<(), DaemonError> {
                 incomplete_object_count: store_health.incomplete_object_count,
                 unknown_object_count: store_health.unknown_object_count,
                 alert_sink: configured_alert_sink,
-                last_error_code: recovery_issue
-                    .then(|| "OUTPUT_STORE_RECOVERY_ISSUES".to_owned()),
+                last_error_code: recovery_issue.then(|| "OUTPUT_STORE_RECOVERY_ISSUES".to_owned()),
                 dropped_job_count: 0,
             };
             let shared = SharedEvidenceStore::new(store);

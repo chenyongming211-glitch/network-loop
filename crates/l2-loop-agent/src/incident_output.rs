@@ -21,11 +21,7 @@ const OUTPUT_WORKER_FAILED: &str = "OUTPUT_WORKER_FAILED";
 pub trait IncidentOutputBackend: Send + 'static {
     fn persist(&mut self, job: &IncidentWriteJob) -> Result<(), IncidentOutputError>;
 
-    fn alert(
-        &mut self,
-        job: &IncidentWriteJob,
-        evidence_status: EvidenceStatus,
-    ) -> AlertSinkMode;
+    fn alert(&mut self, job: &IncidentWriteJob, evidence_status: EvidenceStatus) -> AlertSinkMode;
 }
 
 pub trait IncidentEvidenceSink: Send + 'static {
@@ -50,11 +46,7 @@ impl<T: IncidentOutputBackend + ?Sized> IncidentOutputBackend for Box<T> {
         (**self).persist(job)
     }
 
-    fn alert(
-        &mut self,
-        job: &IncidentWriteJob,
-        evidence_status: EvidenceStatus,
-    ) -> AlertSinkMode {
+    fn alert(&mut self, job: &IncidentWriteJob, evidence_status: EvidenceStatus) -> AlertSinkMode {
         (**self).alert(job, evidence_status)
     }
 }
@@ -121,11 +113,7 @@ where
         self.store.persist_revision(&job.revision)
     }
 
-    fn alert(
-        &mut self,
-        job: &IncidentWriteJob,
-        evidence_status: EvidenceStatus,
-    ) -> AlertSinkMode {
+    fn alert(&mut self, job: &IncidentWriteJob, evidence_status: EvidenceStatus) -> AlertSinkMode {
         let revision = &job.revision;
         let alert = SanitizedAlertV1 {
             event_id: revision.event_id,
@@ -157,11 +145,7 @@ where
         Err(IncidentOutputError::StoreUnavailable)
     }
 
-    fn alert(
-        &mut self,
-        job: &IncidentWriteJob,
-        evidence_status: EvidenceStatus,
-    ) -> AlertSinkMode {
+    fn alert(&mut self, job: &IncidentWriteJob, evidence_status: EvidenceStatus) -> AlertSinkMode {
         let revision = &job.revision;
         let alert = SanitizedAlertV1 {
             event_id: revision.event_id,
