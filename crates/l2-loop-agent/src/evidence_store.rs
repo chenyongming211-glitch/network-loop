@@ -692,18 +692,16 @@ fn build_manifest(
         total_bytes: evidence_bytes,
         package_version: package_version.to_owned(),
     };
-    let mut bytes = serde_json::to_vec_pretty(&manifest).map_err(|_| EvidenceStoreError::Io)?;
-    for _ in 0..4 {
-        bytes = serde_json::to_vec_pretty(&manifest).map_err(|_| EvidenceStoreError::Io)?;
+    let bytes = loop {
+        let bytes = serde_json::to_vec_pretty(&manifest).map_err(|_| EvidenceStoreError::Io)?;
         let total = evidence_bytes
             .checked_add(u64::try_from(bytes.len()).map_err(|_| EvidenceStoreError::Io)?)
             .ok_or(EvidenceStoreError::RevisionTooLarge)?;
         if manifest.total_bytes == total {
-            break;
+            break bytes;
         }
         manifest.total_bytes = total;
-    }
-    bytes = serde_json::to_vec_pretty(&manifest).map_err(|_| EvidenceStoreError::Io)?;
+    };
     manifest
         .validate()
         .map_err(|_| EvidenceStoreError::InvalidRevision)?;
