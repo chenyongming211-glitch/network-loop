@@ -26,7 +26,8 @@ pub struct FingerprintMetadata {
 
 pub fn fingerprint_hash(frame: &[u8]) -> Option<u64> {
     let frame_len = u16::try_from(frame.len()).ok()?;
-    fingerprint_hash_with_length(frame_len, frame)
+    let prefix_len = frame.len().min(FINGERPRINT_PREFIX_LEN);
+    fingerprint_hash_with_length(frame_len, &frame[..prefix_len])
 }
 
 pub fn fingerprint_hash_with_length(frame_len: u16, prefix: &[u8]) -> Option<u64> {
