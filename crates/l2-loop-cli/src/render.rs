@@ -95,9 +95,7 @@ fn render_status(interfaces: &[InterfaceStatus], format: OutputFormat) -> Render
     rendered_output(rendered, EXIT_SUCCESS)
 }
 
-fn render_observation_text(
-    snapshot: &ObservationSnapshot,
-) -> Result<String, serde_json::Error> {
+fn render_observation_text(snapshot: &ObservationSnapshot) -> Result<String, serde_json::Error> {
     let mut output = String::new();
     writeln!(output, "schema_version: {}", snapshot.schema_version).ok();
     writeln!(output, "interface: {}", snapshot.interface.as_str()).ok();
@@ -115,12 +113,7 @@ fn render_observation_text(
         serialized_scalar(&snapshot.vlan_visibility)?
     )
     .ok();
-    writeln!(
-        output,
-        "health: {}",
-        serialized_scalar(&snapshot.health)?
-    )
-    .ok();
+    writeln!(output, "health: {}", serialized_scalar(&snapshot.health)?).ok();
     writeln!(output, "hooks:").ok();
     for hook in &snapshot.hooks {
         render_cumulative_hook(&mut output, hook)?;
@@ -183,12 +176,7 @@ fn render_cumulative_hook(
     hook: &l2_loop_core::HookObservation,
 ) -> Result<(), serde_json::Error> {
     writeln!(output, "  -").ok();
-    writeln!(
-        output,
-        "    role: {}",
-        serialized_scalar(&hook.role)?
-    )
-    .ok();
+    writeln!(output, "    role: {}", serialized_scalar(&hook.role)?).ok();
     render_cumulative_counters(output, "total", hook.total, 4);
     writeln!(output, "    classes:").ok();
     for class in &hook.classes {
@@ -250,7 +238,13 @@ fn render_detailed_window(
     output: &mut String,
     window: &DetailedRateWindow,
 ) -> Result<(), serde_json::Error> {
-    render_window_header(output, window.window_ms, &window.state, window.coverage_ms, 2)?;
+    render_window_header(
+        output,
+        window.window_ms,
+        &window.state,
+        window.coverage_ms,
+        2,
+    )?;
     let Some(hooks) = &window.hooks else {
         return Ok(());
     };
@@ -272,7 +266,13 @@ fn render_status_window(
     output: &mut String,
     window: &StatusRateWindow,
 ) -> Result<(), serde_json::Error> {
-    render_window_header(output, window.window_ms, &window.state, window.coverage_ms, 6)?;
+    render_window_header(
+        output,
+        window.window_ms,
+        &window.state,
+        window.coverage_ms,
+        6,
+    )?;
     let (Some(xdp), Some(tc)) = (window.xdp_ingress, window.tc_egress) else {
         return Ok(());
     };
@@ -298,12 +298,7 @@ fn render_window_header<T: Serialize>(
     let padding = " ".repeat(indent);
     writeln!(output, "{padding}-").ok();
     writeln!(output, "{padding}  window: {}", window_label(window_ms)).ok();
-    writeln!(
-        output,
-        "{padding}  state: {}",
-        serialized_scalar(state)?
-    )
-    .ok();
+    writeln!(output, "{padding}  state: {}", serialized_scalar(state)?).ok();
     writeln!(output, "{padding}  coverage_ms: {coverage_ms}").ok();
     Ok(())
 }
@@ -333,12 +328,7 @@ fn render_window_evidence(
 
 fn render_hook_rate(output: &mut String, hook: &HookRate) -> Result<(), serde_json::Error> {
     writeln!(output, "      -").ok();
-    writeln!(
-        output,
-        "        role: {}",
-        serialized_scalar(&hook.role)?
-    )
-    .ok();
+    writeln!(output, "        role: {}", serialized_scalar(&hook.role)?).ok();
     render_rate_counters(output, "total", hook.total, 8);
     writeln!(output, "        classes:").ok();
     for class in &hook.classes {
@@ -360,12 +350,7 @@ fn render_rate_counters(output: &mut String, label: &str, rates: RateCounters, i
     writeln!(output, "{padding}{label}:").ok();
     writeln!(output, "{padding}  packet_delta: {}", rates.packet_delta).ok();
     writeln!(output, "{padding}  byte_delta: {}", rates.byte_delta).ok();
-    writeln!(
-        output,
-        "{padding}  pps: {}",
-        rates.packets_per_second
-    )
-    .ok();
+    writeln!(output, "{padding}  pps: {}", rates.packets_per_second).ok();
     writeln!(output, "{padding}  B/s: {}", rates.bytes_per_second).ok();
 }
 
@@ -386,10 +371,7 @@ fn serialized_scalar<T: Serialize>(value: &T) -> Result<String, serde_json::Erro
     Ok(scalar_text(&serde_json::to_value(value)?))
 }
 
-fn rendered_output(
-    rendered: Result<String, serde_json::Error>,
-    exit_code: u8,
-) -> RenderedOutput {
+fn rendered_output(rendered: Result<String, serde_json::Error>, exit_code: u8) -> RenderedOutput {
     match rendered {
         Ok(stdout) => RenderedOutput::success(stdout, exit_code),
         Err(_) => RenderedOutput::failure(format!("{ERROR_INTERNAL}: response rendering failed")),
