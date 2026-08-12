@@ -2,9 +2,7 @@
 
 use std::io;
 
-use l2_loop_agent::{
-    AlertIo, AlertPublishOutcome, AlertSink, LinuxAlertSink, SanitizedAlertV1,
-};
+use l2_loop_agent::{AlertIo, AlertPublishOutcome, AlertSink, LinuxAlertSink, SanitizedAlertV1};
 use l2_loop_core::{
     AlertCode, AlertSeverity, DetectionState, DetectionTransitionReason, EventId, EvidenceStatus,
     InterfaceName,
