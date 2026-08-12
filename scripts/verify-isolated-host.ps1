@@ -10,7 +10,7 @@ param(
     [ValidateRange(30, 600)]
     [int] $TimeoutSeconds = 180,
 
-    [ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset', 'BaselineLifecycle', 'BaselineSamplingRecovery', 'BaselineGenerationReset', 'FingerprintRelationship', 'FingerprintReadFailure', 'FingerprintGenerationReset')]
+    [ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset', 'BaselineLifecycle', 'BaselineSamplingRecovery', 'BaselineGenerationReset', 'FingerprintRelationship', 'FingerprintReadFailure', 'FingerprintGenerationReset', 'DetectionAdaptiveLifecycle', 'DetectionAbsoluteStartup', 'DetectionRelationshipConfidence', 'DetectionFailureGenerationReset')]
     [string] $Scenario = 'Success'
 )
 
@@ -23,6 +23,11 @@ $BASELINE_SUBJECT_COUNT = 16
 $BASELINE_METRIC_COUNT = 32
 $FINGERPRINT_SAMPLE_SHIFT = 4
 $FINGERPRINT_CAPACITY = 8192
+$DETECTION_ANALYSIS_SECONDS = 10
+$DETECTION_ASSERT_TICKS = 3
+$DETECTION_CLEAR_TICKS = 10
+$DETECTION_COOLDOWN_SECONDS = 30
+$DETECTION_MAX_SCENARIO_FRAMES = 500000
 
 $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Import-Module (Join-Path $PSScriptRoot 'lib/IsolatedNames.psm1') -Force
@@ -189,6 +194,11 @@ BASELINE_SUBJECT_COUNT=16
 BASELINE_METRIC_COUNT=32
 FINGERPRINT_SAMPLE_SHIFT=4
 FINGERPRINT_CAPACITY=8192
+DETECTION_ANALYSIS_SECONDS=10
+DETECTION_ASSERT_TICKS=3
+DETECTION_CLEAR_TICKS=10
+DETECTION_COOLDOWN_SECONDS=30
+DETECTION_MAX_SCENARIO_FRAMES=500000
 journal="/run/l2-loop/tests/$run.json"
 pins="/sys/fs/bpf/l2-loop/test/$run"
 second_journal="/run/l2-loop/tests/$second_run.json"
@@ -209,7 +219,7 @@ case "$second_run" in *[!0-9a-f]*|'') fail "second run ID is not generated" ;; e
 test "${#second_run}" -eq 32 || fail "second run ID length is invalid"
 test "$second_run" != "$run" || fail "second run ID did not change"
 case "$scenario" in
-    Success|TcAttachFailure|MapInitializeFailure|DaemonTermination|IdentityChange|TrafficInterruption|PassiveObservation|ObservationMapFailure|ObservationIdentityChange|RateWindows|RateSamplingFailure|RateGenerationReset|BaselineLifecycle|BaselineSamplingRecovery|BaselineGenerationReset|FingerprintRelationship|FingerprintReadFailure|FingerprintGenerationReset) ;;
+    Success|TcAttachFailure|MapInitializeFailure|DaemonTermination|IdentityChange|TrafficInterruption|PassiveObservation|ObservationMapFailure|ObservationIdentityChange|RateWindows|RateSamplingFailure|RateGenerationReset|BaselineLifecycle|BaselineSamplingRecovery|BaselineGenerationReset|FingerprintRelationship|FingerprintReadFailure|FingerprintGenerationReset|DetectionAdaptiveLifecycle|DetectionAbsoluteStartup|DetectionRelationshipConfidence|DetectionFailureGenerationReset) ;;
     *) fail "unknown isolated acceptance scenario" ;;
 esac
 
@@ -379,6 +389,9 @@ case "$phase" in
             FingerprintReadFailure)
                 env L2_LOOP_ACCEPTANCE_FAULT=fingerprint-map-read-once ./l2-loopd >daemon.log 2>&1 &
                 ;;
+            DetectionFailureGenerationReset)
+                env L2_LOOP_ACCEPTANCE_FAULT=analysis-fingerprint-map-read-once ./l2-loopd >daemon.log 2>&1 &
+                ;;
             *)
                 ./l2-loopd >daemon.log 2>&1 &
                 ;;
@@ -515,6 +528,89 @@ finally:
     if child.poll() is None:
         child.kill()
         child.wait()
+PY
+        ;;
+    detection-adaptive-ingress)
+        ip netns exec "$ns" python3 - "$peer" <<'PY'
+import socket, sys
+interface = sys.argv[1]
+frame = bytes.fromhex("ffffffffffff02000000000a88b5") + bytes(46)
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
+    channel.bind((interface, 0))
+    for _ in range(4096):
+        channel.send(frame)
+PY
+        ;;
+    detection-absolute-ingress)
+        ip netns exec "$ns" python3 - "$peer" <<'PY'
+import socket, sys
+interface = sys.argv[1]
+frame = bytes.fromhex("ffffffffffff02000000000b88b5") + bytes(46)
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
+    channel.bind((interface, 0))
+    for _ in range(110000):
+        channel.send(frame)
+PY
+        ;;
+    detection-relationship-seed)
+        python3 - "$host" <<'PY'
+import socket, sys
+interface = sys.argv[1]
+
+def fingerprint_hash(frame):
+    value = 0xcbf29ce484222325
+    for byte in len(frame).to_bytes(2, "big") + frame[:60]:
+        value = ((value ^ byte) * 0x100000001b3) & 0xffffffffffffffff
+    return value
+
+def candidate(suffix):
+    return bytes.fromhex("ffffffffffff02000000000c88b5") + bytes(45) + bytes([suffix])
+
+frame = next(value for value in map(candidate, range(256)) if fingerprint_hash(value) & 15 == 0)
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
+    channel.bind((interface, 0))
+    for _ in range(64):
+        channel.send(frame)
+PY
+        ;;
+    detection-relationship-window)
+        python3 - "$host" "$ns" "$peer" <<'PY'
+import socket, subprocess, sys, time
+host, namespace, peer = sys.argv[1:]
+
+def fingerprint_hash(frame):
+    value = 0xcbf29ce484222325
+    for byte in len(frame).to_bytes(2, "big") + frame[:60]:
+        value = ((value ^ byte) * 0x100000001b3) & 0xffffffffffffffff
+    return value
+
+def candidate(suffix):
+    return bytes.fromhex("ffffffffffff02000000000c88b5") + bytes(45) + bytes([suffix])
+
+frame = next(value for value in map(candidate, range(256)) if fingerprint_hash(value) & 15 == 0)
+sender = """
+import socket, sys
+interface, frame_hex = sys.argv[1:]
+frame = bytes.fromhex(frame_hex)
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
+    channel.bind((interface, 0))
+    for _ in range(4096):
+        channel.send(frame)
+"""
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as egress:
+    egress.bind((host, 0))
+    for _ in range(10):
+        started = time.monotonic()
+        for _ in range(64):
+            egress.send(frame)
+        subprocess.run(
+            ["ip", "netns", "exec", namespace, "python3", "-c", sender, peer, frame.hex()],
+            check=True,
+            timeout=4,
+        )
+        remaining = 1.0 - (time.monotonic() - started)
+        if remaining > 0:
+            time.sleep(remaining)
 PY
         ;;
     vlan-probe)
@@ -988,7 +1084,7 @@ function Assert-ObservationIdentity {
         [ValidateSet('healthy', 'degraded')] [string] $ExpectedHealth = 'healthy'
     )
 
-    if ($Snapshot.schema_version -ne 4 -or
+    if ($Snapshot.schema_version -ne 5 -or
         $Snapshot.interface -cne $Names.HostVeth -or
         [uint64]$Snapshot.generation -eq 0 -or
         [uint64]$Snapshot.captured_at_unix_ms -eq 0 -or
@@ -1060,6 +1156,82 @@ function Assert-FingerprintOutputPrivacy {
             throw "fingerprint output exposed prohibited evidence: $Forbidden"
         }
     }
+}
+
+function Assert-DetectionReport {
+    param(
+        [Parameter(Mandatory)] [psobject] $Snapshot,
+        [Parameter(Mandatory)] [string] $ExpectedState,
+        [AllowNull()] [string] $ExpectedRetainedState = $null,
+        [AllowNull()] [string] $ExpectedErrorCode = $null
+    )
+
+    $Detection = $Snapshot.detection
+    $Config = $Detection.config
+    if ($null -eq $Detection -or
+        $Detection.state -cne $ExpectedState -or
+        [uint64]$Config.fingerprint_window_ms -ne 10000 -or
+        [uint64]$Config.fingerprint_freshness_ms -ne 15000 -or
+        [uint64]$Config.adaptive_packet_floor_pps -ne 1000 -or
+        [uint64]$Config.adaptive_byte_floor_bps -ne 1048576 -or
+        [uint64]$Config.absolute_packet_threshold_pps -ne 100000 -or
+        [uint64]$Config.absolute_byte_threshold_bps -ne 104857600 -or
+        [uint64]$Config.bum_ratio_milli -ne 800 -or
+        [uint64]$Config.dominant_ratio_milli -ne 800 -or
+        [uint64]$Config.minimum_ingress_samples -ne 16 -or
+        [uint64]$Config.amplification_ratio_milli -ne 4000 -or
+        [uint64]$Config.assert_ticks -ne [uint64]$DETECTION_ASSERT_TICKS -or
+        [uint64]$Config.clear_ticks -ne [uint64]$DETECTION_CLEAR_TICKS -or
+        [uint64]$Config.cooldown_ms -ne [uint64]($DETECTION_COOLDOWN_SECONDS * 1000) -or
+        [uint64]$Config.transition_capacity -ne 16 -or
+        @($Detection.transitions).Count -gt 16 -or
+        [uint64]$Detection.candidate_streak -gt [uint64]$DETECTION_ASSERT_TICKS -or
+        [uint64]$Detection.clear_streak -gt [uint64]$DETECTION_CLEAR_TICKS -or
+        [string]$Detection.retained_anomalous_state -cne [string]$ExpectedRetainedState -or
+        [string]$Detection.last_error_code -cne [string]$ExpectedErrorCode) {
+        throw 'passive detection report is invalid'
+    }
+    if ($Snapshot | ConvertTo-Json -Depth 20 -Compress | Select-String -SimpleMatch 'confirmed_loop') {
+        throw 'passive detection exposed a confirmed loop value'
+    }
+}
+
+function Assert-DetectionSummary {
+    param(
+        [Parameter(Mandatory)] [psobject] $Status,
+        [Parameter(Mandatory)] [psobject] $Snapshot
+    )
+
+    $Summary = (Get-OnlyStatusInterface -Status $Status).detection
+    $Report = $Snapshot.detection
+    foreach ($Field in @('state', 'retained_anomalous_state', 'transition_sequence', 'state_since_unix_ms', 'last_trustworthy_at_unix_ms', 'last_error_code')) {
+        if ([string]$Summary.$Field -cne [string]$Report.$Field) {
+            throw "detection status summary mismatch: $Field"
+        }
+    }
+    if ([string]$Summary.candidate -cne [string]$Report.signals.candidate -or
+        [string]$Summary.fingerprint_window_state -cne [string]$Report.signals.fingerprint_window.state) {
+        throw 'detection status evidence summary is invalid'
+    }
+}
+
+function Wait-DetectionState {
+    param(
+        [Parameter(Mandatory)] [string] $ExpectedState,
+        [Parameter(Mandatory)] [psobject] $Names,
+        [Parameter(Mandatory)] [string] $Target,
+        [Parameter(Mandatory)] [string] $KeyPath,
+        [Parameter(Mandatory)] [int] $TimeoutSeconds,
+        [ValidateRange(1, 45)] [int] $MaxAttempts = 15
+    )
+
+    $Snapshot = $null
+    for ($Attempt = 1; $Attempt -le $MaxAttempts; $Attempt++) {
+        $Snapshot = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+        if ($Snapshot.detection.state -ceq $ExpectedState) { return $Snapshot }
+        Start-Sleep -Seconds 1
+    }
+    throw "passive detection did not reach $ExpectedState within the bounded poll"
 }
 
 function Assert-CountersMonotonic {
@@ -2030,6 +2202,106 @@ try {
             }
             catch {
                 throw "second fingerprint generation detach did not restore prepared state: $($_.Exception.Message)"
+            }
+            $Detached = $true
+        }
+        'DetectionAdaptiveLifecycle' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            for ($BaselineIteration = 1; $BaselineIteration -le $BASELINE_LEARNING_SECONDS; $BaselineIteration++) {
+                Start-Sleep -Seconds 1
+            }
+            for ($DetectionIteration = 1; $DetectionIteration -le 5; $DetectionIteration++) {
+                $null = Invoke-IsolatedMutation -Phase 'detection-adaptive-ingress' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+                Start-Sleep -Seconds 1
+            }
+            $Storm = Wait-DetectionState -ExpectedState 'ingress_storm_confirmed' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            Assert-DetectionReport -Snapshot $Storm -ExpectedState 'ingress_storm_confirmed'
+            $StormStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-DetectionSummary -Status $StormStatus -Snapshot $Storm
+
+            Start-Sleep -Seconds ($DETECTION_CLEAR_TICKS + 2)
+            $Cooldown = Wait-DetectionState -ExpectedState 'cooldown' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            Assert-DetectionReport -Snapshot $Cooldown -ExpectedState 'cooldown' -ExpectedRetainedState 'ingress_storm_confirmed'
+            Start-Sleep -Seconds ($DETECTION_COOLDOWN_SECONDS + 2)
+            $Normal = Wait-DetectionState -ExpectedState 'normal' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            Assert-DetectionReport -Snapshot $Normal -ExpectedState 'normal'
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+        }
+        'DetectionAbsoluteStartup' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            for ($DetectionIteration = 1; $DetectionIteration -le 4; $DetectionIteration++) {
+                $null = Invoke-IsolatedMutation -Phase 'detection-absolute-ingress' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+                Start-Sleep -Seconds 1
+            }
+            if ((4 * 110000) -gt $DETECTION_MAX_SCENARIO_FRAMES) { throw 'absolute detection frame bound is invalid' }
+            $Absolute = Wait-DetectionState -ExpectedState 'ingress_storm_confirmed' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            Assert-DetectionReport -Snapshot $Absolute -ExpectedState 'ingress_storm_confirmed'
+            $AbsoluteStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-DetectionSummary -Status $AbsoluteStatus -Snapshot $Absolute
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+        }
+        'DetectionRelationshipConfidence' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            for ($BaselineIteration = 1; $BaselineIteration -le $BASELINE_LEARNING_SECONDS; $BaselineIteration++) {
+                Start-Sleep -Seconds 1
+            }
+            $null = Invoke-IsolatedMutation -Phase 'detection-relationship-seed' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            Start-Sleep -Seconds ($DETECTION_ANALYSIS_SECONDS + 1)
+            $null = Invoke-IsolatedMutation -Phase 'detection-relationship-window' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $Relationship = Wait-DetectionState -ExpectedState 'external_loop_high_confidence' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -MaxAttempts 20
+            Assert-DetectionReport -Snapshot $Relationship -ExpectedState 'external_loop_high_confidence'
+            if ($Relationship.detection.signals.loop_high_confidence -ne $true -or
+                [uint64]$Relationship.detection.signals.fingerprint_window.maximum_ingress_to_egress_packet_ratio_milli -lt 4000 -or
+                [uint64]$Relationship.detection.signals.fingerprint_window.egress_first_correlated_relation_count -eq 0) {
+                throw 'relationship confidence evidence is incomplete'
+            }
+            $RelationshipStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-DetectionSummary -Status $RelationshipStatus -Snapshot $Relationship
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+        }
+        'DetectionFailureGenerationReset' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $UnavailableDetection = Wait-DetectionState -ExpectedState 'unavailable' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -MaxAttempts 15
+            Assert-DetectionReport -Snapshot $UnavailableDetection -ExpectedState 'unavailable' -ExpectedErrorCode 'DETECTION_FINGERPRINT_UNAVAILABLE'
+            $FirstDetectionGenerationValue = [uint64]$UnavailableDetection.generation
+
+            $FirstDetectionDetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+                "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-detach', '--run-id', $RunId
+            )
+            $FirstDetectionDetach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $FirstDetectionDetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+            if ($FirstDetectionDetach.Stdout.Trim() -cne 'accepted') { throw 'first detection generation detach was not acknowledged' }
+            $null = Invoke-IsolatedMutation -Phase 'links-down' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            try {
+                Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            }
+            catch {
+                throw "first detection generation detach did not restore prepared state: $($_.Exception.Message)"
+            }
+
+            $SecondDetectionAttachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+                "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-attach', '--interface', $Names.HostVeth, '--run-id', $SecondRunId
+            )
+            $SecondDetectionAttach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $SecondDetectionAttachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+            if ($SecondDetectionAttach.Stdout.Trim() -cne 'accepted') { throw 'second detection generation attach was not acknowledged' }
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-second-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $SecondDetectionGeneration = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-DetectionReport -Snapshot $SecondDetectionGeneration -ExpectedState 'warming_up'
+            if ([uint64]$SecondDetectionGeneration.generation -eq $FirstDetectionGenerationValue) {
+                throw 'detection generation identity did not change after exact reattach'
+            }
+
+            $SecondDetectionDetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+                "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-detach', '--run-id', $SecondRunId
+            )
+            $SecondDetectionDetach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $SecondDetectionDetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+            if ($SecondDetectionDetach.Stdout.Trim() -cne 'accepted') { throw 'second detection generation detach was not acknowledged' }
+            $null = Invoke-IsolatedMutation -Phase 'links-down' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            try {
+                Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            }
+            catch {
+                throw "second detection generation detach did not restore prepared state: $($_.Exception.Message)"
             }
             $Detached = $true
         }

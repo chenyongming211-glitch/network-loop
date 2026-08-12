@@ -257,7 +257,7 @@ foreach ($Required in @(
     'BASELINE_ELEVATED_FRAMES=128',
     'BASELINE_SUBJECT_COUNT=16',
     'BASELINE_METRIC_COUNT=32',
-    'schema_version -ne 4',
+    'schema_version -ne 5',
     'source_window_ms -ne 10000',
     'capacity -ne 300',
     'minimum_samples -ne 60',
