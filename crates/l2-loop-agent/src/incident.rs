@@ -1,6 +1,6 @@
 use l2_loop_core::{
     AlertCode, AlertSeverity, DetectionState, DetectionTransition, DetectionTransitionReason,
-    EventId, InterfaceName, EVIDENCE_MAX_REVISIONS_PER_EVENT,
+    EVIDENCE_MAX_REVISIONS_PER_EVENT, EventId, InterfaceName,
 };
 use thiserror::Error;
 
@@ -160,7 +160,11 @@ impl<S: EventIdSource> IncidentRecorder<S> {
                         let closed_at = (code == AlertCode::IncidentClosed)
                             .then_some(transition.occurred_at_unix_ms);
                         let job = self.job(next, *transition, code, closed_at);
-                        self.active = if closed_at.is_some() { None } else { Some(next) };
+                        self.active = if closed_at.is_some() {
+                            None
+                        } else {
+                            Some(next)
+                        };
                         Some(job)
                     }
                     None => {
