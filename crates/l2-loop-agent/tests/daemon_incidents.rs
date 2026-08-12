@@ -187,7 +187,14 @@ async fn full_queue_degrades_without_waiting_or_widening_the_capacity() {
     let (output, worker) = IncidentOutputWorker::start(backend);
 
     output.try_submit(job(1)).unwrap();
-    entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        tokio::task::spawn_blocking(move || entered_rx.recv()),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .unwrap();
     for revision in 2..=33 {
         output.try_submit(job(revision)).unwrap();
     }
