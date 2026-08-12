@@ -97,8 +97,8 @@ fn three_equal_candidates_assert_and_candidate_kind_changes_reset_the_streak() {
 
 #[test]
 fn relationship_evidence_immediately_upgrades_an_ingress_storm_but_never_confirms_causality() {
-    let mut engine = asserted_ingress();
-    let suspected = engine
+    let mut ingress_engine = asserted_ingress();
+    let suspected = ingress_engine
         .evaluate(5_000_000_000, 5_000, relationship_signals(false))
         .unwrap();
     assert_eq!(suspected.state, DetectionState::ExternalLoopSuspected);
@@ -107,7 +107,7 @@ fn relationship_evidence_immediately_upgrades_an_ingress_storm_but_never_confirm
         DetectionTransitionReason::RelationshipSuspected
     );
 
-    let high = engine
+    let high = ingress_engine
         .evaluate(6_000_000_000, 6_000, relationship_signals(true))
         .unwrap();
     assert_eq!(high.state, DetectionState::ExternalLoopHighConfidence);
