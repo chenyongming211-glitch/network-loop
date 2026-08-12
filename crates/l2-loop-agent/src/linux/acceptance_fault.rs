@@ -67,11 +67,16 @@ where
         ownership: &OwnershipRecord,
         purpose: ObservationReadPurpose,
     ) -> Result<RawObservation, PortError> {
-        if purpose == ObservationReadPurpose::BackgroundSample {
+        let is_background = matches!(
+            purpose,
+            ObservationReadPurpose::BackgroundSample
+                | ObservationReadPurpose::BackgroundAnalysis
+        );
+        if is_background {
             self.background_reads = self.background_reads.saturating_add(1);
         }
         if self.fault == AcceptanceFault::RateSamplingMapRead
-            && purpose == ObservationReadPurpose::BackgroundSample
+            && is_background
         {
             return Err(PortError::coded_adapter(
                 "OBS_MAP_UNAVAILABLE",
@@ -79,7 +84,7 @@ where
             ));
         }
         if self.fault == AcceptanceFault::BaselineSamplingMapReadRecovery
-            && purpose == ObservationReadPurpose::BackgroundSample
+            && is_background
             && self.background_reads > BASELINE_RECOVERY_GOOD_READS
             && self.background_reads
                 <= BASELINE_RECOVERY_GOOD_READS + BASELINE_RECOVERY_FAILED_READS

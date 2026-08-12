@@ -79,7 +79,7 @@ impl<I: ObservationIo> ObservationReader for LinuxObservationReader<I> {
             ));
         }
         let fingerprint_pin = match purpose {
-            ObservationReadPurpose::Request => {
+            ObservationReadPurpose::Request | ObservationReadPurpose::BackgroundAnalysis => {
                 let pin = select_pin(ownership, FINGERPRINTS)?;
                 let map_id = self.io.fresh_map_id(pin).map_err(|_| {
                     coded(

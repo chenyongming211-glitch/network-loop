@@ -165,6 +165,7 @@ pub struct RawObservation {
 pub enum ObservationReadPurpose {
     Request,
     BackgroundSample,
+    BackgroundAnalysis,
 }
 
 #[cfg(target_os = "linux")]

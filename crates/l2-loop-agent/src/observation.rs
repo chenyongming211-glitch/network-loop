@@ -1,10 +1,11 @@
 use std::time::UNIX_EPOCH;
 
 use l2_loop_core::{
-    BaselineEngine, BaselineState, BaselineSummary, DetectionSummary, FingerprintReport,
-    FingerprintState, FingerprintSummary, InterfaceName, InterfaceState, InterfaceStatus,
-    OBSERVED_HOOK_COUNT, ObservationHealth, ObservationSnapshot, RATE_WINDOW_COUNT, RateHistory,
-    RateHistoryError, RateIdentity, RateSample, RateWindowState, SamplingStatus, StatusRateWindow,
+    BaselineEngine, BaselineState, BaselineSummary, DetectionEngine, DetectionSignals,
+    DetectionState, DetectionSummary, FingerprintReport, FingerprintState, FingerprintSummary,
+    FingerprintWindowHistory, InterfaceName, InterfaceState, InterfaceStatus, OBSERVED_HOOK_COUNT,
+    ObservationHealth, ObservationSnapshot, RATE_WINDOW_COUNT, RateHistory, RateHistoryError,
+    RateIdentity, RateSample, RateWindowState, SamplingStatus, StatusRateWindow,
     warming_detailed_rate_windows, warming_status_rate_windows,
 };
 
@@ -28,8 +29,14 @@ pub const BASELINE_CLOCK_REGRESSION: &str = "BASELINE_CLOCK_REGRESSION";
 pub const BASELINE_COUNTER_REGRESSION: &str = "BASELINE_COUNTER_REGRESSION";
 pub const BASELINE_CALCULATION_FAILED: &str = "BASELINE_CALCULATION_FAILED";
 pub const BASELINE_SAMPLER_PAUSED: &str = "BASELINE_SAMPLER_PAUSED";
+pub const DETECTION_SOURCE_UNAVAILABLE: &str = "DETECTION_SOURCE_UNAVAILABLE";
+pub const DETECTION_IDENTITY_CHANGED: &str = "DETECTION_IDENTITY_CHANGED";
+pub const DETECTION_RATE_INVALID: &str = "DETECTION_RATE_INVALID";
+pub const DETECTION_FINGERPRINT_UNAVAILABLE: &str = "DETECTION_FINGERPRINT_UNAVAILABLE";
+pub const DETECTION_SAMPLER_PAUSED: &str = "DETECTION_SAMPLER_PAUSED";
 
 const OBS_MAP_IDENTITY_MISMATCH: &str = "OBS_MAP_IDENTITY_MISMATCH";
+const ANALYSIS_PERIOD_NS: u64 = 10_000_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObservationError {
@@ -62,6 +69,9 @@ pub struct SamplingService<R, C> {
     clock: C,
     history: Option<RateHistory>,
     baseline: Option<BaselineEngine>,
+    fingerprint_window: Option<FingerprintWindowHistory>,
+    detection: Option<DetectionEngine>,
+    next_analysis_at_ns: Option<u64>,
 }
 
 impl<R, C> SamplingService<R, C>
@@ -75,6 +85,9 @@ where
             clock,
             history: None,
             baseline: None,
+            fingerprint_window: None,
+            detection: None,
+            next_analysis_at_ns: None,
         }
     }
 
@@ -82,21 +95,46 @@ where
         let identity = RateIdentity::new(ownership.ifindex, ownership.generation)
             .map_err(|_| ownership_error())?;
         let started_at_unix_ms = wall_time_ms(&self.clock).ok_or_else(snapshot_error)?;
+        let started_at_monotonic_ns = self.clock.monotonic_ns();
         self.history = Some(
-            RateHistory::new(identity, self.clock.monotonic_ns()).map_err(|_| snapshot_error())?,
+            RateHistory::new(identity, started_at_monotonic_ns).map_err(|_| snapshot_error())?,
         );
         self.baseline = Some(BaselineEngine::new(identity, started_at_unix_ms));
+        self.fingerprint_window = Some(FingerprintWindowHistory::new(identity));
+        self.detection = Some(DetectionEngine::new(
+            identity,
+            started_at_monotonic_ns,
+            started_at_unix_ms,
+        ));
+        self.next_analysis_at_ns = Some(
+            started_at_monotonic_ns
+                .checked_add(ANALYSIS_PERIOD_NS)
+                .ok_or_else(snapshot_error)?,
+        );
         Ok(())
     }
 
     pub fn sample_tick(&mut self, ownership: &OwnershipRecord) -> SamplingTickOutcome {
-        if self.history.is_none() || self.baseline.is_none() {
+        if self.history.is_none()
+            || self.baseline.is_none()
+            || self.fingerprint_window.is_none()
+            || self.detection.is_none()
+        {
             return SamplingTickOutcome::Rejected;
         }
-        let read_result = self
-            .reader
-            .read_exact(ownership, ObservationReadPurpose::BackgroundSample);
         let now_monotonic_ns = self.clock.monotonic_ns();
+        let analysis_due = self
+            .next_analysis_at_ns
+            .is_some_and(|deadline| now_monotonic_ns >= deadline);
+        let purpose = if analysis_due {
+            if self.advance_analysis_deadline(now_monotonic_ns).is_err() {
+                return SamplingTickOutcome::Rejected;
+            }
+            ObservationReadPurpose::BackgroundAnalysis
+        } else {
+            ObservationReadPurpose::BackgroundSample
+        };
+        let read_result = self.reader.read_exact(ownership, purpose);
         let evaluated_at_unix_ms = wall_time_ms(&self.clock).unwrap_or_default();
         let Some(history) = self.history.as_mut() else {
             return SamplingTickOutcome::Rejected;
@@ -114,11 +152,21 @@ where
                             BASELINE_IDENTITY_CHANGED,
                         );
                     }
+                    self.clear_detection_integrity(
+                        ownership,
+                        now_monotonic_ns,
+                        evaluated_at_unix_ms,
+                        DETECTION_IDENTITY_CHANGED,
+                    );
                 } else {
                     history.record_transient_failure(code);
                     if let Some(baseline) = self.baseline.as_mut() {
                         baseline.unavailable(evaluated_at_unix_ms, BASELINE_SOURCE_UNAVAILABLE);
                     }
+                    self.mark_detection_unavailable(
+                        evaluated_at_unix_ms,
+                        DETECTION_SOURCE_UNAVAILABLE,
+                    );
                 }
                 return SamplingTickOutcome::Rejected;
             }
@@ -132,6 +180,12 @@ where
                     BASELINE_IDENTITY_CHANGED,
                 );
             }
+            self.clear_detection_integrity(
+                ownership,
+                now_monotonic_ns,
+                evaluated_at_unix_ms,
+                DETECTION_IDENTITY_CHANGED,
+            );
             return SamplingTickOutcome::Rejected;
         }
         let Some(captured_at_unix_ms) = wall_time_ms(&self.clock) else {
@@ -143,8 +197,15 @@ where
                     BASELINE_CLOCK_REGRESSION,
                 );
             }
+            self.clear_detection_integrity(
+                ownership,
+                now_monotonic_ns,
+                evaluated_at_unix_ms,
+                DETECTION_RATE_INVALID,
+            );
             return SamplingTickOutcome::Rejected;
         };
+        let analysis_fingerprints = raw.fingerprints.clone();
         let sample = match rate_sample(raw, now_monotonic_ns, captured_at_unix_ms) {
             Ok(sample) => sample,
             Err(()) => {
@@ -156,6 +217,12 @@ where
                         BASELINE_CALCULATION_FAILED,
                     );
                 }
+                self.clear_detection_integrity(
+                    ownership,
+                    now_monotonic_ns,
+                    captured_at_unix_ms,
+                    DETECTION_RATE_INVALID,
+                );
                 return SamplingTickOutcome::Rejected;
             }
         };
@@ -172,6 +239,12 @@ where
                                 baseline_code_for_rate_error(error),
                             );
                         }
+                        self.clear_detection_integrity(
+                            ownership,
+                            now_monotonic_ns,
+                            captured_at_unix_ms,
+                            DETECTION_RATE_INVALID,
+                        );
                         return SamplingTickOutcome::Rejected;
                     }
                 };
@@ -182,8 +255,29 @@ where
                             .is_err()
                     })
                 {
+                    self.clear_detection_integrity(
+                        ownership,
+                        now_monotonic_ns,
+                        captured_at_unix_ms,
+                        DETECTION_RATE_INVALID,
+                    );
                     return SamplingTickOutcome::Rejected;
                 }
+                if analysis_due
+                    && !self.record_analysis_fingerprints(
+                        analysis_fingerprints,
+                        now_monotonic_ns,
+                        captured_at_unix_ms,
+                    )
+                {
+                    return SamplingTickOutcome::Sampled;
+                }
+                self.evaluate_detection(
+                    ownership,
+                    &windows,
+                    now_monotonic_ns,
+                    captured_at_unix_ms,
+                );
                 SamplingTickOutcome::Sampled
             }
             Err(error) => {
@@ -195,6 +289,12 @@ where
                         baseline_code_for_rate_error(error),
                     );
                 }
+                self.clear_detection_integrity(
+                    ownership,
+                    now_monotonic_ns,
+                    captured_at_unix_ms,
+                    DETECTION_RATE_INVALID,
+                );
                 SamplingTickOutcome::Rejected
             }
         }
@@ -259,11 +359,156 @@ where
                 BASELINE_SAMPLER_PAUSED,
             );
         }
+        if let Some(fingerprint_window) = self.fingerprint_window.as_mut() {
+            let _ = fingerprint_window.unavailable(DETECTION_SAMPLER_PAUSED);
+        }
+        if let Some(detection) = self.detection.as_mut() {
+            let _ = detection.pause(wall_time_ms(&self.clock).unwrap_or_default());
+        }
     }
 
     pub fn clear(&mut self) {
         self.history = None;
         self.baseline = None;
+        self.fingerprint_window = None;
+        self.detection = None;
+        self.next_analysis_at_ns = None;
+    }
+
+    fn advance_analysis_deadline(&mut self, now_monotonic_ns: u64) -> Result<(), ()> {
+        let deadline = self.next_analysis_at_ns.ok_or(())?;
+        let overdue = now_monotonic_ns.checked_sub(deadline).ok_or(())?;
+        let periods = overdue
+            .checked_div(ANALYSIS_PERIOD_NS)
+            .and_then(|value| value.checked_add(1))
+            .ok_or(())?;
+        let advance = periods.checked_mul(ANALYSIS_PERIOD_NS).ok_or(())?;
+        self.next_analysis_at_ns = Some(deadline.checked_add(advance).ok_or(())?);
+        Ok(())
+    }
+
+    fn record_analysis_fingerprints(
+        &mut self,
+        fingerprints: RawFingerprints,
+        captured_at_monotonic_ns: u64,
+        captured_at_unix_ms: u64,
+    ) -> bool {
+        let Some(history) = self.fingerprint_window.as_mut() else {
+            return false;
+        };
+        match fingerprints {
+            RawFingerprints::Available(evidence) => {
+                if let Err(error) = history.record_scan(
+                    captured_at_monotonic_ns,
+                    captured_at_unix_ms,
+                    evidence,
+                ) {
+                    self.mark_detection_unavailable(captured_at_unix_ms, error.stable_code());
+                    return false;
+                }
+            }
+            RawFingerprints::Unavailable { code } => {
+                let _ = history.unavailable(code);
+                self.mark_detection_unavailable(captured_at_unix_ms, code);
+                return false;
+            }
+            RawFingerprints::NotRequested => {
+                let _ = history.unavailable(DETECTION_FINGERPRINT_UNAVAILABLE);
+                self.mark_detection_unavailable(
+                    captured_at_unix_ms,
+                    DETECTION_FINGERPRINT_UNAVAILABLE,
+                );
+                return false;
+            }
+        }
+        true
+    }
+
+    fn evaluate_detection(
+        &mut self,
+        ownership: &OwnershipRecord,
+        windows: &[l2_loop_core::DetailedRateWindow; RATE_WINDOW_COUNT],
+        evaluated_at_monotonic_ns: u64,
+        evaluated_at_unix_ms: u64,
+    ) {
+        let Some(baseline) = self.baseline.as_ref().map(|value| value.cached_report().clone())
+        else {
+            return;
+        };
+        let Some(fingerprint_window) = self
+            .fingerprint_window
+            .as_ref()
+            .map(|value| value.cached_report().clone())
+        else {
+            return;
+        };
+        let signals = match DetectionSignals::derive(
+            windows,
+            &baseline,
+            &fingerprint_window,
+            evaluated_at_unix_ms,
+        ) {
+            Ok(signals) => signals,
+            Err(_) => {
+                self.clear_detection_integrity(
+                    ownership,
+                    evaluated_at_monotonic_ns,
+                    evaluated_at_unix_ms,
+                    DETECTION_RATE_INVALID,
+                );
+                return;
+            }
+        };
+        let Some(detection) = self.detection.as_mut() else {
+            return;
+        };
+        if evaluated_at_monotonic_ns == 0 && detection.cached_report().last_trustworthy_at_unix_ms.is_none() {
+            return;
+        }
+        if detection
+            .evaluate(
+                evaluated_at_monotonic_ns,
+                evaluated_at_unix_ms,
+                signals,
+            )
+            .is_err()
+        {
+            self.clear_detection_integrity(
+                ownership,
+                evaluated_at_monotonic_ns,
+                evaluated_at_unix_ms,
+                DETECTION_RATE_INVALID,
+            );
+        }
+    }
+
+    fn mark_detection_unavailable(&mut self, evaluated_at_unix_ms: u64, code: &'static str) {
+        if let Some(detection) = self.detection.as_mut() {
+            let _ = detection.unavailable(evaluated_at_unix_ms, code);
+        }
+    }
+
+    fn clear_detection_integrity(
+        &mut self,
+        ownership: &OwnershipRecord,
+        cleared_at_monotonic_ns: u64,
+        cleared_at_unix_ms: u64,
+        code: &'static str,
+    ) {
+        if let Some(fingerprint_window) = self.fingerprint_window.as_mut() {
+            fingerprint_window.clear();
+        }
+        let Ok(identity) = RateIdentity::new(ownership.ifindex, ownership.generation) else {
+            return;
+        };
+        if let Some(detection) = self.detection.as_mut() {
+            let _ = detection.clear(
+                identity,
+                cleared_at_monotonic_ns,
+                cleared_at_unix_ms,
+                code,
+            );
+        }
     }
 
     fn current_snapshot(
@@ -342,9 +587,20 @@ where
             .ok_or_else(session_error)?
             .cached_report()
             .clone();
+        let detection = self
+            .detection
+            .as_ref()
+            .ok_or_else(session_error)?
+            .cached_report()
+            .clone();
         let fingerprints = fingerprint_report(ifindex, generation, fingerprints)?;
-        let health =
-            observation_health(&sampling, &rate_windows, baseline.state, fingerprints.state);
+        let health = observation_health(
+            &sampling,
+            &rate_windows,
+            baseline.state,
+            fingerprints.state,
+            detection.state,
+        );
         let mut snapshot = ObservationSnapshot::new(
             requested.clone(),
             ifindex,
@@ -359,6 +615,7 @@ where
         snapshot.health = health;
         snapshot.baseline = baseline;
         snapshot.fingerprints = fingerprints;
+        snapshot.detection = detection;
         Ok((snapshot, status_rate_windows))
     }
 }
@@ -409,6 +666,7 @@ fn observation_health(
     windows: &[l2_loop_core::DetailedRateWindow; RATE_WINDOW_COUNT],
     baseline_state: BaselineState,
     fingerprint_state: FingerprintState,
+    detection_state: DetectionState,
 ) -> ObservationHealth {
     if sampling.sampling_paused
         || sampling.last_error_code.is_some()
@@ -417,6 +675,7 @@ fn observation_health(
             .any(|window| window.state == RateWindowState::Stale)
         || baseline_state == BaselineState::Unavailable
         || fingerprint_state == FingerprintState::Unavailable
+        || detection_state == DetectionState::Unavailable
     {
         ObservationHealth::Degraded
     } else {

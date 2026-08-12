@@ -1254,6 +1254,7 @@ mod tests {
             self.events.lock().unwrap().push(match purpose {
                 ObservationReadPurpose::Request => "read:request".to_owned(),
                 ObservationReadPurpose::BackgroundSample => "read:background".to_owned(),
+                ObservationReadPurpose::BackgroundAnalysis => "read:analysis".to_owned(),
             });
             Ok(lifecycle_raw(ownership))
         }
