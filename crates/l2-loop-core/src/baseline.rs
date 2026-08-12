@@ -1,9 +1,11 @@
 use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::{
-    DomainError, HookRole, OBSERVED_CLASS_COUNT, OBSERVED_HOOK_COUNT, RateIdentity, TrafficClass,
+    DetailedRateWindow, DomainError, HookRate, HookRole, OBSERVED_CLASS_COUNT, OBSERVED_HOOK_COUNT,
+    RateIdentity, RateWindowState, TrafficClass,
 };
 
 pub const BASELINE_SOURCE_WINDOW_MS: u64 = 10_000;
@@ -272,6 +274,210 @@ pub fn evaluate_metric(
         ratio_milli,
         elevated: Some(current > threshold),
     }
+}
+
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+pub enum BaselineError {
+    #[error("baseline source window is not the fixed ready ten-second window")]
+    InvalidSourceWindow,
+    #[error("baseline source window endpoint did not advance")]
+    SourceEndpointNotAdvancing,
+}
+
+#[derive(Debug, Clone)]
+pub struct BaselineEngine {
+    identity: RateIdentity,
+    series: [BaselineSeries; BASELINE_SUBJECT_COUNT],
+    cached: BaselineReport,
+    last_source_end_unix_ms: Option<u64>,
+    last_successful_evaluation_at_unix_ms: Option<u64>,
+}
+
+impl BaselineEngine {
+    pub fn new(identity: RateIdentity, started_at_unix_ms: u64) -> Self {
+        Self {
+            identity,
+            series: std::array::from_fn(|_| BaselineSeries::new()),
+            cached: BaselineReport::learning(identity, started_at_unix_ms),
+            last_source_end_unix_ms: None,
+            last_successful_evaluation_at_unix_ms: None,
+        }
+    }
+
+    pub const fn identity(&self) -> RateIdentity {
+        self.identity
+    }
+
+    pub const fn cached_report(&self) -> &BaselineReport {
+        &self.cached
+    }
+
+    pub fn evaluate_ready_window(
+        &mut self,
+        window: &DetailedRateWindow,
+        evaluated_at_unix_ms: u64,
+    ) -> Result<BaselineReport, BaselineError> {
+        if window.window_ms != BASELINE_SOURCE_WINDOW_MS
+            || window.state != RateWindowState::Ready
+            || window.validate().is_err()
+        {
+            self.clear_integrity(
+                self.identity,
+                evaluated_at_unix_ms,
+                "baseline_invalid_source_window",
+            );
+            return Err(BaselineError::InvalidSourceWindow);
+        }
+
+        let Some(source_end_unix_ms) = window.end_unix_ms else {
+            self.clear_integrity(
+                self.identity,
+                evaluated_at_unix_ms,
+                "baseline_invalid_source_window",
+            );
+            return Err(BaselineError::InvalidSourceWindow);
+        };
+        if self
+            .last_source_end_unix_ms
+            .is_some_and(|last| source_end_unix_ms <= last)
+        {
+            self.clear_integrity(
+                self.identity,
+                evaluated_at_unix_ms,
+                "baseline_source_endpoint_not_advancing",
+            );
+            return Err(BaselineError::SourceEndpointNotAdvancing);
+        }
+
+        let hooks = window.hooks.as_ref().ok_or_else(|| {
+            self.clear_integrity(
+                self.identity,
+                evaluated_at_unix_ms,
+                "baseline_invalid_source_window",
+            );
+            BaselineError::InvalidSourceWindow
+        })?;
+        let values = std::array::from_fn(|index| subject_rates(hooks, index));
+        let mut evaluations = std::array::from_fn(|index| {
+            let (packets, bytes) = values[index];
+            self.series[index].evaluate(packets, bytes)
+        });
+
+        for index in 0..BASELINE_SUBJECT_COUNT {
+            let evaluation = evaluations[index];
+            if evaluation.state != BaselineState::Elevated {
+                let (packets, bytes) = values[index];
+                self.series[index].accept(packets, bytes, source_end_unix_ms);
+                if evaluation.state == BaselineState::Learning
+                    && self.series[index].sample_count() >= BASELINE_MINIMUM_SAMPLES
+                {
+                    evaluations[index] = self.series[index].evaluate(packets, bytes);
+                }
+            }
+        }
+
+        let subjects = std::array::from_fn(|index| BaselineSubjectReport {
+            hook: hook_for_index(index),
+            subject: subject_for_index(index),
+            state: evaluations[index].state,
+            sample_count: self.series[index].sample_count() as u16,
+            latest_accepted_at_unix_ms: self.series[index].latest_accepted_at_unix_ms(),
+            packets: evaluations[index].packets,
+            bytes: evaluations[index].bytes,
+        });
+        let learning_subject_count = subjects
+            .iter()
+            .filter(|subject| subject.state == BaselineState::Learning)
+            .count() as u16;
+        let elevated_metric_count = subjects
+            .iter()
+            .flat_map(|subject| [subject.packets.elevated, subject.bytes.elevated])
+            .filter(|elevated| *elevated == Some(true))
+            .count() as u16;
+        let report = BaselineReport {
+            source_window_ms: BASELINE_SOURCE_WINDOW_MS,
+            capacity: BASELINE_CAPACITY as u16,
+            minimum_samples: BASELINE_MINIMUM_SAMPLES as u16,
+            packet_noise_floor_pps: BASELINE_PACKET_NOISE_FLOOR_PPS,
+            byte_noise_floor_bps: BASELINE_BYTE_NOISE_FLOOR_BPS,
+            state: aggregate_baseline_state(&subjects),
+            evaluated_at_unix_ms: Some(evaluated_at_unix_ms),
+            source_end_unix_ms: Some(source_end_unix_ms),
+            last_successful_evaluation_at_unix_ms: Some(evaluated_at_unix_ms),
+            last_error_code: None,
+            learning_subject_count,
+            elevated_metric_count,
+            subjects,
+        };
+        self.last_source_end_unix_ms = Some(source_end_unix_ms);
+        self.last_successful_evaluation_at_unix_ms = Some(evaluated_at_unix_ms);
+        self.cached = report.clone();
+        Ok(report)
+    }
+
+    pub fn unavailable(
+        &mut self,
+        evaluated_at_unix_ms: u64,
+        code: impl Into<String>,
+    ) -> BaselineReport {
+        self.cached = self.unavailable_report(evaluated_at_unix_ms, code.into());
+        self.cached.clone()
+    }
+
+    pub fn clear_integrity(
+        &mut self,
+        identity: RateIdentity,
+        evaluated_at_unix_ms: u64,
+        code: impl Into<String>,
+    ) -> BaselineReport {
+        self.identity = identity;
+        self.series = std::array::from_fn(|_| BaselineSeries::new());
+        self.last_source_end_unix_ms = None;
+        self.last_successful_evaluation_at_unix_ms = None;
+        self.cached = self.unavailable_report(evaluated_at_unix_ms, code.into());
+        self.cached.clone()
+    }
+
+    fn unavailable_report(&self, evaluated_at_unix_ms: u64, code: String) -> BaselineReport {
+        let subjects = std::array::from_fn(|index| BaselineSubjectReport {
+            hook: hook_for_index(index),
+            subject: subject_for_index(index),
+            state: BaselineState::Unavailable,
+            sample_count: self.series[index].sample_count() as u16,
+            latest_accepted_at_unix_ms: self.series[index].latest_accepted_at_unix_ms(),
+            packets: BaselineMetricReport::absent(),
+            bytes: BaselineMetricReport::absent(),
+        });
+        BaselineReport {
+            source_window_ms: BASELINE_SOURCE_WINDOW_MS,
+            capacity: BASELINE_CAPACITY as u16,
+            minimum_samples: BASELINE_MINIMUM_SAMPLES as u16,
+            packet_noise_floor_pps: BASELINE_PACKET_NOISE_FLOOR_PPS,
+            byte_noise_floor_bps: BASELINE_BYTE_NOISE_FLOOR_BPS,
+            state: BaselineState::Unavailable,
+            evaluated_at_unix_ms: Some(evaluated_at_unix_ms),
+            source_end_unix_ms: None,
+            last_successful_evaluation_at_unix_ms: self
+                .last_successful_evaluation_at_unix_ms,
+            last_error_code: Some(code),
+            learning_subject_count: 0,
+            elevated_metric_count: 0,
+            subjects,
+        }
+    }
+}
+
+fn subject_rates(
+    hooks: &[HookRate; OBSERVED_HOOK_COUNT],
+    index: usize,
+) -> (u64, u64) {
+    let hook = &hooks[index / BASELINE_SUBJECTS_PER_HOOK];
+    let counters = match index % BASELINE_SUBJECTS_PER_HOOK {
+        0 => &hook.total,
+        subject @ 1..=OBSERVED_CLASS_COUNT => &hook.classes[subject - 1].counters,
+        _ => &hook.parse_errors,
+    };
+    (counters.packets_per_second, counters.bytes_per_second)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
