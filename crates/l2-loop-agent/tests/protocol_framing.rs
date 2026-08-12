@@ -102,13 +102,11 @@ fn schema_two_observation_round_trips_inside_protocol_one() {
         1_000_000_000_u64
     );
     assert_eq!(
-        json["result"]["snapshot"]["rate_windows"][0]["hooks"][0]["total"]
-            ["packet_delta"],
+        json["result"]["snapshot"]["rate_windows"][0]["hooks"][0]["total"]["packet_delta"],
         7
     );
     assert_eq!(
-        json["result"]["snapshot"]["rate_windows"][0]["hooks"][0]["total"]
-            ["packets_per_second"],
+        json["result"]["snapshot"]["rate_windows"][0]["hooks"][0]["total"]["packets_per_second"],
         7
     );
     assert!(json["result"]["snapshot"]["rate_windows"][1]["hooks"].is_null());

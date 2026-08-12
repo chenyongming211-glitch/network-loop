@@ -323,11 +323,7 @@ fn status_rate_windows() -> [StatusRateWindow; 3] {
     ]
 }
 
-fn non_ready_status(
-    window_ms: u64,
-    state: RateWindowState,
-    coverage_ms: u64,
-) -> StatusRateWindow {
+fn non_ready_status(window_ms: u64, state: RateWindowState, coverage_ms: u64) -> StatusRateWindow {
     StatusRateWindow {
         window_ms,
         state,
