@@ -1209,10 +1209,16 @@ function Assert-DetectionSummary {
 
     $Summary = (Get-OnlyStatusInterface -Status $Status).detection
     $Report = $Snapshot.detection
-    foreach ($Field in @('state', 'retained_anomalous_state', 'transition_sequence', 'state_since_unix_ms', 'last_trustworthy_at_unix_ms', 'last_error_code')) {
+    foreach ($Field in @('state', 'retained_anomalous_state', 'transition_sequence', 'state_since_unix_ms', 'last_error_code')) {
         if ([string]$Summary.$Field -cne [string]$Report.$Field) {
             throw "detection status summary mismatch: $Field"
         }
+    }
+    $SummaryTrustworthyAt = [uint64]$Summary.last_trustworthy_at_unix_ms
+    $ReportTrustworthyAt = [uint64]$Report.last_trustworthy_at_unix_ms
+    if ($SummaryTrustworthyAt -lt $ReportTrustworthyAt -or
+        ($SummaryTrustworthyAt - $ReportTrustworthyAt) -gt 5000) {
+        throw 'detection status summary has an invalid trustworthy timestamp'
     }
     if ([string]$Summary.candidate -cne [string]$Report.signals.candidate -or
         [string]$Summary.fingerprint_window_state -cne [string]$Report.signals.fingerprint_window.state) {

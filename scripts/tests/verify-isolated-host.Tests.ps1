@@ -166,6 +166,8 @@ foreach ($Required in @(
     'analysis-fingerprint-map-read-once',
     'Assert-DetectionReport',
     'Assert-DetectionSummary',
+    "@('state', 'retained_anomalous_state', 'transition_sequence', 'state_since_unix_ms', 'last_error_code')",
+    '($SummaryTrustworthyAt - $ReportTrustworthyAt) -gt 5000',
     'external_loop_high_confidence',
     'fingerprint_window_state',
     'retained_anomalous_state',
