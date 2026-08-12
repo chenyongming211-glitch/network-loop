@@ -115,7 +115,7 @@ foreach ($Required in @(
     "'snapshot'",
     "'verify-owned'",
     "'counters'",
-    "[ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange')]",
+    "[ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset')]",
     'L2_LOOP_ACCEPTANCE_FAULT',
     'TC_ATTACH_FAILED',
     'MAP_INITIALIZE_FAILED',
@@ -155,6 +155,26 @@ foreach ($Required in @(
 )) {
     Assert-True ($Harness.Contains($Required)) "harness is missing passive observation marker: $Required"
 }
+
+foreach ($Required in @(
+    "'RateWindows'",
+    "'RateSamplingFailure'",
+    "'RateGenerationReset'",
+    'Success|TcAttachFailure|MapInitializeFailure|DaemonTermination|IdentityChange|TrafficInterruption|PassiveObservation|ObservationMapFailure|ObservationIdentityChange|RateWindows|RateSamplingFailure|RateGenerationReset',
+    'RATE_SAMPLE_ITERATIONS=65',
+    'RATE_FRAMES_PER_DIRECTION=9',
+    'rate-sampling-map-read',
+    'packets_per_second',
+    'bytes_per_second',
+    'packet_delta',
+    'byte_delta',
+    'elapsed_ns',
+    'warming_up',
+    'ready',
+    'stale'
+)) {
+    Assert-True ($Harness.Contains($Required)) "harness is missing bounded rate marker: $Required"
+}
 Assert-True (
     [regex]::Matches($Harness, [regex]::Escape('socket.htons(0x0003)')).Count -ge 3
 ) 'passive observation receivers do not subscribe to ETH_P_ALL'
@@ -172,6 +192,8 @@ Assert-True (
 
 Assert-True (-not $Harness.Contains('bpftool')) 'harness requires bpftool on the target host'
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)command_name in[^\r\n]*\btc\b')) 'harness requires tc on the target host'
+Assert-True (-not [regex]::IsMatch($Harness, '(?m)^\s*ip\s+(?:addr|address|route)\s+(?:add|append|change|delete|del|flush|prepend|replace)\b')) 'harness mutates host addresses or routes'
+Assert-True (-not [regex]::IsMatch($Harness, '(?m)^\s*(?:while\s+(?::|true)|for\s*\(\s*;\s*;)')) 'harness contains an unbounded remote shell loop'
 
 Assert-True ($Harness.IndexOf('$ExitEvent = Register-IsolatedCleanup') -lt $Harness.IndexOf('$null = Invoke-IsolatedMutation')) 'cleanup is not registered before first mutation'
 Assert-True ($Harness.Contains("Where-Object { `$null -ne `$_ -and")) 'empty GitHub run queries are not rejected safely'

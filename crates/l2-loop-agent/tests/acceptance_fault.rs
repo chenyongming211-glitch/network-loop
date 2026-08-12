@@ -9,10 +9,12 @@ use std::{
 };
 
 use l2_loop_agent::{
-    LoadedBpfObject, MapPublisher, PortError, SafeTcPort,
+    LoadedBpfObject, MapPublisher, ObservationReadPurpose, ObservationReader, PortError,
+    RawObservation, SafeTcPort,
     linux::{
         acceptance_fault::{
-            AcceptanceFault, FaultInjectingMaps, FaultInjectingObservation, FaultInjectingTc,
+            AcceptanceFault, FaultInjectingMaps, FaultInjectingObservation,
+            FaultInjectingObservationReader, FaultInjectingTc,
         },
         observation::ObservationIo,
         tc::LoadedTc,
@@ -25,7 +27,7 @@ use l2_loop_common::{
 };
 
 #[test]
-fn accepts_only_the_three_authorized_fault_stages() {
+fn accepts_only_the_authorized_fault_stages() {
     assert_eq!(AcceptanceFault::parse(None).unwrap(), AcceptanceFault::None);
     assert_eq!(
         AcceptanceFault::parse(Some("tc-attach")).unwrap(),
@@ -39,10 +41,39 @@ fn accepts_only_the_three_authorized_fault_stages() {
         AcceptanceFault::parse(Some("observation-map-read")).unwrap(),
         AcceptanceFault::ObservationMapRead
     );
+    assert_eq!(
+        AcceptanceFault::parse(Some("rate-sampling-map-read")).unwrap(),
+        AcceptanceFault::RateSamplingMapRead
+    );
 
     for invalid in ["", "xdp-attach", "tc-detach", "map-publish", "foreign"] {
         assert!(AcceptanceFault::parse(Some(invalid)).is_err());
     }
+}
+
+#[test]
+fn rate_sampling_fault_fails_only_background_reads() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut observation = FaultInjectingObservationReader::new(
+        FakePurposeReader(calls.clone()),
+        AcceptanceFault::RateSamplingMapRead,
+    );
+    let ownership = ownership();
+
+    let background_error = observation
+        .read_exact(&ownership, ObservationReadPurpose::BackgroundSample)
+        .unwrap_err();
+    assert!(background_error.to_string().contains("OBS_MAP_UNAVAILABLE"));
+    assert!(calls.lock().unwrap().is_empty());
+
+    let request_error = observation
+        .read_exact(&ownership, ObservationReadPurpose::Request)
+        .unwrap_err();
+    assert!(request_error.to_string().contains("delegated request read"));
+    assert_eq!(
+        calls.lock().unwrap().as_slice(),
+        [ObservationReadPurpose::Request]
+    );
 }
 
 #[test]
@@ -206,6 +237,19 @@ impl MapPublisher for FakeMaps {
 }
 
 struct FakeObservation(Arc<Mutex<Vec<&'static str>>>);
+
+struct FakePurposeReader(Arc<Mutex<Vec<ObservationReadPurpose>>>);
+
+impl ObservationReader for FakePurposeReader {
+    fn read_exact(
+        &mut self,
+        _ownership: &OwnershipRecord,
+        purpose: ObservationReadPurpose,
+    ) -> Result<RawObservation, PortError> {
+        self.0.lock().unwrap().push(purpose);
+        Err(PortError::Adapter("delegated request read".to_owned()))
+    }
+}
 
 impl ObservationIo for FakeObservation {
     fn verify_hooks(&mut self, _ownership: &OwnershipRecord) -> Result<(), PortError> {
