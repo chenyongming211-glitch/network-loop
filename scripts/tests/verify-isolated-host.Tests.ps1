@@ -215,6 +215,9 @@ foreach ($Required in @(
     'Assert-BaselineReport',
     'Assert-BaselineSummary',
     'Assert-SubjectAtomicRejection',
+    '[uint64]$Elevated.source_end_unix_ms',
+    '[uint64]$Subject.latest_accepted_at_unix_ms -ge $SourceEnd',
+    '[uint64]$Subject.latest_accepted_at_unix_ms -eq $SourceEnd',
     'Assert-BaselineCountsRetained',
     'Assert-CompareBeforeAcceptRecovery',
     'baseline-sampling-map-read-recovery',
@@ -232,6 +235,9 @@ foreach ($Required in @(
 }
 $BaselineLifecycle = '(?s)''BaselineLifecycle'' \{(?:(?!''BaselineSamplingRecovery'').)*Assert-SubjectAtomicRejection(?:(?!''BaselineSamplingRecovery'').)*-ExpectedState ''within_baseline'''
 Assert-True ([regex]::IsMatch($Harness, $BaselineLifecycle)) 'baseline lifecycle does not prove rejection, sibling learning, and recovery'
+Assert-True (
+    -not [regex]::IsMatch($Harness, '(?s)function Assert-SubjectAtomicRejection.*?Get-BaselineCounts -Baseline \$Before')
+) 'subject-atomic rejection still compares counts across independently timed requests'
 $BaselineRecovery = '(?s)''BaselineSamplingRecovery'' \{(?:(?!''BaselineGenerationReset'').)*-ExpectedState ''unavailable''(?:(?!''BaselineGenerationReset'').)*Assert-BaselineCountsRetained(?:(?!''BaselineGenerationReset'').)*Assert-CompareBeforeAcceptRecovery'
 Assert-True ([regex]::IsMatch($Harness, $BaselineRecovery)) 'sampling recovery does not prove retention and compare-before-accept'
 $BaselineGeneration = '(?s)''BaselineGenerationReset'' \{(?:(?!''ObservationMapFailure'').)*first baseline generation detach did not restore prepared state(?:(?!''ObservationMapFailure'').)*-ExpectedState ''learning''(?:(?!''ObservationMapFailure'').)*second baseline generation detach did not restore prepared state'

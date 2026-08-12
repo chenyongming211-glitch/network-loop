@@ -1172,22 +1172,27 @@ function Assert-SubjectAtomicRejection {
         [Parameter(Mandatory)] [psobject] $Elevated
     )
 
-    $BeforeCounts = Get-BaselineCounts -Baseline $Before
+    if ($Before.state -cne 'within_baseline') {
+        throw 'subject rejection comparison did not start from a ready baseline'
+    }
     $ElevatedSubjects = @($Elevated.subjects | Where-Object { $_.state -ceq 'elevated' })
     $SiblingSubjects = @($Elevated.subjects | Where-Object { $_.state -cne 'elevated' })
-    if ($ElevatedSubjects.Count -eq 0 -or $SiblingSubjects.Count -eq 0) {
+    $SourceEnd = [uint64]$Elevated.source_end_unix_ms
+    if ($SourceEnd -eq 0 -or $ElevatedSubjects.Count -eq 0 -or $SiblingSubjects.Count -eq 0) {
         throw 'bounded elevated matrix did not separate affected subjects from siblings'
     }
     foreach ($Subject in $ElevatedSubjects) {
         $Key = "$([string]$Subject.hook)/$(Get-BaselineSubjectKey -Subject $Subject.subject)"
-        if ([uint64]$Subject.sample_count -gt ([uint64]$BeforeCounts[$Key] + 1)) {
+        if ($null -eq $Subject.latest_accepted_at_unix_ms -or
+            [uint64]$Subject.latest_accepted_at_unix_ms -ge $SourceEnd) {
             throw "elevated subject contaminated its baseline for $Key"
         }
     }
     $SiblingAdvanced = $false
     foreach ($Subject in $SiblingSubjects) {
         $Key = "$([string]$Subject.hook)/$(Get-BaselineSubjectKey -Subject $Subject.subject)"
-        if ([uint64]$Subject.sample_count -gt [uint64]$BeforeCounts[$Key]) {
+        if ($null -ne $Subject.latest_accepted_at_unix_ms -and
+            [uint64]$Subject.latest_accepted_at_unix_ms -eq $SourceEnd) {
             $SiblingAdvanced = $true
         }
     }
