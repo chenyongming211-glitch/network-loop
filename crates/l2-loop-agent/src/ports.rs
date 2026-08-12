@@ -106,16 +106,6 @@ pub trait ProbeTransport {
     fn send_one(&mut self, request: &ProbeRequest) -> Result<ProbeReceipt, PortError>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EvidenceBundle {
-    pub id: String,
-    pub payload: Vec<u8>,
-}
-
-pub trait EvidenceStore {
-    fn persist(&mut self, bundle: &EvidenceBundle) -> Result<(), PortError>;
-}
-
 pub trait Clock {
     fn monotonic_ns(&self) -> u64;
     fn wall_time(&self) -> SystemTime;

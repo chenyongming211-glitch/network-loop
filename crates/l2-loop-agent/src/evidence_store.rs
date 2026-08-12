@@ -692,7 +692,7 @@ fn build_manifest(
         total_bytes: evidence_bytes,
         package_version: package_version.to_owned(),
     };
-    let mut bytes = Vec::new();
+    let mut bytes = serde_json::to_vec_pretty(&manifest).map_err(|_| EvidenceStoreError::Io)?;
     for _ in 0..4 {
         bytes = serde_json::to_vec_pretty(&manifest).map_err(|_| EvidenceStoreError::Io)?;
         let total = evidence_bytes
