@@ -512,11 +512,7 @@ where
         detection_code: &'static str,
     ) {
         if let Some(baseline) = self.baseline.as_mut() {
-            baseline.clear_integrity(
-                baseline.identity(),
-                cleared_at_unix_ms,
-                baseline_code,
-            );
+            baseline.clear_integrity(baseline.identity(), cleared_at_unix_ms, baseline_code);
         }
         self.clear_detection_integrity(
             ownership,
