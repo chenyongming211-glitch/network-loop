@@ -104,6 +104,9 @@ async fn observe_round_trips_from_the_cli_client_through_the_daemon_dispatcher()
     assert!(observe_text.stdout.contains("baseline:"));
     assert!(observe_text.stdout.contains("learning_subject_count: 16"));
     assert!(observe_text.stdout.contains("fingerprints:"));
+    assert!(observe_text.stdout.contains("detection:"));
+    assert!(observe_text.stdout.contains("state: warming_up"));
+    assert!(observe_text.stdout.contains("transitions:"));
     assert!(observe_text.stdout.contains("correlated_relation_count: 1"));
     let observe_value: serde_json::Value = serde_json::from_str(&observe_json.stdout).unwrap();
     assert_eq!(observe_value["schema_version"], 5);
@@ -135,6 +138,9 @@ async fn observe_round_trips_from_the_cli_client_through_the_daemon_dispatcher()
     assert!(status_text.stdout.contains("subject_sample_counts:"));
     assert!(status_text.stdout.contains("elevated:"));
     assert!(status_text.stdout.contains("fingerprints:"));
+    assert!(status_text.stdout.contains("detection:"));
+    assert!(status_text.stdout.contains("fingerprint_window_state: warming_up"));
+    assert!(!status_text.stdout.contains("transitions:"));
     assert!(status_text.stdout.contains("correlated_relation_count: 1"));
     assert!(!status_text.stdout.contains("traffic_class:"));
     for prohibited in [
@@ -143,6 +149,8 @@ async fn observe_round_trips_from_the_cli_client_through_the_daemon_dispatcher()
         "first_seen_ns",
         "last_seen_ns",
         "fingerprint\"",
+        "confirmed_loop",
+        "detection_threshold_override",
     ] {
         assert!(!observe_text.stdout.contains(prohibited));
         assert!(!observe_json.stdout.contains(prohibited));

@@ -130,9 +130,15 @@ fn renders_observation_and_status_as_stable_text_and_json() {
     );
     let status_json = render_response(
         ControlResponse::success(AgentResult::Status {
-            interfaces: vec![status],
+            interfaces: vec![status.clone()],
         }),
         OutputFormat::Json,
+    );
+    let status_text = render_response(
+        ControlResponse::success(AgentResult::Status {
+            interfaces: vec![status],
+        }),
+        OutputFormat::Text,
     );
 
     assert_eq!(text.exit_code, EXIT_SUCCESS);
@@ -151,6 +157,15 @@ fn renders_observation_and_status_as_stable_text_and_json() {
     assert!(text.stdout.contains("fingerprints:"));
     assert!(text.stdout.contains("state: observed"));
     assert!(text.stdout.contains("correlated_relation_count: 1"));
+    assert!(text.stdout.contains("detection:"));
+    assert!(text.stdout.contains("retained_anomalous_state: null"));
+    assert!(text.stdout.contains("candidate_streak: 0"));
+    assert!(text.stdout.contains("transition_sequence: 0"));
+    assert!(text.stdout.contains("transitions:"));
+    assert!(status_text.stdout.contains("detection:"));
+    assert!(status_text.stdout.contains("state: warming_up"));
+    assert!(status_text.stdout.contains("fingerprint_window_state: warming_up"));
+    assert!(!status_text.stdout.contains("transitions:"));
     assert_eq!(json.exit_code, EXIT_SUCCESS);
     let value: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
     assert_eq!(value["schema_version"], 5);
@@ -192,7 +207,12 @@ fn renders_observation_and_status_as_stable_text_and_json() {
         16
     );
 
-    for output in [&text.stdout, &json.stdout, &status_json.stdout] {
+    for output in [
+        &text.stdout,
+        &json.stdout,
+        &status_text.stdout,
+        &status_json.stdout,
+    ] {
         for prohibited in [
             "ip_address",
             "mac_address",
@@ -209,6 +229,8 @@ fn renders_observation_and_status_as_stable_text_and_json() {
             "first_seen_ns",
             "last_seen_ns",
             "fingerprint\"",
+            "confirmed_loop",
+            "detection_threshold_override",
         ] {
             assert!(!output.contains(prohibited));
         }
