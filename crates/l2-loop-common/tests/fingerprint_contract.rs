@@ -16,7 +16,10 @@ fn fixed_fnv_vectors_include_exact_length_and_bound_the_prefix() {
 
     let mut same_prefix_different_tail = long.clone();
     same_prefix_different_tail[79] ^= 0xff;
-    assert_eq!(fingerprint_hash(&same_prefix_different_tail), fingerprint_hash(&long));
+    assert_eq!(
+        fingerprint_hash(&same_prefix_different_tail),
+        fingerprint_hash(&long)
+    );
 
     same_prefix_different_tail.push(0);
     assert_eq!(
