@@ -3,6 +3,7 @@
 mod baseline;
 mod command;
 mod error;
+mod fingerprint;
 mod interface;
 mod observation;
 mod policy;
@@ -14,6 +15,7 @@ mod value;
 pub use baseline::*;
 pub use command::*;
 pub use error::*;
+pub use fingerprint::*;
 pub use interface::*;
 pub use observation::*;
 pub use policy::*;

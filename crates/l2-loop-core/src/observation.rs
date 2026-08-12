@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BaselineReport, DetailedRateWindow, DomainError, HookRole, InterfaceName, RATE_WINDOW_COUNT,
-    RateIdentity, SamplingStatus, TrafficClass, VlanVisibility,
+    BaselineReport, DetailedRateWindow, DomainError, FingerprintReport, HookRole, InterfaceName,
+    RATE_WINDOW_COUNT, RateIdentity, SamplingStatus, TrafficClass, VlanVisibility,
     rate::validate_detailed_rate_windows,
 };
 
-pub const OBSERVATION_SCHEMA_VERSION: u16 = 3;
+pub const OBSERVATION_SCHEMA_VERSION: u16 = 4;
 pub const OBSERVED_HOOK_COUNT: usize = 2;
 pub const OBSERVED_CLASS_COUNT: usize = 6;
 
@@ -73,10 +73,11 @@ pub struct ObservationSnapshot {
     pub sampling: SamplingStatus,
     pub rate_windows: [DetailedRateWindow; RATE_WINDOW_COUNT],
     pub baseline: BaselineReport,
+    pub fingerprints: FingerprintReport,
 }
 
 impl ObservationSnapshot {
-    // Keep identity, cumulative evidence, and schema-3 observation evidence explicit.
+    // Keep identity, cumulative evidence, and schema-4 observation evidence explicit.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         interface: InterfaceName,
@@ -129,6 +130,7 @@ impl ObservationSnapshot {
             sampling,
             rate_windows,
             baseline,
+            fingerprints: FingerprintReport::empty(),
         })
     }
 }
