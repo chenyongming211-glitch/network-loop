@@ -457,8 +457,7 @@ impl BaselineEngine {
             state: BaselineState::Unavailable,
             evaluated_at_unix_ms: Some(evaluated_at_unix_ms),
             source_end_unix_ms: None,
-            last_successful_evaluation_at_unix_ms: self
-                .last_successful_evaluation_at_unix_ms,
+            last_successful_evaluation_at_unix_ms: self.last_successful_evaluation_at_unix_ms,
             last_error_code: Some(code),
             learning_subject_count: 0,
             elevated_metric_count: 0,
@@ -467,10 +466,7 @@ impl BaselineEngine {
     }
 }
 
-fn subject_rates(
-    hooks: &[HookRate; OBSERVED_HOOK_COUNT],
-    index: usize,
-) -> (u64, u64) {
+fn subject_rates(hooks: &[HookRate; OBSERVED_HOOK_COUNT], index: usize) -> (u64, u64) {
     let hook = &hooks[index / BASELINE_SUBJECTS_PER_HOOK];
     let counters = match index % BASELINE_SUBJECTS_PER_HOOK {
         0 => &hook.total,
