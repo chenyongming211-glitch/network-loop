@@ -75,12 +75,7 @@ fn packet_u16(data: usize, data_end: usize, prefix_len: usize, offset: usize) ->
 }
 
 #[inline(always)]
-fn packet_mac(
-    data: usize,
-    data_end: usize,
-    prefix_len: usize,
-    offset: usize,
-) -> Option<[u8; 6]> {
+fn packet_mac(data: usize, data_end: usize, prefix_len: usize, offset: usize) -> Option<[u8; 6]> {
     Some([
         packet_byte(data, data_end, prefix_len, offset)?,
         packet_byte(data, data_end, prefix_len, offset + 1)?,
@@ -135,8 +130,7 @@ fn packet_protocol_subtype(
             {
                 return (0, 0);
             }
-            let Some(protocol) = packet_byte(data, data_end, prefix_len, network_offset + 9)
-            else {
+            let Some(protocol) = packet_byte(data, data_end, prefix_len, network_offset + 9) else {
                 return (0, 0);
             };
             let subtype = if protocol == 1 {
@@ -148,16 +142,13 @@ fn packet_protocol_subtype(
             (protocol, subtype)
         }
         0x86dd => {
-            if packet_byte(data, data_end, prefix_len, network_offset)
-                .unwrap_or_default()
-                >> 4
-                != 6
+            if packet_byte(data, data_end, prefix_len, network_offset).unwrap_or_default() >> 4 != 6
                 || network_offset + 40 > prefix_len
             {
                 return (0, 0);
             }
-            let protocol = packet_byte(data, data_end, prefix_len, network_offset + 6)
-                .unwrap_or_default();
+            let protocol =
+                packet_byte(data, data_end, prefix_len, network_offset + 6).unwrap_or_default();
             let subtype = if protocol == 58 {
                 packet_byte(data, data_end, prefix_len, network_offset + 40).unwrap_or_default()
             } else {
@@ -209,13 +200,7 @@ fn packet_fingerprint_metadata(
     let (protocol, subtype) = if vlan_depth == 2 {
         (0, 0)
     } else {
-        packet_protocol_subtype(
-            data,
-            data_end,
-            prefix_len,
-            network_offset,
-            ether_type,
-        )
+        packet_protocol_subtype(data, data_end, prefix_len, network_offset, ether_type)
     };
     Some(FingerprintMetadata {
         source_mac,
