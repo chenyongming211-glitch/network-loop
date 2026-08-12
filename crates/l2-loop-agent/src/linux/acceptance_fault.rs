@@ -285,8 +285,12 @@ impl<B: IncidentOutputBackend> IncidentOutputBackend for FaultInjectingIncidentO
         self.inner.persist(job)
     }
 
-    fn alert(&mut self, job: &IncidentWriteJob, evidence_status: EvidenceStatus) {
-        self.inner.alert(job, evidence_status);
+    fn alert(
+        &mut self,
+        job: &IncidentWriteJob,
+        evidence_status: EvidenceStatus,
+    ) -> l2_loop_core::AlertSinkMode {
+        self.inner.alert(job, evidence_status)
     }
 }
 

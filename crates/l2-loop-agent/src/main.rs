@@ -1,8 +1,8 @@
 use std::{path::Path, process::ExitCode, time::Duration};
 
 use l2_loop_agent::{
-    AttachmentTransaction, IncidentOutputBackend, IncidentOutputWorker, LinuxAlertSink,
-    LinuxEvidenceStore, PreflightService, SharedEvidenceStore, StdEvidenceIo,
+    AttachmentTransaction, EvidenceStore, IncidentOutputBackend, IncidentOutputWorker,
+    LinuxAlertSink, LinuxEvidenceStore, PreflightService, SharedEvidenceStore, StdEvidenceIo,
     StoredIncidentOutputBackend, SystemAlertIo,
     daemon::{
         BoundedUnixServer, DEFAULT_SOCKET_PATH, DaemonDispatcher, DaemonError,
@@ -24,6 +24,7 @@ use l2_loop_agent::{
     },
     ownership::FileOwnershipRepository,
 };
+use l2_loop_core::{AlertSinkMode, OutputHealth, OutputHealthState};
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 
@@ -93,10 +94,34 @@ async fn run() -> Result<(), DaemonError> {
         .as_deref()
         .unwrap_or_else(|| Path::new("/var/lib/l2-loop/evidence/v1"));
     let acceptance_alerts = acceptance_evidence_root.is_some();
+    let configured_alert_sink = if acceptance_alerts {
+        AlertSinkMode::StderrJson
+    } else {
+        AlertSinkMode::Journald
+    };
     let evidence_store =
         LinuxEvidenceStore::open(StdEvidenceIo, evidence_root, env!("CARGO_PKG_VERSION"));
-    let (backend, evidence_control) = match evidence_store {
+    let (backend, evidence_control, initial_output_health) = match evidence_store {
         Ok(store) => {
+            let store_health = store.health();
+            let recovery_issue = store_health.corrupt_object_count > 0
+                || store_health.incomplete_object_count > 0
+                || store_health.unknown_object_count > 0;
+            let output_health = OutputHealth {
+                state: if store_health.available && !recovery_issue {
+                    OutputHealthState::Healthy
+                } else {
+                    OutputHealthState::Degraded
+                },
+                store_available: store_health.available,
+                corrupt_object_count: store_health.corrupt_object_count,
+                incomplete_object_count: store_health.incomplete_object_count,
+                unknown_object_count: store_health.unknown_object_count,
+                alert_sink: configured_alert_sink,
+                last_error_code: recovery_issue
+                    .then(|| "OUTPUT_STORE_RECOVERY_ISSUES".to_owned()),
+                dropped_job_count: 0,
+            };
             let shared = SharedEvidenceStore::new(store);
             (
                 Box::new(StoredIncidentOutputBackend::new(
@@ -104,15 +129,21 @@ async fn run() -> Result<(), DaemonError> {
                     LinuxAlertSink::new(AcceptanceAlertIo::new(SystemAlertIo, acceptance_alerts)),
                 )) as Box<dyn IncidentOutputBackend>,
                 Some(shared),
+                output_health,
             )
         }
-        Err(_) => (
-            Box::new(LinuxAlertSink::new(AcceptanceAlertIo::new(
-                SystemAlertIo,
-                acceptance_alerts,
-            ))) as Box<dyn IncidentOutputBackend>,
-            None,
-        ),
+        Err(_) => {
+            let mut output_health = OutputHealth::unavailable("OUTPUT_STORE_UNAVAILABLE");
+            output_health.alert_sink = configured_alert_sink;
+            (
+                Box::new(LinuxAlertSink::new(AcceptanceAlertIo::new(
+                    SystemAlertIo,
+                    acceptance_alerts,
+                ))) as Box<dyn IncidentOutputBackend>,
+                None,
+                output_health,
+            )
+        }
     };
     let backend: Box<dyn IncidentOutputBackend> = match acceptance_evidence_failure {
         AcceptanceEvidenceFailure::None => backend,
@@ -121,7 +152,8 @@ async fn run() -> Result<(), DaemonError> {
             acceptance_evidence_failure,
         )),
     };
-    let (incident_output, incident_worker) = IncidentOutputWorker::start(backend);
+    let (incident_output, incident_worker) =
+        IncidentOutputWorker::start_with_health(backend, initial_output_health);
     let isolated = TransactionIsolatedControl::new(
         transaction,
         FaultInjectingObservationReader::new(

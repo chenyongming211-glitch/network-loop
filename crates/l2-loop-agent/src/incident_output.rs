@@ -21,7 +21,11 @@ const OUTPUT_WORKER_FAILED: &str = "OUTPUT_WORKER_FAILED";
 pub trait IncidentOutputBackend: Send + 'static {
     fn persist(&mut self, job: &IncidentWriteJob) -> Result<(), IncidentOutputError>;
 
-    fn alert(&mut self, job: &IncidentWriteJob, evidence_status: EvidenceStatus);
+    fn alert(
+        &mut self,
+        job: &IncidentWriteJob,
+        evidence_status: EvidenceStatus,
+    ) -> AlertSinkMode;
 }
 
 pub trait IncidentEvidenceSink: Send + 'static {
@@ -46,8 +50,12 @@ impl<T: IncidentOutputBackend + ?Sized> IncidentOutputBackend for Box<T> {
         (**self).persist(job)
     }
 
-    fn alert(&mut self, job: &IncidentWriteJob, evidence_status: EvidenceStatus) {
-        (**self).alert(job, evidence_status);
+    fn alert(
+        &mut self,
+        job: &IncidentWriteJob,
+        evidence_status: EvidenceStatus,
+    ) -> AlertSinkMode {
+        (**self).alert(job, evidence_status)
     }
 }
 
@@ -84,7 +92,13 @@ where
         self.persist_revision(&job.revision)
     }
 
-    fn alert(&mut self, _job: &IncidentWriteJob, _evidence_status: EvidenceStatus) {}
+    fn alert(
+        &mut self,
+        _job: &IncidentWriteJob,
+        _evidence_status: EvidenceStatus,
+    ) -> AlertSinkMode {
+        AlertSinkMode::StderrJson
+    }
 }
 
 pub struct StoredIncidentOutputBackend<S, A> {
@@ -107,7 +121,11 @@ where
         self.store.persist_revision(&job.revision)
     }
 
-    fn alert(&mut self, job: &IncidentWriteJob, evidence_status: EvidenceStatus) {
+    fn alert(
+        &mut self,
+        job: &IncidentWriteJob,
+        evidence_status: EvidenceStatus,
+    ) -> AlertSinkMode {
         let revision = &job.revision;
         let alert = SanitizedAlertV1 {
             event_id: revision.event_id,
@@ -124,7 +142,10 @@ where
             generation: revision.interface_generation,
             message: alert_message(revision.alert_code).to_owned(),
         };
-        let _ = self.alerts.publish(&alert);
+        match self.alerts.publish(&alert) {
+            Ok(crate::AlertPublishOutcome::Journald) => AlertSinkMode::Journald,
+            Ok(crate::AlertPublishOutcome::StderrJson) | Err(_) => AlertSinkMode::StderrJson,
+        }
     }
 }
 
@@ -136,7 +157,11 @@ where
         Err(IncidentOutputError::StoreUnavailable)
     }
 
-    fn alert(&mut self, job: &IncidentWriteJob, evidence_status: EvidenceStatus) {
+    fn alert(
+        &mut self,
+        job: &IncidentWriteJob,
+        evidence_status: EvidenceStatus,
+    ) -> AlertSinkMode {
         let revision = &job.revision;
         let alert = SanitizedAlertV1 {
             event_id: revision.event_id,
@@ -153,7 +178,10 @@ where
             generation: revision.interface_generation,
             message: alert_message(revision.alert_code).to_owned(),
         };
-        let _ = self.publish(&alert);
+        match self.publish(&alert) {
+            Ok(crate::AlertPublishOutcome::Journald) => AlertSinkMode::Journald,
+            Ok(crate::AlertPublishOutcome::StderrJson) | Err(_) => AlertSinkMode::StderrJson,
+        }
     }
 }
 
@@ -179,7 +207,13 @@ impl IncidentOutputBackend for UnavailableIncidentOutputBackend {
         Err(IncidentOutputError::StoreUnavailable)
     }
 
-    fn alert(&mut self, _job: &IncidentWriteJob, _evidence_status: EvidenceStatus) {}
+    fn alert(
+        &mut self,
+        _job: &IncidentWriteJob,
+        _evidence_status: EvidenceStatus,
+    ) -> AlertSinkMode {
+        AlertSinkMode::StderrJson
+    }
 }
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
@@ -243,20 +277,33 @@ impl IncidentOutputWorker {
     where
         B: IncidentOutputBackend,
     {
+        Self::start_with_health(
+            backend,
+            OutputHealth {
+                state: OutputHealthState::Healthy,
+                store_available: true,
+                corrupt_object_count: 0,
+                incomplete_object_count: 0,
+                unknown_object_count: 0,
+                alert_sink: AlertSinkMode::StderrJson,
+                last_error_code: None,
+                dropped_job_count: 0,
+            },
+        )
+    }
+
+    pub fn start_with_health<B>(
+        backend: B,
+        initial_health: OutputHealth,
+    ) -> (IncidentOutputHandle, Self)
+    where
+        B: IncidentOutputBackend,
+    {
         let (sender, mut receiver) =
             mpsc::channel::<IncidentWriteJob>(INCIDENT_OUTPUT_QUEUE_CAPACITY);
         let (shutdown, mut shutdown_receiver) = watch::channel(false);
         let backend = Arc::new(Mutex::new(backend));
-        let health = Arc::new(Mutex::new(OutputHealth {
-            state: OutputHealthState::Healthy,
-            store_available: true,
-            corrupt_object_count: 0,
-            incomplete_object_count: 0,
-            unknown_object_count: 0,
-            alert_sink: AlertSinkMode::StderrJson,
-            last_error_code: None,
-            dropped_job_count: 0,
-        }));
+        let health = Arc::new(Mutex::new(initial_health));
         let task_health = health.clone();
         let task = tokio::spawn(async move {
             loop {
@@ -327,13 +374,21 @@ async fn process_job<B>(
         } else {
             EvidenceStatus::Unavailable
         };
-        backend.alert(&job, status);
-        persisted
+        let alert_sink = backend.alert(&job, status);
+        (persisted, alert_sink)
     })
     .await;
 
-    if !matches!(result, Ok(Ok(()))) {
-        update_health(&health, false, Some(OUTPUT_STORE_UNAVAILABLE), false);
+    match result {
+        Ok((persisted, alert_sink)) => {
+            if let Ok(mut health) = health.lock() {
+                health.alert_sink = alert_sink;
+            }
+            if persisted.is_err() {
+                update_health(&health, false, Some(OUTPUT_STORE_UNAVAILABLE), false);
+            }
+        }
+        Err(_) => update_health(&health, false, Some(OUTPUT_STORE_UNAVAILABLE), false),
     }
 }
 

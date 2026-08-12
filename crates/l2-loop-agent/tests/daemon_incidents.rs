@@ -11,8 +11,8 @@ use l2_loop_agent::{
     IncidentRecorderError, IncidentWriteJob,
 };
 use l2_loop_core::{
-    ClassObservation, DetectionState, DetectionTransition, DetectionTransitionReason, EventId,
-    EvidenceStatus, HookObservation, HookRole, InterfaceName, ObservationCounters,
+    AlertSinkMode, ClassObservation, DetectionState, DetectionTransition, DetectionTransitionReason,
+    EventId, EvidenceStatus, HookObservation, HookRole, InterfaceName, ObservationCounters,
     ObservationSnapshot, SamplingStatus, TrafficClass, VlanVisibility,
     warming_detailed_rate_windows,
 };
@@ -61,11 +61,16 @@ impl IncidentOutputBackend for RecordingBackend {
         }
     }
 
-    fn alert(&mut self, job: &IncidentWriteJob, evidence_status: EvidenceStatus) {
+    fn alert(
+        &mut self,
+        job: &IncidentWriteJob,
+        evidence_status: EvidenceStatus,
+    ) -> AlertSinkMode {
         self.calls
             .lock()
             .unwrap()
             .push(Call::Alert(job.revision.revision, evidence_status));
+        AlertSinkMode::StderrJson
     }
 }
 
