@@ -2,9 +2,9 @@ use std::fmt::Write;
 
 use l2_loop_agent::protocol::{ControlResponse, ERROR_INTERNAL, ResponseBody};
 use l2_loop_core::{
-    AgentResult, DetailedRateWindow, HookRate, InterfaceStatus, ObservationCounters,
-    ObservationSnapshot, PreflightDecision, PreflightReport, RateCounters, SamplingStatus,
-    StatusRateWindow,
+    AgentResult, BaselineMetricReport, BaselineReport, BaselineSummary, DetailedRateWindow,
+    HookRate, InterfaceStatus, ObservationCounters, ObservationSnapshot, PreflightDecision,
+    PreflightReport, RateCounters, SamplingStatus, StatusRateWindow,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -123,6 +123,7 @@ fn render_observation_text(snapshot: &ObservationSnapshot) -> Result<String, ser
     for window in &snapshot.rate_windows {
         render_detailed_window(&mut output, window)?;
     }
+    render_baseline_report(&mut output, &snapshot.baseline)?;
     Ok(output.trim_end().to_owned())
 }
 
@@ -167,8 +168,221 @@ fn render_status_text(interfaces: &[InterfaceStatus]) -> Result<String, serde_js
         for window in &interface.rate_windows {
             render_status_window(&mut output, window)?;
         }
+        render_baseline_summary(&mut output, &interface.baseline)?;
     }
     Ok(output.trim_end().to_owned())
+}
+
+fn render_baseline_report(
+    output: &mut String,
+    baseline: &BaselineReport,
+) -> Result<(), serde_json::Error> {
+    writeln!(output, "baseline:").ok();
+    render_baseline_header(
+        output,
+        &baseline.state,
+        baseline.evaluated_at_unix_ms,
+        baseline.source_end_unix_ms,
+        baseline.last_successful_evaluation_at_unix_ms,
+        baseline.last_error_code.as_deref(),
+        baseline.learning_subject_count,
+        baseline.elevated_metric_count,
+        2,
+    )?;
+    writeln!(output, "  source_window_ms: {}", baseline.source_window_ms).ok();
+    writeln!(output, "  capacity: {}", baseline.capacity).ok();
+    writeln!(output, "  minimum_samples: {}", baseline.minimum_samples).ok();
+    writeln!(
+        output,
+        "  packet_noise_floor_pps: {}",
+        baseline.packet_noise_floor_pps
+    )
+    .ok();
+    writeln!(
+        output,
+        "  byte_noise_floor_bps: {}",
+        baseline.byte_noise_floor_bps
+    )
+    .ok();
+    writeln!(output, "  subjects:").ok();
+    for subject in &baseline.subjects {
+        writeln!(output, "    -").ok();
+        writeln!(
+            output,
+            "      hook: {}",
+            serialized_scalar(&subject.hook)?
+        )
+        .ok();
+        writeln!(output, "      subject:").ok();
+        render_serialized_value(output, &subject.subject, 8)?;
+        writeln!(
+            output,
+            "      state: {}",
+            serialized_scalar(&subject.state)?
+        )
+        .ok();
+        writeln!(output, "      sample_count: {}", subject.sample_count).ok();
+        writeln!(
+            output,
+            "      latest_accepted_at_unix_ms: {}",
+            option_number(subject.latest_accepted_at_unix_ms)
+        )
+        .ok();
+        render_baseline_metric(output, "packets", &subject.packets, 6);
+        render_baseline_metric(output, "bytes", &subject.bytes, 6);
+    }
+    Ok(())
+}
+
+fn render_baseline_summary(
+    output: &mut String,
+    baseline: &BaselineSummary,
+) -> Result<(), serde_json::Error> {
+    writeln!(output, "    baseline:").ok();
+    render_baseline_header(
+        output,
+        &baseline.state,
+        baseline.evaluated_at_unix_ms,
+        baseline.source_end_unix_ms,
+        baseline.last_successful_evaluation_at_unix_ms,
+        baseline.last_error_code.as_deref(),
+        baseline.learning_subject_count,
+        baseline.elevated_metric_count,
+        6,
+    )?;
+    writeln!(output, "      subject_sample_counts:").ok();
+    for subject in &baseline.subject_sample_counts {
+        writeln!(output, "        -").ok();
+        writeln!(
+            output,
+            "          hook: {}",
+            serialized_scalar(&subject.hook)?
+        )
+        .ok();
+        writeln!(output, "          subject:").ok();
+        render_serialized_value(output, &subject.subject, 12)?;
+        writeln!(output, "          sample_count: {}", subject.sample_count).ok();
+        writeln!(
+            output,
+            "          latest_accepted_at_unix_ms: {}",
+            option_number(subject.latest_accepted_at_unix_ms)
+        )
+        .ok();
+    }
+    writeln!(output, "      elevated:").ok();
+    if baseline.elevated.is_empty() {
+        writeln!(output, "        []").ok();
+    }
+    for elevated in &baseline.elevated {
+        writeln!(output, "        -").ok();
+        writeln!(
+            output,
+            "          hook: {}",
+            serialized_scalar(&elevated.hook)?
+        )
+        .ok();
+        writeln!(output, "          subject:").ok();
+        render_serialized_value(output, &elevated.subject, 12)?;
+        writeln!(
+            output,
+            "          metric: {}",
+            serialized_scalar(&elevated.metric)?
+        )
+        .ok();
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_baseline_header<T: Serialize>(
+    output: &mut String,
+    state: &T,
+    evaluated_at_unix_ms: Option<u64>,
+    source_end_unix_ms: Option<u64>,
+    last_successful_evaluation_at_unix_ms: Option<u64>,
+    last_error_code: Option<&str>,
+    learning_subject_count: u16,
+    elevated_metric_count: u16,
+    indent: usize,
+) -> Result<(), serde_json::Error> {
+    let padding = " ".repeat(indent);
+    writeln!(output, "{padding}state: {}", serialized_scalar(state)?).ok();
+    writeln!(
+        output,
+        "{padding}evaluated_at_unix_ms: {}",
+        option_number(evaluated_at_unix_ms)
+    )
+    .ok();
+    writeln!(
+        output,
+        "{padding}source_end_unix_ms: {}",
+        option_number(source_end_unix_ms)
+    )
+    .ok();
+    writeln!(
+        output,
+        "{padding}last_successful_evaluation_at_unix_ms: {}",
+        option_number(last_successful_evaluation_at_unix_ms)
+    )
+    .ok();
+    writeln!(
+        output,
+        "{padding}last_error_code: {}",
+        last_error_code.unwrap_or("null")
+    )
+    .ok();
+    writeln!(
+        output,
+        "{padding}learning_subject_count: {learning_subject_count}"
+    )
+    .ok();
+    writeln!(
+        output,
+        "{padding}elevated_metric_count: {elevated_metric_count}"
+    )
+    .ok();
+    Ok(())
+}
+
+fn render_baseline_metric(
+    output: &mut String,
+    label: &str,
+    metric: &BaselineMetricReport,
+    indent: usize,
+) {
+    let padding = " ".repeat(indent);
+    writeln!(output, "{padding}{label}:").ok();
+    writeln!(output, "{padding}  current: {}", option_number(metric.current)).ok();
+    writeln!(output, "{padding}  median: {}", option_number(metric.median)).ok();
+    writeln!(output, "{padding}  mad: {}", option_number(metric.mad)).ok();
+    writeln!(
+        output,
+        "{padding}  threshold: {}",
+        option_number(metric.threshold)
+    )
+    .ok();
+    writeln!(
+        output,
+        "{padding}  ratio_milli: {}",
+        option_number(metric.ratio_milli)
+    )
+    .ok();
+    writeln!(
+        output,
+        "{padding}  elevated: {}",
+        metric.elevated.map_or("null", |value| if value { "true" } else { "false" })
+    )
+    .ok();
+}
+
+fn render_serialized_value<T: Serialize>(
+    output: &mut String,
+    value: &T,
+    indent: usize,
+) -> Result<(), serde_json::Error> {
+    let value = serde_json::to_value(value)?;
+    write_value(&value, indent, output);
+    Ok(())
 }
 
 fn render_cumulative_hook(
