@@ -275,7 +275,7 @@ impl DetectionReport {
                 ));
             }
         } else {
-            let mut previous = None;
+            let mut previous: Option<u64> = None;
             for transition in &self.transitions {
                 if transition.sequence == 0
                     || previous.is_some_and(|sequence| {
