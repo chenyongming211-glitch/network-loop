@@ -2,7 +2,8 @@ use l2_loop_common::{CounterValue, InterfaceConfig, StatsKey};
 use thiserror::Error;
 
 use crate::{
-    LoadedBpfObject, MapPublisher, PortError, SafeTcPort,
+    LoadedBpfObject, MapPublisher, ObservationReadPurpose, ObservationReader, PortError,
+    RawObservation, SafeTcPort,
     linux::{observation::ObservationIo, tc::LoadedTc},
     ownership::{OwnedMapPin, OwnedTc, OwnershipRecord, TcHook},
 };
@@ -16,6 +17,7 @@ pub enum AcceptanceFault {
     TcAttach,
     MapInitialize,
     ObservationMapRead,
+    RateSamplingMapRead,
 }
 
 impl AcceptanceFault {
@@ -25,8 +27,41 @@ impl AcceptanceFault {
             Some("tc-attach") => Ok(Self::TcAttach),
             Some("map-initialize") => Ok(Self::MapInitialize),
             Some("observation-map-read") => Ok(Self::ObservationMapRead),
+            Some("rate-sampling-map-read") => Ok(Self::RateSamplingMapRead),
             Some(_) => Err(AcceptanceFaultError),
         }
+    }
+}
+
+pub struct FaultInjectingObservationReader<R> {
+    inner: R,
+    fault: AcceptanceFault,
+}
+
+impl<R> FaultInjectingObservationReader<R> {
+    pub const fn new(inner: R, fault: AcceptanceFault) -> Self {
+        Self { inner, fault }
+    }
+}
+
+impl<R> ObservationReader for FaultInjectingObservationReader<R>
+where
+    R: ObservationReader,
+{
+    fn read_exact(
+        &mut self,
+        ownership: &OwnershipRecord,
+        purpose: ObservationReadPurpose,
+    ) -> Result<RawObservation, PortError> {
+        if self.fault == AcceptanceFault::RateSamplingMapRead
+            && purpose == ObservationReadPurpose::BackgroundSample
+        {
+            return Err(PortError::coded_adapter(
+                "OBS_MAP_UNAVAILABLE",
+                "authorized isolated rate sampling map read failure",
+            ));
+        }
+        self.inner.read_exact(ownership, purpose)
     }
 }
 

@@ -9,7 +9,7 @@ use l2_loop_agent::{
     linux::{
         acceptance_fault::{
             ACCEPTANCE_FAULT_ENV, AcceptanceFault, FaultInjectingMaps, FaultInjectingObservation,
-            FaultInjectingTc,
+            FaultInjectingObservationReader, FaultInjectingTc,
         },
         bpf_object::AyaObjectRuntime,
         inspector::SystemLinuxInspector,
@@ -74,10 +74,13 @@ async fn run() -> Result<(), DaemonError> {
         PreflightService::new(SystemLinuxInspector::system()),
         TransactionIsolatedControl::new(
             transaction,
-            LinuxObservationReader::new(FaultInjectingObservation::new(
-                AyaObservationIo::new(),
+            FaultInjectingObservationReader::new(
+                LinuxObservationReader::new(FaultInjectingObservation::new(
+                    AyaObservationIo::new(),
+                    acceptance_fault,
+                )),
                 acceptance_fault,
-            )),
+            ),
         ),
     );
     let (shutdown, shutdown_receiver) = watch::channel(false);

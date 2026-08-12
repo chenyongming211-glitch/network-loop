@@ -171,7 +171,18 @@ foreach ($Required in @(
     'elapsed_ns',
     'warming_up',
     'ready',
-    'stale'
+    'stale',
+    'second_journal="/run/l2-loop/tests/$second_run.json"',
+    'second_pins="/sys/fs/bpf/l2-loop/test/$second_run"',
+    "'verify-second-hooks'",
+    '[System.Diagnostics.Stopwatch]::StartNew()',
+    'for ($RateIteration = 1; $RateIteration -le 65; $RateIteration++)',
+    'Start-Sleep -Milliseconds $RemainingMilliseconds',
+    '[uint64](65 * 9)',
+    'Start-Sleep -Seconds 4',
+    "-ExpectedStates @('stale', 'stale', 'stale')",
+    "'isolated-attach', '--interface', `$Names.HostVeth, '--run-id', `$SecondRunId",
+    "'isolated-detach', '--run-id', `$SecondRunId"
 )) {
     Assert-True ($Harness.Contains($Required)) "harness is missing bounded rate marker: $Required"
 }

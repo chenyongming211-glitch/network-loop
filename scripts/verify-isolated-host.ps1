@@ -10,7 +10,7 @@ param(
     [ValidateRange(30, 600)]
     [int] $TimeoutSeconds = 180,
 
-    [ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange')]
+    [ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset')]
     [string] $Scenario = 'Success'
 )
 
@@ -173,8 +173,13 @@ peer=$5
 root=$6
 count=$7
 scenario=$8
+second_run=$9
+RATE_SAMPLE_ITERATIONS=65
+RATE_FRAMES_PER_DIRECTION=9
 journal="/run/l2-loop/tests/$run.json"
 pins="/sys/fs/bpf/l2-loop/test/$run"
+second_journal="/run/l2-loop/tests/$second_run.json"
+second_pins="/sys/fs/bpf/l2-loop/test/$second_run"
 saved_journal="$root/ownership.original.json"
 changed_journal="$root/ownership.changed.json"
 
@@ -187,8 +192,11 @@ assert_generated() {
     test "$root" = "/run/l2-loop/accept/$run" || fail "run root is not generated"
 }
 assert_generated
+case "$second_run" in *[!0-9a-f]*|'') fail "second run ID is not generated" ;; esac
+test "${#second_run}" -eq 32 || fail "second run ID length is invalid"
+test "$second_run" != "$run" || fail "second run ID did not change"
 case "$scenario" in
-    Success|TcAttachFailure|MapInitializeFailure|DaemonTermination|IdentityChange|TrafficInterruption|PassiveObservation|ObservationMapFailure|ObservationIdentityChange) ;;
+    Success|TcAttachFailure|MapInitializeFailure|DaemonTermination|IdentityChange|TrafficInterruption|PassiveObservation|ObservationMapFailure|ObservationIdentityChange|RateWindows|RateSamplingFailure|RateGenerationReset) ;;
     *) fail "unknown isolated acceptance scenario" ;;
 esac
 
@@ -263,9 +271,12 @@ cleanup_state() {
 
     for name in IFACE_CONFIG HOOK_STATS FINGERPRINTS PROBE_REGISTRY PROBE_STATS RATE_POLICY; do
         cleanup_file "$pins/$name"
+        cleanup_file "$second_pins/$name"
     done
     cleanup_dir "$pins"
+    cleanup_dir "$second_pins"
     cleanup_file "$journal"
+    cleanup_file "$second_journal"
     cleanup_file "$root/counters.json"
     cleanup_file "$saved_journal"
     cleanup_file "$changed_journal"
@@ -298,9 +309,11 @@ case "$phase" in
         test ! -e /sys/fs/bpf/l2-loop && test ! -L /sys/fs/bpf/l2-loop || fail "agent pin root is already occupied"
         test ! -e "$root" && test ! -L "$root" || fail "run root already exists"
         test ! -e "$journal" && test ! -L "$journal" || fail "run journal already exists"
+        test ! -e "$second_journal" && test ! -L "$second_journal" || fail "second run journal already exists"
         test ! -e "$saved_journal" && test ! -L "$saved_journal" || fail "saved journal already exists"
         test ! -e "$changed_journal" && test ! -L "$changed_journal" || fail "changed journal already exists"
         test ! -e "$pins" && test ! -L "$pins" || fail "run pin root already exists"
+        test ! -e "$second_pins" && test ! -L "$second_pins" || fail "second run pin root already exists"
         ! ip link show dev "$host" >/dev/null 2>&1 || fail "generated host veth already exists"
         ! ip netns list | awk '{print $1}' | grep -Fqx -- "$ns" || fail "generated namespace already exists"
         test ! -e /run/l2-loop/agent.sock && test ! -L /run/l2-loop/agent.sock || fail "daemon socket is already occupied"
@@ -342,6 +355,9 @@ case "$phase" in
             ObservationMapFailure)
                 env L2_LOOP_ACCEPTANCE_FAULT=observation-map-read ./l2-loopd >daemon.log 2>&1 &
                 ;;
+            RateSamplingFailure)
+                env L2_LOOP_ACCEPTANCE_FAULT=rate-sampling-map-read ./l2-loopd >daemon.log 2>&1 &
+                ;;
             *)
                 ./l2-loopd >daemon.log 2>&1 &
                 ;;
@@ -356,6 +372,9 @@ case "$phase" in
         ;;
     verify-hooks)
         "$root/l2-loop-hostcheck" 'verify-owned' --journal "$journal" --interface "$host"
+        ;;
+    verify-second-hooks)
+        "$root/l2-loop-hostcheck" 'verify-owned' --journal "$second_journal" --interface "$host"
         ;;
     links-up)
         ip link set dev "$host" up
@@ -661,7 +680,7 @@ function Invoke-IsolatedRemotePhase {
 
     $Arguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
         'sh', '-s', '--', $Phase, $Names.RunId, $Names.Namespace, $Names.HostVeth,
-        $Names.PeerVeth, $Names.RemoteRunRoot, [string]$FrameCount, $Scenario
+        $Names.PeerVeth, $Names.RemoteRunRoot, [string]$FrameCount, $Scenario, $SecondRunId
     )
     Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $Arguments -StandardInput $RemoteProgram -TimeoutSeconds $TimeoutSeconds -AllowFailure:$AllowFailure
 }
@@ -844,19 +863,164 @@ function Get-CheckedCounterDelta {
 function Assert-ObservationIdentity {
     param(
         [Parameter(Mandatory)] [psobject] $Snapshot,
-        [Parameter(Mandatory)] [psobject] $Names
+        [Parameter(Mandatory)] [psobject] $Names,
+        [ValidateSet('healthy', 'degraded')] [string] $ExpectedHealth = 'healthy'
     )
 
-    if ($Snapshot.schema_version -ne 1 -or
+    if ($Snapshot.schema_version -ne 2 -or
         $Snapshot.interface -cne $Names.HostVeth -or
         [uint64]$Snapshot.generation -eq 0 -or
         [uint64]$Snapshot.captured_at_unix_ms -eq 0 -or
-        $Snapshot.health -cne 'healthy' -or
+        $Snapshot.health -cne $ExpectedHealth -or
         @($Snapshot.hooks).Count -ne 2) {
         throw 'observation snapshot identity is invalid'
     }
     $null = Get-ObservationHook -Snapshot $Snapshot -Role 'external_xdp_ingress'
     $null = Get-ObservationHook -Snapshot $Snapshot -Role 'physical_tc_egress'
+}
+
+function Assert-CountersMonotonic {
+    param(
+        [Parameter(Mandatory)] [psobject] $Before,
+        [Parameter(Mandatory)] [psobject] $After,
+        [Parameter(Mandatory)] [string] $Evidence
+    )
+
+    $null = Get-CheckedCounterDelta -Before $Before.packets -After $After.packets -Evidence "$Evidence packets"
+    $null = Get-CheckedCounterDelta -Before $Before.bytes -After $After.bytes -Evidence "$Evidence bytes"
+}
+
+function Assert-CumulativeObservationMonotonic {
+    param(
+        [Parameter(Mandatory)] [psobject] $Before,
+        [Parameter(Mandatory)] [psobject] $After
+    )
+
+    foreach ($Role in @('external_xdp_ingress', 'physical_tc_egress')) {
+        $BeforeHook = Get-ObservationHook -Snapshot $Before -Role $Role
+        $AfterHook = Get-ObservationHook -Snapshot $After -Role $Role
+        Assert-CountersMonotonic -Before $BeforeHook.total -After $AfterHook.total -Evidence "$Role total"
+        foreach ($Class in @('l2_broadcast', 'ipv4_multicast', 'ipv6_multicast', 'other_l2_multicast', 'link_local_control', 'unicast_or_unclassified')) {
+            Assert-CountersMonotonic -Before (Get-ObservationClass -Hook $BeforeHook -Class $Class) -After (Get-ObservationClass -Hook $AfterHook -Class $Class) -Evidence "$Role $Class"
+        }
+        Assert-CountersMonotonic -Before $BeforeHook.parse_errors -After $AfterHook.parse_errors -Evidence "$Role parse errors"
+    }
+}
+
+function Assert-RateCounterEvidence {
+    param(
+        [Parameter(Mandatory)] [psobject] $Counters,
+        [Parameter(Mandatory)] [uint64] $ElapsedNs,
+        [Parameter(Mandatory)] [string] $Evidence,
+        [switch] $RequireTraffic,
+        [switch] $RequireNonZeroRate
+    )
+
+    if ($ElapsedNs -eq 0) { throw "zero elapsed time for $Evidence" }
+    $ExpectedPacketsPerSecond = [uint64][decimal]::Truncate(
+        ([decimal][uint64]$Counters.packet_delta * [decimal]1000000000) / [decimal]$ElapsedNs
+    )
+    $ExpectedBytesPerSecond = [uint64][decimal]::Truncate(
+        ([decimal][uint64]$Counters.byte_delta * [decimal]1000000000) / [decimal]$ElapsedNs
+    )
+    if ([uint64]$Counters.packets_per_second -ne $ExpectedPacketsPerSecond -or
+        [uint64]$Counters.bytes_per_second -ne $ExpectedBytesPerSecond) {
+        throw "rate arithmetic is not externally recomputable for $Evidence"
+    }
+    if ($RequireTraffic -and
+        ([uint64]$Counters.packet_delta -eq 0 -or [uint64]$Counters.byte_delta -eq 0)) {
+        throw "expected bounded traffic is absent from $Evidence"
+    }
+    if ($RequireNonZeroRate -and
+        ([uint64]$Counters.packets_per_second -eq 0 -or [uint64]$Counters.bytes_per_second -eq 0)) {
+        throw "expected bounded traffic rate is absent from $Evidence"
+    }
+}
+
+function Assert-DetailedRateWindows {
+    param(
+        [Parameter(Mandatory)] [psobject] $Snapshot,
+        [Parameter(Mandatory)] [string[]] $ExpectedStates,
+        [switch] $RequireTraffic
+    )
+
+    $ExpectedWindowMs = @(1000, 10000, 60000)
+    $ExpectedRoles = @('external_xdp_ingress', 'physical_tc_egress')
+    $ExpectedClasses = @('l2_broadcast', 'ipv4_multicast', 'ipv6_multicast', 'other_l2_multicast', 'link_local_control', 'unicast_or_unclassified')
+    $Windows = @($Snapshot.rate_windows)
+    if ($Windows.Count -ne 3 -or $ExpectedStates.Count -ne 3) {
+        throw 'detailed rate window count changed'
+    }
+    for ($Index = 0; $Index -lt 3; $Index++) {
+        $Window = $Windows[$Index]
+        if ([uint64]$Window.window_ms -ne [uint64]$ExpectedWindowMs[$Index] -or $Window.state -cne $ExpectedStates[$Index]) {
+            throw "unexpected detailed rate window state at index $Index"
+        }
+        if ($Window.state -cne 'ready') {
+            if ($null -ne $Window.elapsed_ns -or $null -ne $Window.start_unix_ms -or
+                $null -ne $Window.end_unix_ms -or $null -ne $Window.hooks) {
+                throw "non-ready detailed window exposed rate evidence at index $Index"
+            }
+            continue
+        }
+        $ElapsedNs = [uint64]$Window.elapsed_ns
+        if ($ElapsedNs -lt ([uint64]$Window.window_ms * [uint64]1000000) -or
+            [uint64]$Window.start_unix_ms -eq 0 -or [uint64]$Window.end_unix_ms -lt [uint64]$Window.start_unix_ms) {
+            throw "ready detailed window has invalid endpoints at index $Index"
+        }
+        $Hooks = @($Window.hooks)
+        if ($Hooks.Count -ne 2) { throw 'ready detailed window hook count changed' }
+        for ($HookIndex = 0; $HookIndex -lt 2; $HookIndex++) {
+            $Hook = $Hooks[$HookIndex]
+            if ($Hook.role -cne $ExpectedRoles[$HookIndex]) { throw 'ready detailed window hook order changed' }
+            Assert-RateCounterEvidence -Counters $Hook.total -ElapsedNs $ElapsedNs -Evidence "$($Hook.role) total" -RequireTraffic:$RequireTraffic -RequireNonZeroRate:$RequireTraffic
+            $Classes = @($Hook.classes)
+            if ($Classes.Count -ne 6) { throw 'ready detailed window class count changed' }
+            for ($ClassIndex = 0; $ClassIndex -lt 6; $ClassIndex++) {
+                if ($Classes[$ClassIndex].traffic_class -cne $ExpectedClasses[$ClassIndex]) { throw 'ready detailed window class order changed' }
+                Assert-RateCounterEvidence -Counters $Classes[$ClassIndex].counters -ElapsedNs $ElapsedNs -Evidence "$($Hook.role) $($Classes[$ClassIndex].traffic_class)" -RequireTraffic:$RequireTraffic
+            }
+            Assert-RateCounterEvidence -Counters $Hook.parse_errors -ElapsedNs $ElapsedNs -Evidence "$($Hook.role) parse errors"
+        }
+    }
+}
+
+function Get-OnlyStatusInterface {
+    param([Parameter(Mandatory)] [psobject] $Status)
+
+    $Interfaces = @($Status.interfaces)
+    if ($Interfaces.Count -ne 1) { throw 'status did not return exactly one active interface' }
+    $Interfaces[0]
+}
+
+function Assert-StatusRateWindows {
+    param(
+        [Parameter(Mandatory)] [psobject] $Status,
+        [Parameter(Mandatory)] [string[]] $ExpectedStates,
+        [switch] $RequireTraffic
+    )
+
+    $Interface = Get-OnlyStatusInterface -Status $Status
+    $ExpectedWindowMs = @(1000, 10000, 60000)
+    $Windows = @($Interface.rate_windows)
+    if ($Windows.Count -ne 3 -or $ExpectedStates.Count -ne 3) { throw 'status rate window count changed' }
+    for ($Index = 0; $Index -lt 3; $Index++) {
+        $Window = $Windows[$Index]
+        if ([uint64]$Window.window_ms -ne [uint64]$ExpectedWindowMs[$Index] -or $Window.state -cne $ExpectedStates[$Index]) {
+            throw "unexpected status rate window state at index $Index"
+        }
+        if ($Window.state -cne 'ready') {
+            if ($null -ne $Window.elapsed_ns -or $null -ne $Window.start_unix_ms -or $null -ne $Window.end_unix_ms -or
+                $null -ne $Window.xdp_ingress -or $null -ne $Window.tc_egress) {
+                throw "non-ready status window exposed rate evidence at index $Index"
+            }
+            continue
+        }
+        $ElapsedNs = [uint64]$Window.elapsed_ns
+        if ($ElapsedNs -lt ([uint64]$Window.window_ms * [uint64]1000000)) { throw 'status window endpoint is shorter than its duration' }
+        Assert-RateCounterEvidence -Counters $Window.xdp_ingress -ElapsedNs $ElapsedNs -Evidence 'status XDP ingress' -RequireTraffic:$RequireTraffic -RequireNonZeroRate:$RequireTraffic
+        Assert-RateCounterEvidence -Counters $Window.tc_egress -ElapsedNs $ElapsedNs -Evidence 'status TC egress' -RequireTraffic:$RequireTraffic -RequireNonZeroRate:$RequireTraffic
+    }
 }
 
 function Assert-VlanProbeDelta {
@@ -963,6 +1127,7 @@ Assert-NoSymlink -Item $KeyItem
 
 $ArtifactRoot = Get-ExactGreenBundle -Commit $Commit
 $RunId = [Guid]::NewGuid().ToString('N')
+$SecondRunId = [Guid]::NewGuid().ToString('N')
 $Names = New-IsolatedNames -RunId $RunId
 Assert-GeneratedTarget -Names $Names
 
@@ -1126,6 +1291,127 @@ try {
 
             $Status = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
             Assert-StatusMatchesObservation -Status $Status -Snapshot $AfterMatrix
+        }
+        'RateWindows' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $InitialRateSnapshot = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-ObservationIdentity -Snapshot $InitialRateSnapshot -Names $Names
+            Assert-DetailedRateWindows -Snapshot $InitialRateSnapshot -ExpectedStates @('warming_up', 'warming_up', 'warming_up')
+            $InitialRateStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-StatusMatchesObservation -Status $InitialRateStatus -Snapshot $InitialRateSnapshot
+            Assert-StatusRateWindows -Status $InitialRateStatus -ExpectedStates @('warming_up', 'warming_up', 'warming_up')
+
+            $PreviousRateSnapshot = $InitialRateSnapshot
+            $RateTimer = [System.Diagnostics.Stopwatch]::StartNew()
+            for ($RateIteration = 1; $RateIteration -le 65; $RateIteration++) {
+                $null = Invoke-IsolatedMutation -Phase 'traffic-matrix' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount 1 -TimeoutSeconds $TimeoutSeconds
+                if ($RateIteration -in @(3, 12, 63)) {
+                    $ExpectedStates = switch ($RateIteration) {
+                        3 { @('ready', 'warming_up', 'warming_up') }
+                        12 { @('ready', 'ready', 'warming_up') }
+                        63 { @('ready', 'ready', 'ready') }
+                    }
+                    $CurrentRateSnapshot = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+                    Assert-ObservationIdentity -Snapshot $CurrentRateSnapshot -Names $Names
+                    Assert-CumulativeObservationMonotonic -Before $PreviousRateSnapshot -After $CurrentRateSnapshot
+                    Assert-DetailedRateWindows -Snapshot $CurrentRateSnapshot -ExpectedStates $ExpectedStates -RequireTraffic
+                    $CurrentRateStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+                    Assert-StatusMatchesObservation -Status $CurrentRateStatus -Snapshot $CurrentRateSnapshot
+                    Assert-StatusRateWindows -Status $CurrentRateStatus -ExpectedStates $ExpectedStates -RequireTraffic
+                    $PreviousRateSnapshot = $CurrentRateSnapshot
+                }
+                $RemainingMilliseconds = ([int64]$RateIteration * 1000) - $RateTimer.ElapsedMilliseconds
+                if ($RemainingMilliseconds -gt 0) { Start-Sleep -Milliseconds $RemainingMilliseconds }
+            }
+            $RateTimer.Stop()
+
+            $FinalRateSnapshot = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-ObservationIdentity -Snapshot $FinalRateSnapshot -Names $Names
+            Assert-CumulativeObservationMonotonic -Before $PreviousRateSnapshot -After $FinalRateSnapshot
+            Assert-DetailedRateWindows -Snapshot $FinalRateSnapshot -ExpectedStates @('ready', 'ready', 'ready') -RequireTraffic
+            foreach ($Role in @('external_xdp_ingress', 'physical_tc_egress')) {
+                $InitialHook = Get-ObservationHook -Snapshot $InitialRateSnapshot -Role $Role
+                $FinalHook = Get-ObservationHook -Snapshot $FinalRateSnapshot -Role $Role
+                if ((Get-CheckedCounterDelta -Before $InitialHook.total.packets -After $FinalHook.total.packets -Evidence "$Role fixed rate traffic") -ne [uint64](65 * 9)) {
+                    throw "fixed 1,170-frame rate matrix total changed for $Role"
+                }
+            }
+        }
+        'RateSamplingFailure' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedMutation -Phase 'traffic-matrix' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount 1 -TimeoutSeconds $TimeoutSeconds
+            $BeforeSamplingFailure = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Start-Sleep -Seconds 4
+            $null = Invoke-IsolatedMutation -Phase 'traffic-matrix' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount 1 -TimeoutSeconds $TimeoutSeconds
+            $AfterSamplingFailure = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-ObservationIdentity -Snapshot $AfterSamplingFailure -Names $Names -ExpectedHealth 'degraded'
+            Assert-CumulativeObservationMonotonic -Before $BeforeSamplingFailure -After $AfterSamplingFailure
+            Assert-DetailedRateWindows -Snapshot $AfterSamplingFailure -ExpectedStates @('stale', 'stale', 'stale')
+            if ($AfterSamplingFailure.health -cne 'degraded' -or
+                $null -ne $AfterSamplingFailure.sampling.latest_success_at_unix_ms -or
+                $AfterSamplingFailure.sampling.last_error_code -cne 'OBS_MAP_UNAVAILABLE' -or
+                [uint32]$AfterSamplingFailure.sampling.consecutive_failures -eq 0 -or
+                [uint32]$AfterSamplingFailure.sampling.consecutive_failures -gt 10 -or
+                $AfterSamplingFailure.sampling.sampling_paused) {
+                throw 'background-only sampling failure diagnostics are invalid'
+            }
+            $FailureStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-StatusMatchesObservation -Status $FailureStatus -Snapshot $AfterSamplingFailure
+            Assert-StatusRateWindows -Status $FailureStatus -ExpectedStates @('stale', 'stale', 'stale')
+            $FailureInterface = Get-OnlyStatusInterface -Status $FailureStatus
+            if ($FailureInterface.health -cne 'degraded' -or $FailureInterface.sampling.last_error_code -cne 'OBS_MAP_UNAVAILABLE') {
+                throw 'status did not preserve bounded sampling failure diagnostics'
+            }
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+        }
+        'RateGenerationReset' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $FirstGeneration = $null
+            for ($Attempt = 1; $Attempt -le 5; $Attempt++) {
+                $null = Invoke-IsolatedMutation -Phase 'traffic-matrix' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount 1 -TimeoutSeconds $TimeoutSeconds
+                Start-Sleep -Seconds 1
+                $FirstGeneration = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+                if (@($FirstGeneration.rate_windows)[0].state -ceq 'ready') { break }
+            }
+            Assert-DetailedRateWindows -Snapshot $FirstGeneration -ExpectedStates @('ready', 'warming_up', 'warming_up') -RequireTraffic
+            $FirstGenerationValue = [uint64]$FirstGeneration.generation
+
+            $FirstDetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+                "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-detach', '--run-id', $RunId
+            )
+            $FirstDetach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $FirstDetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+            if ($FirstDetach.Stdout.Trim() -cne 'accepted') { throw 'first generation detach was not acknowledged' }
+            Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+
+            $SecondAttachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+                "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-attach', '--interface', $Names.HostVeth, '--run-id', $SecondRunId
+            )
+            $SecondAttach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $SecondAttachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+            if ($SecondAttach.Stdout.Trim() -cne 'accepted') { throw 'second generation attach was not acknowledged' }
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-second-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+
+            $SecondGenerationInitial = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-ObservationIdentity -Snapshot $SecondGenerationInitial -Names $Names
+            if ([uint64]$SecondGenerationInitial.generation -eq $FirstGenerationValue) { throw 'interface generation did not change after exact reattach' }
+            Assert-DetailedRateWindows -Snapshot $SecondGenerationInitial -ExpectedStates @('warming_up', 'warming_up', 'warming_up')
+
+            $SecondGenerationReady = $null
+            for ($Attempt = 1; $Attempt -le 5; $Attempt++) {
+                $null = Invoke-IsolatedMutation -Phase 'traffic-matrix' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount 1 -TimeoutSeconds $TimeoutSeconds
+                Start-Sleep -Seconds 1
+                $SecondGenerationReady = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+                if (@($SecondGenerationReady.rate_windows)[0].state -ceq 'ready') { break }
+            }
+            if ([uint64]$SecondGenerationReady.generation -ne [uint64]$SecondGenerationInitial.generation) { throw 'second generation identity changed while warming' }
+            Assert-DetailedRateWindows -Snapshot $SecondGenerationReady -ExpectedStates @('ready', 'warming_up', 'warming_up') -RequireTraffic
+
+            $SecondDetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+                "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-detach', '--run-id', $SecondRunId
+            )
+            $SecondDetach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $SecondDetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+            if ($SecondDetach.Stdout.Trim() -cne 'accepted') { throw 'second generation detach was not acknowledged' }
+            Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            $Detached = $true
         }
         'ObservationMapFailure' {
             $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
