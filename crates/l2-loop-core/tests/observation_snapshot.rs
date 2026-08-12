@@ -162,17 +162,18 @@ fn fixed_rate_contract_uses_only_the_approved_bounds() {
     assert_eq!(RATE_HISTORY_CAPACITY, 64);
     assert_eq!(RATE_SAMPLE_PERIOD_NS, 1_000_000_000);
     assert_eq!(RATE_STALE_AFTER_NS, 3_000_000_000);
-    assert_eq!(OBSERVATION_SCHEMA_VERSION, 3);
+    assert_eq!(OBSERVATION_SCHEMA_VERSION, 4);
 }
 
 #[test]
-fn schema_three_has_fixed_unambiguous_observation_fields() {
+fn schema_four_has_fixed_unambiguous_observation_fields() {
     let value = serde_json::to_value(schema_three_snapshot()).unwrap();
     let object = value.as_object().unwrap();
     let actual = object.keys().map(String::as_str).collect::<BTreeSet<_>>();
     let expected = [
         "captured_at_unix_ms",
         "baseline",
+        "fingerprints",
         "generation",
         "health",
         "hooks",
@@ -187,7 +188,8 @@ fn schema_three_has_fixed_unambiguous_observation_fields() {
     .collect::<BTreeSet<_>>();
 
     assert_eq!(actual, expected);
-    assert_eq!(value["schema_version"], 3);
+    assert_eq!(value["schema_version"], 4);
+    assert_eq!(value["fingerprints"]["state"], "empty");
     assert_eq!(value["rate_windows"][0]["window_ms"], 1_000);
     assert_eq!(value["rate_windows"][0]["state"], "ready");
     assert_eq!(value["rate_windows"][0]["elapsed_ns"], 1_000_000_000_u64);
@@ -273,7 +275,7 @@ fn snapshot_requires_exact_roles_classes_and_non_zero_identity() {
     let snapshot = fixture_snapshot();
 
     assert_eq!(snapshot.schema_version, OBSERVATION_SCHEMA_VERSION);
-    assert_eq!(snapshot.schema_version, 3);
+    assert_eq!(snapshot.schema_version, 4);
     assert_eq!(snapshot.ifindex, 41);
     assert_eq!(snapshot.generation, 7);
     assert_eq!(snapshot.health, ObservationHealth::Healthy);
@@ -384,6 +386,7 @@ fn json_contains_only_the_approved_observation_fields() {
         "generation",
         "captured_at_unix_ms",
         "baseline",
+        "fingerprints",
         "vlan_visibility",
         "health",
         "hooks",
