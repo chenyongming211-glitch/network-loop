@@ -1,6 +1,4 @@
-use l2_loop_common::{
-    FingerprintKey, FingerprintValue, NO_VLAN, direction,
-};
+use l2_loop_common::{FingerprintKey, FingerprintValue, NO_VLAN, direction};
 use l2_loop_core::{
     DomainError, FINGERPRINT_CAPACITY, FINGERPRINT_SAMPLE_SHIFT, FingerprintEvidence,
     FingerprintReport, FingerprintState, FingerprintSummary,
