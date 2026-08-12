@@ -129,8 +129,8 @@ fn passive_fingerprints_are_fixed_bounded_and_fail_open() {
 #[test]
 fn fingerprint_path_does_not_round_trip_packet_bytes_through_a_dynamic_stack_slice() {
     assert!(PROGRAM_SOURCE.contains("packet_prefix::<FINGERPRINT_PREFIX_LEN>"));
-    assert!(PROGRAM_SOURCE.contains("fingerprint_hash_with_length(frame_len, frame)"));
-    assert!(PROGRAM_SOURCE.contains("parse_fingerprint_metadata(frame)"));
+    assert!(PROGRAM_SOURCE.contains("fixed_fingerprint_hash(frame_len, frame)"));
+    assert!(PROGRAM_SOURCE.contains("fixed_fingerprint_metadata(frame)"));
     assert!(!PROGRAM_SOURCE.contains("let mut prefix = [0_u8; FINGERPRINT_PREFIX_LEN]"));
     assert!(!PROGRAM_SOURCE.contains("&prefix[..prefix_len]"));
     assert!(!PROGRAM_SOURCE.contains("packet_byte_at"));
