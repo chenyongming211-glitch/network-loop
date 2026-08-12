@@ -61,9 +61,11 @@ fn every_request_variant_round_trips() {
         },
         AgentCommand::EvidenceList {
             interface: Some(interface),
+            limit: 50,
+            cursor: None,
         },
         AgentCommand::EvidenceShow {
-            evidence_id: "evidence-1".into(),
+            event_id: "01010101010101010101010101010101".parse().unwrap(),
         },
     ];
 

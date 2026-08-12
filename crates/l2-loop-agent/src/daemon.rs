@@ -18,9 +18,10 @@ use tokio::{
 };
 
 use crate::{
-    AttachmentSession, IncidentOutputHandle, IsolatedAttachmentDriver, OBS_OWNERSHIP_MISMATCH,
-    OBS_SESSION_NOT_FOUND, ObservationReader, PlatformInspector, PortError, PreflightService,
-    SamplingService, SamplingTickOutcome, SystemClock,
+    AttachmentSession, EvidenceStore, EvidenceStoreError, IncidentOutputHandle,
+    IsolatedAttachmentDriver, OBS_OWNERSHIP_MISMATCH, OBS_SESSION_NOT_FOUND, ObservationReader,
+    PlatformInspector, PortError, PreflightService, SamplingService, SamplingTickOutcome,
+    SharedEvidenceStore, SystemClock,
     linux::acceptance_fault::ACCEPTANCE_DIAGNOSTICS_ENV,
     ownership::{FileOwnershipRepository, OwnershipRecord, RunId},
     protocol::{
@@ -32,17 +33,22 @@ use crate::{
     transport::{TransportError, read_frame, write_frame},
 };
 use l2_loop_core::{
-    AgentCommand, AgentResult, InterfaceName, InterfaceStatus, ObservationSnapshot,
+    AgentCommand, AgentResult, EvidenceCursor, EvidenceDetailV1, EvidenceListPageV1,
+    EvidenceListQuery, EventId, InterfaceName, InterfaceStatus, ObservationSnapshot,
     PF_OWNERSHIP_MISMATCH,
 };
 
 pub const DEFAULT_SOCKET_PATH: &str = "/run/l2-loop/agent.sock";
 pub const MAX_ACTIVE_HANDLERS: usize = 16;
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+pub const EVIDENCE_INVALID_REQUEST: &str = "EVIDENCE_INVALID_REQUEST";
+pub const EVIDENCE_NOT_FOUND: &str = "EVIDENCE_NOT_FOUND";
+pub const EVIDENCE_UNAVAILABLE: &str = "EVIDENCE_UNAVAILABLE";
 
 pub struct DaemonDispatcher<P> {
     preflight: Arc<Mutex<PreflightService<P>>>,
     isolated: Option<Arc<Mutex<Box<dyn IsolatedControl>>>>,
+    evidence: Option<Arc<Mutex<Box<dyn EvidenceControl>>>>,
 }
 
 impl<P> Clone for DaemonDispatcher<P> {
@@ -50,6 +56,7 @@ impl<P> Clone for DaemonDispatcher<P> {
         Self {
             preflight: self.preflight.clone(),
             isolated: self.isolated.clone(),
+            evidence: self.evidence.clone(),
         }
     }
 }
@@ -62,6 +69,7 @@ where
         Self {
             preflight: Arc::new(Mutex::new(preflight)),
             isolated: None,
+            evidence: None,
         }
     }
 
@@ -72,6 +80,19 @@ where
         Self {
             preflight: Arc::new(Mutex::new(preflight)),
             isolated: Some(Arc::new(Mutex::new(Box::new(isolated)))),
+            evidence: None,
+        }
+    }
+
+    pub fn with_controls<C, E>(preflight: PreflightService<P>, isolated: C, evidence: E) -> Self
+    where
+        C: IsolatedControl + 'static,
+        E: EvidenceControl + 'static,
+    {
+        Self {
+            preflight: Arc::new(Mutex::new(preflight)),
+            isolated: Some(Arc::new(Mutex::new(Box::new(isolated)))),
+            evidence: Some(Arc::new(Mutex::new(Box::new(evidence)))),
         }
     }
 
@@ -167,6 +188,32 @@ where
                 .await;
                 observation_response(controlled, |interfaces| AgentResult::Status { interfaces })
             }
+            AgentCommand::EvidenceList {
+                interface,
+                limit,
+                cursor,
+            } => {
+                let Some(evidence) = self.evidence.clone() else {
+                    return ControlResponse::error(EVIDENCE_UNAVAILABLE, "evidence is unavailable");
+                };
+                let controlled = tokio::task::spawn_blocking(move || {
+                    let evidence = evidence.lock().map_err(|_| EvidenceControlError::Unavailable)?;
+                    evidence.list(interface, limit, cursor.as_deref())
+                })
+                .await;
+                evidence_response(controlled, |page| AgentResult::EvidenceList { page })
+            }
+            AgentCommand::EvidenceShow { event_id } => {
+                let Some(evidence) = self.evidence.clone() else {
+                    return ControlResponse::error(EVIDENCE_UNAVAILABLE, "evidence is unavailable");
+                };
+                let controlled = tokio::task::spawn_blocking(move || {
+                    let evidence = evidence.lock().map_err(|_| EvidenceControlError::Unavailable)?;
+                    evidence.show(event_id)
+                })
+                .await;
+                evidence_response(controlled, |detail| AgentResult::Evidence { detail })
+            }
             _ => {
                 ControlResponse::error(ERROR_COMMAND_NOT_IMPLEMENTED, "command is not implemented")
             }
@@ -197,6 +244,81 @@ where
         })
         .await
         .map_err(|_| DaemonError::Sampler)?
+    }
+}
+
+pub trait EvidenceControl: Send {
+    fn list(
+        &self,
+        interface: Option<InterfaceName>,
+        limit: u16,
+        cursor: Option<&str>,
+    ) -> Result<EvidenceListPageV1, EvidenceControlError>;
+
+    fn show(&self, event_id: EventId) -> Result<EvidenceDetailV1, EvidenceControlError>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvidenceControlError {
+    InvalidRequest,
+    NotFound,
+    Unavailable,
+}
+
+impl<S> EvidenceControl for SharedEvidenceStore<S>
+where
+    S: EvidenceStore + Send + 'static,
+{
+    fn list(
+        &self,
+        interface: Option<InterfaceName>,
+        limit: u16,
+        cursor: Option<&str>,
+    ) -> Result<EvidenceListPageV1, EvidenceControlError> {
+        let cursor = cursor
+            .map(|value| EvidenceCursor::parse_for(value, interface.as_ref()))
+            .transpose()
+            .map_err(|_| EvidenceControlError::InvalidRequest)?;
+        let query = EvidenceListQuery::new(interface, Some(limit), cursor)
+            .map_err(|_| EvidenceControlError::InvalidRequest)?;
+        let page = EvidenceStore::list(self, &query).map_err(map_evidence_error)?;
+        Ok(EvidenceListPageV1 {
+            items: page.items,
+            next_cursor: page.next_cursor.map(|cursor| cursor.to_string()),
+        })
+    }
+
+    fn show(&self, event_id: EventId) -> Result<EvidenceDetailV1, EvidenceControlError> {
+        EvidenceStore::get(self, event_id).map_err(map_evidence_error)
+    }
+}
+
+fn map_evidence_error(error: EvidenceStoreError) -> EvidenceControlError {
+    if error == EvidenceStoreError::NotFound {
+        EvidenceControlError::NotFound
+    } else {
+        EvidenceControlError::Unavailable
+    }
+}
+
+fn evidence_response<T, F>(
+    controlled: Result<Result<T, EvidenceControlError>, tokio::task::JoinError>,
+    success: F,
+) -> ControlResponse
+where
+    F: FnOnce(T) -> AgentResult,
+{
+    match controlled {
+        Ok(Ok(value)) => ControlResponse::success(success(value)),
+        Ok(Err(EvidenceControlError::InvalidRequest)) => {
+            ControlResponse::error(EVIDENCE_INVALID_REQUEST, "invalid bounded evidence query")
+        }
+        Ok(Err(EvidenceControlError::NotFound)) => {
+            ControlResponse::error(EVIDENCE_NOT_FOUND, "evidence event was not found")
+        }
+        Ok(Err(EvidenceControlError::Unavailable)) | Err(_) => {
+            ControlResponse::error(EVIDENCE_UNAVAILABLE, "evidence is unavailable")
+        }
     }
 }
 
@@ -552,9 +674,20 @@ impl IsolatedControl for TransactionIsolatedControl {
             return Err(IsolatedControlError::internal(OBS_SESSION_NOT_FOUND));
         }
         let ownership = self.canonical_ownership(active)?;
-        self.sampling
+        let mut statuses = self
+            .sampling
             .status(interface, Some(&active.interface), Some(&ownership))
-            .map_err(observation_control_error)
+            .map_err(observation_control_error)?;
+        let output_health = self.incident_output.as_ref().map_or_else(
+            || l2_loop_core::OutputHealth::unavailable("OUTPUT_NOT_CONFIGURED"),
+            IncidentOutputHandle::health,
+        );
+        let active_incident = self.sampling.active_incident();
+        for status in &mut statuses {
+            status.output_health = output_health.clone();
+            status.active_incident = active_incident;
+        }
+        Ok(statuses)
     }
 
     fn shutdown(&mut self) -> Result<(), IsolatedControlError> {

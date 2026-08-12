@@ -3,7 +3,7 @@ use std::{path::Path, process::ExitCode, time::Duration};
 use l2_loop_agent::{
     AttachmentTransaction, IncidentOutputBackend, IncidentOutputWorker, LinuxAlertSink,
     LinuxEvidenceStore, PreflightService, StdEvidenceIo, StoredIncidentOutputBackend,
-    SystemAlertIo,
+    SharedEvidenceStore, SystemAlertIo,
     daemon::{
         BoundedUnixServer, DEFAULT_SOCKET_PATH, DaemonDispatcher, DaemonError,
         TransactionIsolatedControl, coordinate_daemon, run_sampling_loop,
@@ -72,20 +72,27 @@ async fn run() -> Result<(), DaemonError> {
         FaultInjectingMaps::new(runtime.map_publisher(), acceptance_fault),
         FileOwnershipRepository,
     );
-    let backend: Box<dyn IncidentOutputBackend> = LinuxEvidenceStore::open(
+    let evidence_store = LinuxEvidenceStore::open(
         StdEvidenceIo,
         Path::new("/var/lib/l2-loop/evidence/v1"),
         env!("CARGO_PKG_VERSION"),
-    )
-    .map(|store| {
-        Box::new(StoredIncidentOutputBackend::new(
-            store,
-            LinuxAlertSink::new(SystemAlertIo),
-        )) as Box<dyn IncidentOutputBackend>
-    })
-    .unwrap_or_else(|_| {
-        Box::new(LinuxAlertSink::new(SystemAlertIo)) as Box<dyn IncidentOutputBackend>
-    });
+    );
+    let (backend, evidence_control) = match evidence_store {
+        Ok(store) => {
+            let shared = SharedEvidenceStore::new(store);
+            (
+                Box::new(StoredIncidentOutputBackend::new(
+                    shared.clone(),
+                    LinuxAlertSink::new(SystemAlertIo),
+                )) as Box<dyn IncidentOutputBackend>,
+                Some(shared),
+            )
+        }
+        Err(_) => (
+            Box::new(LinuxAlertSink::new(SystemAlertIo)) as Box<dyn IncidentOutputBackend>,
+            None,
+        ),
+    };
     let (incident_output, incident_worker) = IncidentOutputWorker::start(backend);
     let isolated = TransactionIsolatedControl::new(
         transaction,
@@ -98,10 +105,11 @@ async fn run() -> Result<(), DaemonError> {
         ),
     )
     .with_incident_output(incident_output);
-    let dispatcher = DaemonDispatcher::with_isolated_control(
-        PreflightService::new(SystemLinuxInspector::system()),
-        isolated,
-    );
+    let preflight = PreflightService::new(SystemLinuxInspector::system());
+    let dispatcher = match evidence_control {
+        Some(evidence) => DaemonDispatcher::with_controls(preflight, isolated, evidence),
+        None => DaemonDispatcher::with_isolated_control(preflight, isolated),
+    };
     let (shutdown, shutdown_receiver) = watch::channel(false);
     let request_dispatcher = dispatcher.clone();
     let mut server_shutdown = shutdown_receiver.clone();

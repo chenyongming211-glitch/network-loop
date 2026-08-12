@@ -314,6 +314,8 @@ fn status_from(snapshot: &ObservationSnapshot) -> InterfaceStatus {
         baseline: l2_loop_core::BaselineSummary::from_report(&snapshot.baseline),
         fingerprints: l2_loop_core::FingerprintSummary::from(&snapshot.fingerprints),
         detection: l2_loop_core::DetectionSummary::from(&snapshot.detection),
+        output_health: l2_loop_core::OutputHealth::unavailable("OUTPUT_NOT_CONFIGURED"),
+        active_incident: None,
     }
 }
 

@@ -31,6 +31,16 @@ pub trait IncidentEvidenceSink: Send + 'static {
     ) -> Result<(), IncidentOutputError>;
 }
 
+impl<S: IncidentEvidenceSink> IncidentEvidenceSink for crate::SharedEvidenceStore<S> {
+    fn persist_revision(
+        &mut self,
+        revision: &l2_loop_core::IncidentRevisionV1,
+    ) -> Result<(), IncidentOutputError> {
+        self.with_locked(|store| store.persist_revision(revision))
+            .map_err(|_| IncidentOutputError::StoreUnavailable)?
+    }
+}
+
 impl<T: IncidentOutputBackend + ?Sized> IncidentOutputBackend for Box<T> {
     fn persist(&mut self, job: &IncidentWriteJob) -> Result<(), IncidentOutputError> {
         (**self).persist(job)

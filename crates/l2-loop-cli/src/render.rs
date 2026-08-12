@@ -58,6 +58,8 @@ pub fn render_response(response: ControlResponse, format: OutputFormat) -> Rende
             AgentResult::Accepted => RenderedOutput::success("accepted".to_owned(), EXIT_SUCCESS),
             AgentResult::Observation { snapshot } => render_observation(&snapshot, format),
             AgentResult::Status { interfaces } => render_status(&interfaces, format),
+            AgentResult::EvidenceList { page } => render_serializable(&page, format),
+            AgentResult::Evidence { detail } => render_serializable(&detail, format),
             _ => RenderedOutput::failure(format!(
                 "{ERROR_INTERNAL}: daemon returned an unexpected result"
             )),
@@ -91,6 +93,14 @@ fn render_status(interfaces: &[InterfaceStatus], format: OutputFormat) -> Render
     let rendered = match format {
         OutputFormat::Text => render_status_text(interfaces),
         OutputFormat::Json => serde_json::to_string_pretty(&StatusOutput { interfaces }),
+    };
+    rendered_output(rendered, EXIT_SUCCESS)
+}
+
+fn render_serializable<T: Serialize>(value: &T, format: OutputFormat) -> RenderedOutput {
+    let rendered = match format {
+        OutputFormat::Text => render_text(value),
+        OutputFormat::Json => serde_json::to_string_pretty(value),
     };
     rendered_output(rendered, EXIT_SUCCESS)
 }
@@ -177,6 +187,10 @@ fn render_status_text(interfaces: &[InterfaceStatus]) -> Result<String, serde_js
         render_serialized_value(&mut output, &interface.fingerprints, 6)?;
         writeln!(output, "    detection:").ok();
         render_serialized_value(&mut output, &interface.detection, 6)?;
+        writeln!(output, "    output_health:").ok();
+        render_serialized_value(&mut output, &interface.output_health, 6)?;
+        writeln!(output, "    active_incident:").ok();
+        render_serialized_value(&mut output, &interface.active_incident, 6)?;
     }
     Ok(output.trim_end().to_owned())
 }

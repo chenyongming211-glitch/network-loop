@@ -9,7 +9,10 @@ use std::{
         fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     },
     path::{Component, Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use l2_loop_core::{
@@ -305,6 +308,75 @@ pub trait EvidenceStore {
     fn list(&self, query: &EvidenceListQuery) -> Result<EvidencePage, EvidenceStoreError>;
     fn health(&self) -> EvidenceStoreHealth;
     fn recover(&mut self) -> Result<(), EvidenceStoreError>;
+}
+
+pub struct SharedEvidenceStore<S> {
+    inner: Arc<Mutex<S>>,
+}
+
+impl<S> SharedEvidenceStore<S> {
+    pub fn new(store: S) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(store)),
+        }
+    }
+
+
+    pub(crate) fn with_locked<T>(
+        &self,
+        operation: impl FnOnce(&mut S) -> T,
+    ) -> Result<T, EvidenceStoreError> {
+        let mut store = self.inner.lock().map_err(|_| EvidenceStoreError::Io)?;
+        Ok(operation(&mut store))
+    }
+}
+
+impl<S> Clone for SharedEvidenceStore<S> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<S: EvidenceStore> EvidenceStore for SharedEvidenceStore<S> {
+    fn put(
+        &mut self,
+        revision: &IncidentRevisionV1,
+    ) -> Result<EvidenceSummaryV1, EvidenceStoreError> {
+        self.inner
+            .lock()
+            .map_err(|_| EvidenceStoreError::Io)?
+            .put(revision)
+    }
+
+    fn get(&self, event_id: EventId) -> Result<EvidenceDetailV1, EvidenceStoreError> {
+        self.inner
+            .lock()
+            .map_err(|_| EvidenceStoreError::Io)?
+            .get(event_id)
+    }
+
+    fn list(&self, query: &EvidenceListQuery) -> Result<EvidencePage, EvidenceStoreError> {
+        self.inner
+            .lock()
+            .map_err(|_| EvidenceStoreError::Io)?
+            .list(query)
+    }
+
+    fn health(&self) -> EvidenceStoreHealth {
+        self.inner
+            .lock()
+            .map(|store| store.health())
+            .unwrap_or_default()
+    }
+
+    fn recover(&mut self) -> Result<(), EvidenceStoreError> {
+        self.inner
+            .lock()
+            .map_err(|_| EvidenceStoreError::Io)?
+            .recover()
+    }
 }
 
 pub struct LinuxEvidenceStore<I> {

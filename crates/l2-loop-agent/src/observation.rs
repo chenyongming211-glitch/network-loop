@@ -387,6 +387,8 @@ where
             baseline,
             fingerprints: FingerprintSummary::from(&snapshot.fingerprints),
             detection: DetectionSummary::from(&snapshot.detection),
+            output_health: l2_loop_core::OutputHealth::unavailable("OUTPUT_NOT_CONFIGURED"),
+            active_incident: None,
         }])
     }
 
@@ -426,6 +428,12 @@ where
 
     pub fn take_incident_jobs(&mut self) -> Vec<IncidentWriteJob> {
         self.incident_jobs.drain(..).collect()
+    }
+
+    pub fn active_incident(&self) -> Option<l2_loop_core::ActiveIncidentMetadata> {
+        self.incident_recorder
+            .as_ref()
+            .and_then(IncidentRecorder::active_metadata)
     }
 
     pub fn clear(&mut self) {
@@ -1127,6 +1135,8 @@ where
             baseline,
             fingerprints: FingerprintSummary::from(&snapshot.fingerprints),
             detection: DetectionSummary::from(&snapshot.detection),
+            output_health: l2_loop_core::OutputHealth::unavailable("OUTPUT_NOT_CONFIGURED"),
+            active_incident: None,
         }])
     }
 }

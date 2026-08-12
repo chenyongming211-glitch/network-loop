@@ -195,6 +195,27 @@ pub struct OutputHealth {
     pub dropped_job_count: u64,
 }
 
+impl OutputHealth {
+    pub fn unavailable(code: &str) -> Self {
+        Self {
+            state: OutputHealthState::Degraded,
+            store_available: false,
+            corrupt_object_count: 0,
+            incomplete_object_count: 0,
+            unknown_object_count: 0,
+            alert_sink: AlertSinkMode::StderrJson,
+            last_error_code: Some(code.to_owned()),
+            dropped_job_count: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActiveIncidentMetadata {
+    pub event_id: EventId,
+    pub revision: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IncidentRevisionV1 {
     pub schema_version: u16,
@@ -303,6 +324,12 @@ pub struct EvidenceSummaryV1 {
 pub struct EvidenceDetailV1 {
     pub summary: EvidenceSummaryV1,
     pub latest: IncidentRevisionV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EvidenceListPageV1 {
+    pub items: Vec<EvidenceSummaryV1>,
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

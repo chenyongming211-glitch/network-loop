@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BaselineSummary, DetectionSummary, FingerprintSummary, InterfaceName, ObservationCounters,
-    ObservationHealth, ObservationSnapshot, PolicyRequest, PreflightReport, ProbeRequest,
-    RATE_WINDOW_COUNT, SamplingStatus, StatusRateWindow, VlanVisibility,
+    ActiveIncidentMetadata, BaselineSummary, DetectionSummary, EvidenceDetailV1,
+    EvidenceListPageV1, EventId, FingerprintSummary, InterfaceName, ObservationCounters,
+    ObservationHealth, ObservationSnapshot, OutputHealth, PolicyRequest, PreflightReport,
+    ProbeRequest, RATE_WINDOW_COUNT, SamplingStatus, StatusRateWindow, VlanVisibility,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,9 +37,11 @@ pub enum AgentCommand {
     },
     EvidenceList {
         interface: Option<InterfaceName>,
+        limit: u16,
+        cursor: Option<String>,
     },
     EvidenceShow {
-        evidence_id: String,
+        event_id: EventId,
     },
 }
 
@@ -54,8 +57,8 @@ pub enum AgentResult {
     Probe { returned_frames: u64 },
     PolicyApplied { rule_id: String },
     PolicyDisabled,
-    EvidenceList { evidence_ids: Vec<String> },
-    Evidence { evidence_id: String },
+    EvidenceList { page: EvidenceListPageV1 },
+    Evidence { detail: EvidenceDetailV1 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,4 +76,6 @@ pub struct InterfaceStatus {
     pub baseline: BaselineSummary,
     pub fingerprints: FingerprintSummary,
     pub detection: DetectionSummary,
+    pub output_health: OutputHealth,
+    pub active_incident: Option<ActiveIncidentMetadata>,
 }

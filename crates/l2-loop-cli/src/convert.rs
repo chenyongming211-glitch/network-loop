@@ -1,6 +1,7 @@
 use l2_loop_agent::ownership::RunId;
 use l2_loop_core::{
-    AgentCommand, DomainError, InterfaceName, PolicyRequest, ProbeRequest, ProbeScope, TrafficClass,
+    AgentCommand, DomainError, EventId, InterfaceName, PolicyRequest, ProbeRequest, ProbeScope,
+    TrafficClass,
 };
 use thiserror::Error;
 
@@ -23,6 +24,8 @@ pub enum CliError {
     },
     #[error("invalid isolated run ID: {0}")]
     InvalidRunId(String),
+    #[error("invalid event ID")]
+    InvalidEventId,
 }
 
 impl TryFrom<Cli> for ParsedCli {
@@ -90,12 +93,17 @@ impl TryFrom<Cli> for ParsedCli {
                 EvidenceCommand::List(args) => (
                     AgentCommand::EvidenceList {
                         interface: args.interface.map(InterfaceName::new).transpose()?,
+                        limit: args.limit,
+                        cursor: args.cursor,
                     },
                     args.json,
                 ),
                 EvidenceCommand::Show(args) => (
                     AgentCommand::EvidenceShow {
-                        evidence_id: args.id,
+                        event_id: args
+                            .id
+                            .parse::<EventId>()
+                            .map_err(|_| CliError::InvalidEventId)?,
                     },
                     args.json,
                 ),

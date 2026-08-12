@@ -113,6 +113,16 @@ impl<S: EventIdSource> IncidentRecorder<S> {
         }
     }
 
+    pub const fn active_metadata(&self) -> Option<l2_loop_core::ActiveIncidentMetadata> {
+        match self.active {
+            Some(active) => Some(l2_loop_core::ActiveIncidentMetadata {
+                event_id: active.event_id,
+                revision: active.revision,
+            }),
+            None => None,
+        }
+    }
+
     pub const fn last_transition_sequence(&self) -> u64 {
         self.last_transition_sequence
     }

@@ -148,6 +148,10 @@ pub enum EvidenceCommand {
 pub struct EvidenceListArgs {
     #[arg(long)]
     pub interface: Option<String>,
+    #[arg(long, default_value_t = l2_loop_core::EVIDENCE_LIST_DEFAULT_LIMIT, value_parser = clap::value_parser!(u16).range(1..=200))]
+    pub limit: u16,
+    #[arg(long)]
+    pub cursor: Option<String>,
     #[arg(long)]
     pub json: bool,
 }
