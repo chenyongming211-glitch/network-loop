@@ -4,8 +4,7 @@ use thiserror::Error;
 use crate::{
     BaselineReport, BaselineState, BaselineSubject, DetailedRateWindow, DomainError,
     FingerprintWindowReport, FingerprintWindowState, HookRate, HookRole, RateIdentity,
-    RateWindowState, TrafficClass,
-    fingerprint_window::validate_error_code,
+    RateWindowState, TrafficClass, fingerprint_window::validate_error_code,
     rate::validate_detailed_rate_windows,
 };
 
@@ -190,12 +189,7 @@ impl DetectionSignals {
             baseline,
             HookRole::ExternalXdpIngress,
         )?;
-        let egress = derive_hook(
-            one_second,
-            ten_second,
-            baseline,
-            HookRole::PhysicalTcEgress,
-        )?;
+        let egress = derive_hook(one_second, ten_second, baseline, HookRole::PhysicalTcEgress)?;
         let ingress_candidate = hook_is_candidate(&ingress);
         let egress_candidate = hook_is_candidate(&egress);
         let candidate = match (ingress_candidate, egress_candidate) {
@@ -323,13 +317,14 @@ fn derive_hook(
         ),
         _ => None,
     };
-    let absolute_candidate = one_second_rates
-        .map(bum_rates)
-        .transpose()?
-        .map(|(packets, bytes)| {
-            packets >= DETECTION_ABSOLUTE_PACKET_THRESHOLD_PPS
-                || bytes >= DETECTION_ABSOLUTE_BYTE_THRESHOLD_BPS
-        });
+    let absolute_candidate =
+        one_second_rates
+            .map(bum_rates)
+            .transpose()?
+            .map(|(packets, bytes)| {
+                packets >= DETECTION_ABSOLUTE_PACKET_THRESHOLD_PPS
+                    || bytes >= DETECTION_ABSOLUTE_BYTE_THRESHOLD_BPS
+            });
 
     Ok(HookDetectionSignals {
         bum_packets_per_second,
@@ -411,8 +406,8 @@ fn baseline_bum_elevated(
         match subject.state {
             BaselineState::Learning | BaselineState::Unavailable => return Ok(None),
             BaselineState::WithinBaseline | BaselineState::Elevated => {
-                elevated |= subject.packets.elevated == Some(true)
-                    || subject.bytes.elevated == Some(true);
+                elevated |=
+                    subject.packets.elevated == Some(true) || subject.bytes.elevated == Some(true);
             }
         }
     }
