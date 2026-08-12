@@ -169,7 +169,10 @@ fn renders_observation_and_status_as_stable_text_and_json() {
     let status_value: serde_json::Value = serde_json::from_str(&status_json.stdout).unwrap();
     assert_eq!(status_value["interfaces"][0]["state"], "observing");
     assert_eq!(status_value["interfaces"][0]["xdp_ingress"]["packets"], 21);
-    assert_eq!(status_value["interfaces"][0]["baseline"]["state"], "learning");
+    assert_eq!(
+        status_value["interfaces"][0]["baseline"]["state"],
+        "learning"
+    );
     assert_eq!(
         status_value["interfaces"][0]["baseline"]["subject_sample_counts"]
             .as_array()
