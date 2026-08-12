@@ -575,6 +575,17 @@ impl BaselineReport {
                 "baseline learning subject count is inconsistent",
             ));
         }
+        let elevated_count = self
+            .subjects
+            .iter()
+            .flat_map(|subject| [subject.packets.elevated, subject.bytes.elevated])
+            .filter(|elevated| *elevated == Some(true))
+            .count();
+        if usize::from(self.elevated_metric_count) != elevated_count {
+            return Err(DomainError::InvalidObservation(
+                "baseline elevated metric count is inconsistent",
+            ));
+        }
         Ok(())
     }
 }
@@ -613,6 +624,23 @@ impl BaselineSummary {
     }
 
     pub fn from_report(report: &BaselineReport) -> Self {
+        let mut elevated = Vec::with_capacity(usize::from(report.elevated_metric_count));
+        for subject in &report.subjects {
+            if subject.packets.elevated == Some(true) {
+                elevated.push(BaselineElevatedIdentifier {
+                    hook: subject.hook,
+                    subject: subject.subject,
+                    metric: BaselineMetric::Packets,
+                });
+            }
+            if subject.bytes.elevated == Some(true) {
+                elevated.push(BaselineElevatedIdentifier {
+                    hook: subject.hook,
+                    subject: subject.subject,
+                    metric: BaselineMetric::Bytes,
+                });
+            }
+        }
         Self {
             state: report.state,
             evaluated_at_unix_ms: report.evaluated_at_unix_ms,
@@ -630,7 +658,7 @@ impl BaselineSummary {
                     latest_accepted_at_unix_ms: subject.latest_accepted_at_unix_ms,
                 }
             }),
-            elevated: Vec::new(),
+            elevated,
         }
     }
 
@@ -638,6 +666,11 @@ impl BaselineSummary {
         if self.elevated.len() > BASELINE_METRIC_COUNT {
             return Err(DomainError::InvalidObservation(
                 "baseline summary exceeds fixed elevated identifier bound",
+            ));
+        }
+        if self.elevated.len() != usize::from(self.elevated_metric_count) {
+            return Err(DomainError::InvalidObservation(
+                "baseline summary elevated count is inconsistent",
             ));
         }
         for (index, subject) in self.subject_sample_counts.iter().enumerate() {
@@ -649,6 +682,25 @@ impl BaselineSummary {
                     "baseline summary subjects do not match fixed contract",
                 ));
             }
+        }
+        let mut previous_order = None;
+        for elevated in &self.elevated {
+            let Some(subject_index) = baseline_subject_index(elevated.hook, elevated.subject) else {
+                return Err(DomainError::InvalidObservation(
+                    "baseline summary elevated identifier is outside the fixed contract",
+                ));
+            };
+            let metric_offset = match elevated.metric {
+                BaselineMetric::Packets => 0,
+                BaselineMetric::Bytes => 1,
+            };
+            let order = subject_index * 2 + metric_offset;
+            if previous_order.is_some_and(|previous| order <= previous) {
+                return Err(DomainError::InvalidObservation(
+                    "baseline summary elevated identifiers are not in fixed order",
+                ));
+            }
+            previous_order = Some(order);
         }
         Ok(())
     }
@@ -693,4 +745,10 @@ fn subject_for_index(index: usize) -> BaselineSubject {
         },
         _ => BaselineSubject::ParseErrors,
     }
+}
+
+fn baseline_subject_index(hook: HookRole, subject: BaselineSubject) -> Option<usize> {
+    (0..BASELINE_SUBJECT_COUNT).find(|index| {
+        hook_for_index(*index) == hook && subject_for_index(*index) == subject
+    })
 }
