@@ -13,12 +13,11 @@ use std::{
 };
 
 use l2_loop_core::{
-    EVIDENCE_MAX_EVENT_BYTES, EVIDENCE_MAX_EVENTS, EVIDENCE_MAX_REVISION_BYTES,
-    EVIDENCE_MAX_REVISIONS_PER_EVENT, EVIDENCE_MAX_STORE_BYTES, EVIDENCE_SCHEMA_VERSION,
-    EVIDENCE_MAX_CLOSED_AGE_MS, EVIDENCE_MIN_FREE_RESERVE_BYTES,
-    EVIDENCE_MIN_FREE_RESERVE_PERCENT, EventId, EvidenceCursor, EvidenceDetailV1,
-    EvidenceIntegrity, EvidenceListQuery, EvidenceManifestV1, EvidenceSummaryV1,
-    IncidentRevisionV1,
+    EVIDENCE_MAX_CLOSED_AGE_MS, EVIDENCE_MAX_EVENT_BYTES, EVIDENCE_MAX_EVENTS,
+    EVIDENCE_MAX_REVISION_BYTES, EVIDENCE_MAX_REVISIONS_PER_EVENT, EVIDENCE_MAX_STORE_BYTES,
+    EVIDENCE_MIN_FREE_RESERVE_BYTES, EVIDENCE_MIN_FREE_RESERVE_PERCENT, EVIDENCE_SCHEMA_VERSION,
+    EventId, EvidenceCursor, EvidenceDetailV1, EvidenceIntegrity, EvidenceListQuery,
+    EvidenceManifestV1, EvidenceSummaryV1, IncidentRevisionV1,
 };
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -189,7 +188,10 @@ impl EvidenceIo for StdEvidenceIo {
     }
 
     fn remove_event_directory(&self, path: &Path) -> io::Result<()> {
-        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
         let event_id = name
             .parse::<EventId>()
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid event path"))?;
@@ -656,7 +658,8 @@ impl<I: EvidenceIo> LinuxEvidenceStore<I> {
         let space_fits = available_after
             .checked_sub(incoming_bytes)
             .is_some_and(|bytes| bytes >= reserve);
-        if !store_fits || !space_fits || usize::from(self.health.event_count) >= EVIDENCE_MAX_EVENTS {
+        if !store_fits || !space_fits || usize::from(self.health.event_count) >= EVIDENCE_MAX_EVENTS
+        {
             self.health.available = false;
             return Err(EvidenceStoreError::RetentionUnavailable);
         }
