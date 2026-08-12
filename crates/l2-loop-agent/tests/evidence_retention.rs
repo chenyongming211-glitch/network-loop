@@ -13,10 +13,10 @@ use l2_loop_agent::{
 };
 use l2_loop_core::{
     AlertCode, BaselineSummary, DetectionState, DetectionTransitionReason,
-    EVIDENCE_MAX_CLOSED_AGE_MS, EVIDENCE_MIN_FREE_RESERVE_BYTES,
-    EVIDENCE_MIN_FREE_RESERVE_PERCENT, EVIDENCE_SCHEMA_VERSION, EventId, EvidenceStatus,
-    FingerprintWindowReport, IncidentRevisionV1, InterfaceName, ObservationCounters,
-    ObservationHealth, RateIdentity, VlanVisibility, warming_status_rate_windows,
+    EVIDENCE_MAX_CLOSED_AGE_MS, EVIDENCE_MIN_FREE_RESERVE_BYTES, EVIDENCE_MIN_FREE_RESERVE_PERCENT,
+    EVIDENCE_SCHEMA_VERSION, EventId, EvidenceStatus, FingerprintWindowReport, IncidentRevisionV1,
+    InterfaceName, ObservationCounters, ObservationHealth, RateIdentity, VlanVisibility,
+    warming_status_rate_windows,
 };
 
 static ROOT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -124,9 +124,7 @@ fn retention_deletes_only_oldest_closed_whole_event_with_id_tie_break() {
     let active = EventId::from_bytes([3; 16]);
     let mut store = LinuxEvidenceStore::open(StdEvidenceIo, &root.0, "0.1.0").unwrap();
     let low = store.put(&revision(older_low_id, Some(2_000))).unwrap();
-    store
-        .put(&revision(older_high_id, Some(2_000)))
-        .unwrap();
+    store.put(&revision(older_high_id, Some(2_000))).unwrap();
     store.put(&revision(active, None)).unwrap();
 
     let reserve = minimum_free_reserve(1_000_000_000);
@@ -161,9 +159,7 @@ fn age_expiry_is_exact_and_unknown_objects_are_never_deleted() {
     let now = EVIDENCE_MAX_CLOSED_AGE_MS + 10_000;
     let mut store = LinuxEvidenceStore::open(StdEvidenceIo, &root.0, "0.1.0").unwrap();
     store.put(&revision(expired, Some(9_999))).unwrap();
-    store
-        .put(&revision(exact_boundary, Some(10_000)))
-        .unwrap();
+    store.put(&revision(exact_boundary, Some(10_000))).unwrap();
     store.put(&revision(active, None)).unwrap();
     fs::create_dir(root.0.join("unknown-object")).unwrap();
 
