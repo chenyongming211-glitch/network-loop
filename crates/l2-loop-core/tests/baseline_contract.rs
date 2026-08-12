@@ -16,7 +16,7 @@ fn fixed_baseline_contract_is_stable() {
     assert_eq!(BASELINE_SUBJECTS_PER_HOOK, 8);
     assert_eq!(BASELINE_SUBJECT_COUNT, 16);
     assert_eq!(BASELINE_METRIC_COUNT, 32);
-    assert_eq!(OBSERVATION_SCHEMA_VERSION, 4);
+    assert_eq!(OBSERVATION_SCHEMA_VERSION, 5);
 }
 
 #[test]
