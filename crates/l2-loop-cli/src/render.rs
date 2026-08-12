@@ -126,6 +126,8 @@ fn render_observation_text(snapshot: &ObservationSnapshot) -> Result<String, ser
     render_baseline_report(&mut output, &snapshot.baseline)?;
     writeln!(output, "fingerprints:").ok();
     render_serialized_value(&mut output, &snapshot.fingerprints, 2)?;
+    writeln!(output, "detection:").ok();
+    render_serialized_value(&mut output, &snapshot.detection, 2)?;
     Ok(output.trim_end().to_owned())
 }
 
@@ -173,6 +175,8 @@ fn render_status_text(interfaces: &[InterfaceStatus]) -> Result<String, serde_js
         render_baseline_summary(&mut output, &interface.baseline)?;
         writeln!(output, "    fingerprints:").ok();
         render_serialized_value(&mut output, &interface.fingerprints, 6)?;
+        writeln!(output, "    detection:").ok();
+        render_serialized_value(&mut output, &interface.detection, 6)?;
     }
     Ok(output.trim_end().to_owned())
 }
