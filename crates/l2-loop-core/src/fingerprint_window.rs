@@ -351,9 +351,7 @@ fn build_window(
         if let Some(side) = relation.egress {
             add_side(&mut egress, side)?;
         }
-        if relation
-            .ingress
-            .is_some_and(|side| side.packets > 1)
+        if relation.ingress.is_some_and(|side| side.packets > 1)
             || relation.egress.is_some_and(|side| side.packets > 1)
         {
             repeated_relation_count = repeated_relation_count
@@ -374,8 +372,8 @@ fn build_window(
         }
     }
 
-    let delta_relation_count = u16::try_from(relations.len())
-        .map_err(|_| FingerprintWindowError::CalculationFailed)?;
+    let delta_relation_count =
+        u16::try_from(relations.len()).map_err(|_| FingerprintWindowError::CalculationFailed)?;
     let captured_entry_count = u16::try_from(current.entries.len())
         .map_err(|_| FingerprintWindowError::CalculationFailed)?;
     let dominant_ratio = ratio_milli(dominant_ingress_packets, ingress.packets);
