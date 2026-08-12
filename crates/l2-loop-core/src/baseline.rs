@@ -685,7 +685,8 @@ impl BaselineSummary {
         }
         let mut previous_order = None;
         for elevated in &self.elevated {
-            let Some(subject_index) = baseline_subject_index(elevated.hook, elevated.subject) else {
+            let Some(subject_index) = baseline_subject_index(elevated.hook, elevated.subject)
+            else {
                 return Err(DomainError::InvalidObservation(
                     "baseline summary elevated identifier is outside the fixed contract",
                 ));
@@ -748,7 +749,6 @@ fn subject_for_index(index: usize) -> BaselineSubject {
 }
 
 fn baseline_subject_index(hook: HookRole, subject: BaselineSubject) -> Option<usize> {
-    (0..BASELINE_SUBJECT_COUNT).find(|index| {
-        hook_for_index(*index) == hook && subject_for_index(*index) == subject
-    })
+    (0..BASELINE_SUBJECT_COUNT)
+        .find(|index| hook_for_index(*index) == hook && subject_for_index(*index) == subject)
 }
