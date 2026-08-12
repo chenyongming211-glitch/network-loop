@@ -398,9 +398,9 @@ impl EvidenceListQuery {
         if !(1..=EVIDENCE_LIST_MAX_LIMIT).contains(&limit) {
             return Err(EvidenceContractError::InvalidListLimit);
         }
-        if cursor.is_some_and(|value| {
-            value.filter_hash != interface_filter_hash(interface.as_ref())
-        }) {
+        if cursor
+            .is_some_and(|value| value.filter_hash != interface_filter_hash(interface.as_ref()))
+        {
             return Err(EvidenceContractError::InvalidCursor);
         }
         Ok(Self {
