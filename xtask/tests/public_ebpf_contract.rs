@@ -127,6 +127,14 @@ fn passive_fingerprints_are_fixed_bounded_and_fail_open() {
 }
 
 #[test]
+fn fingerprint_path_does_not_round_trip_packet_bytes_through_a_dynamic_stack_slice() {
+    assert!(PROGRAM_SOURCE.contains("packet_fingerprint_hash("));
+    assert!(PROGRAM_SOURCE.contains("packet_fingerprint_metadata("));
+    assert!(!PROGRAM_SOURCE.contains("let mut prefix = [0_u8; FINGERPRINT_PREFIX_LEN]"));
+    assert!(!PROGRAM_SOURCE.contains("&prefix[..prefix_len]"));
+}
+
+#[test]
 fn userspace_publishes_only_the_fixed_fingerprint_sample_shift() {
     assert!(MAP_PUBLISHER_SOURCE.contains("FINGERPRINT_SAMPLE_SHIFT"));
     assert!(MAP_PUBLISHER_SOURCE.contains("agent_mode::OBSERVE"));
