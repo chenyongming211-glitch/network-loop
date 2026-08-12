@@ -207,12 +207,7 @@ fn render_baseline_report(
     writeln!(output, "  subjects:").ok();
     for subject in &baseline.subjects {
         writeln!(output, "    -").ok();
-        writeln!(
-            output,
-            "      hook: {}",
-            serialized_scalar(&subject.hook)?
-        )
-        .ok();
+        writeln!(output, "      hook: {}", serialized_scalar(&subject.hook)?).ok();
         writeln!(output, "      subject:").ok();
         render_serialized_value(output, &subject.subject, 8)?;
         writeln!(
@@ -352,8 +347,18 @@ fn render_baseline_metric(
 ) {
     let padding = " ".repeat(indent);
     writeln!(output, "{padding}{label}:").ok();
-    writeln!(output, "{padding}  current: {}", option_number(metric.current)).ok();
-    writeln!(output, "{padding}  median: {}", option_number(metric.median)).ok();
+    writeln!(
+        output,
+        "{padding}  current: {}",
+        option_number(metric.current)
+    )
+    .ok();
+    writeln!(
+        output,
+        "{padding}  median: {}",
+        option_number(metric.median)
+    )
+    .ok();
     writeln!(output, "{padding}  mad: {}", option_number(metric.mad)).ok();
     writeln!(
         output,
@@ -370,7 +375,9 @@ fn render_baseline_metric(
     writeln!(
         output,
         "{padding}  elevated: {}",
-        metric.elevated.map_or("null", |value| if value { "true" } else { "false" })
+        metric
+            .elevated
+            .map_or("null", |value| if value { "true" } else { "false" })
     )
     .ok();
 }
