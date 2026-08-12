@@ -38,9 +38,7 @@ impl AcceptanceFault {
                 Ok(Self::BaselineSamplingMapReadRecovery)
             }
             Some("fingerprint-map-read-once") => Ok(Self::FingerprintMapReadOnce),
-            Some("analysis-fingerprint-map-read-once") => {
-                Ok(Self::AnalysisFingerprintMapReadOnce)
-            }
+            Some("analysis-fingerprint-map-read-once") => Ok(Self::AnalysisFingerprintMapReadOnce),
             Some(_) => Err(AcceptanceFaultError),
         }
     }
@@ -166,8 +164,7 @@ where
                     && self.request_fingerprint_reads == 1
             }
             ObservationReadPurpose::BackgroundAnalysis => {
-                self.analysis_fingerprint_reads =
-                    self.analysis_fingerprint_reads.saturating_add(1);
+                self.analysis_fingerprint_reads = self.analysis_fingerprint_reads.saturating_add(1);
                 self.fault == AcceptanceFault::AnalysisFingerprintMapReadOnce
                     && self.analysis_fingerprint_reads == 1
             }
