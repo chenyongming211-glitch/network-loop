@@ -139,7 +139,11 @@ async fn observe_round_trips_from_the_cli_client_through_the_daemon_dispatcher()
     assert!(status_text.stdout.contains("elevated:"));
     assert!(status_text.stdout.contains("fingerprints:"));
     assert!(status_text.stdout.contains("detection:"));
-    assert!(status_text.stdout.contains("fingerprint_window_state: warming_up"));
+    assert!(
+        status_text
+            .stdout
+            .contains("fingerprint_window_state: warming_up")
+    );
     assert!(!status_text.stdout.contains("transitions:"));
     assert!(status_text.stdout.contains("correlated_relation_count: 1"));
     assert!(!status_text.stdout.contains("traffic_class:"));

@@ -164,7 +164,11 @@ fn renders_observation_and_status_as_stable_text_and_json() {
     assert!(text.stdout.contains("transitions:"));
     assert!(status_text.stdout.contains("detection:"));
     assert!(status_text.stdout.contains("state: warming_up"));
-    assert!(status_text.stdout.contains("fingerprint_window_state: warming_up"));
+    assert!(
+        status_text
+            .stdout
+            .contains("fingerprint_window_state: warming_up")
+    );
     assert!(!status_text.stdout.contains("transitions:"));
     assert_eq!(json.exit_code, EXIT_SUCCESS);
     let value: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
