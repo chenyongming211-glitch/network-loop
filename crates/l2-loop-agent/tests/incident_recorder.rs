@@ -11,7 +11,9 @@ struct FixedIds(VecDeque<EventId>);
 
 impl EventIdSource for FixedIds {
     fn next_id(&mut self) -> Result<EventId, IncidentRecorderError> {
-        self.0.pop_front().ok_or(IncidentRecorderError::IdUnavailable)
+        self.0
+            .pop_front()
+            .ok_or(IncidentRecorderError::IdUnavailable)
     }
 }
 
@@ -20,12 +22,7 @@ fn id(byte: u8) -> EventId {
 }
 
 fn identity(generation: u64) -> IncidentIdentity {
-    IncidentIdentity::new(
-        InterfaceName::new("l2h0123456789").unwrap(),
-        42,
-        generation,
-    )
-    .unwrap()
+    IncidentIdentity::new(InterfaceName::new("l2h0123456789").unwrap(), 42, generation).unwrap()
 }
 
 fn transition(
