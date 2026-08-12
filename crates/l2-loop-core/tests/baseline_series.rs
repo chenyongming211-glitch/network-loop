@@ -9,25 +9,15 @@ fn upper_median_and_mad_are_deterministic_for_odd_and_even_sets() {
     assert_eq!(upper_median(&[9, 1, 5]), Some(5));
     assert_eq!(upper_median(&[9, 1, 5, 3]), Some(5));
     assert_eq!(upper_median(&[]), None);
-    assert_eq!(median_absolute_deviation(&[1, 3, 5, 7]), Some(4));
+    assert_eq!(median_absolute_deviation(&[1, 3, 5, 7]), Some(2));
 }
 
 #[test]
 fn fixed_threshold_is_strict_and_uses_noise_floors() {
     let packet_at_floor = evaluate_metric(10, 0, 0, BASELINE_PACKET_NOISE_FLOOR_PPS);
     let packet_above_floor = evaluate_metric(11, 0, 0, BASELINE_PACKET_NOISE_FLOOR_PPS);
-    let bytes_at_floor = evaluate_metric(
-        16_384,
-        0,
-        0,
-        BASELINE_BYTE_NOISE_FLOOR_BPS,
-    );
-    let bytes_above_floor = evaluate_metric(
-        16_385,
-        0,
-        0,
-        BASELINE_BYTE_NOISE_FLOOR_BPS,
-    );
+    let bytes_at_floor = evaluate_metric(16_384, 0, 0, BASELINE_BYTE_NOISE_FLOOR_BPS);
+    let bytes_above_floor = evaluate_metric(16_385, 0, 0, BASELINE_BYTE_NOISE_FLOOR_BPS);
 
     assert_eq!(packet_at_floor.threshold, Some(10));
     assert_eq!(packet_at_floor.elevated, Some(false));
@@ -38,7 +28,7 @@ fn fixed_threshold_is_strict_and_uses_noise_floors() {
 
     assert_eq!(evaluate_metric(400, 100, 0, 10).elevated, Some(false));
     assert_eq!(evaluate_metric(401, 100, 0, 10).elevated, Some(true));
-    assert_eq!(evaluate_metric(161, 100, 10, 10).elevated, Some(true));
+    assert_eq!(evaluate_metric(71, 10, 10, 10).elevated, Some(true));
 }
 
 #[test]
