@@ -244,7 +244,10 @@ pub struct AcceptanceAlertIo<I> {
 
 impl<I> AcceptanceAlertIo<I> {
     pub const fn new(inner: I, force_stderr: bool) -> Self {
-        Self { inner, force_stderr }
+        Self {
+            inner,
+            force_stderr,
+        }
     }
 }
 

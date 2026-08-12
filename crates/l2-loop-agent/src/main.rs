@@ -93,21 +93,15 @@ async fn run() -> Result<(), DaemonError> {
         .as_deref()
         .unwrap_or_else(|| Path::new("/var/lib/l2-loop/evidence/v1"));
     let acceptance_alerts = acceptance_evidence_root.is_some();
-    let evidence_store = LinuxEvidenceStore::open(
-        StdEvidenceIo,
-        evidence_root,
-        env!("CARGO_PKG_VERSION"),
-    );
+    let evidence_store =
+        LinuxEvidenceStore::open(StdEvidenceIo, evidence_root, env!("CARGO_PKG_VERSION"));
     let (backend, evidence_control) = match evidence_store {
         Ok(store) => {
             let shared = SharedEvidenceStore::new(store);
             (
                 Box::new(StoredIncidentOutputBackend::new(
                     shared.clone(),
-                    LinuxAlertSink::new(AcceptanceAlertIo::new(
-                        SystemAlertIo,
-                        acceptance_alerts,
-                    )),
+                    LinuxAlertSink::new(AcceptanceAlertIo::new(SystemAlertIo, acceptance_alerts)),
                 )) as Box<dyn IncidentOutputBackend>,
                 Some(shared),
             )
