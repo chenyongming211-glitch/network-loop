@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -472,6 +474,18 @@ pub enum DetectionTransitionReason {
     IntegrityFailure,
 }
 
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+pub enum DetectionEngineError {
+    #[error("detection engine monotonic or wall clock regressed")]
+    ClockRegression,
+    #[error("detection engine received invalid signals")]
+    InvalidSignals,
+    #[error("detection engine received an invalid error code")]
+    InvalidErrorCode,
+    #[error("detection transition sequence overflowed")]
+    SequenceOverflow,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DetectionTransition {
     pub sequence: u64,
@@ -495,6 +509,394 @@ pub struct DetectionReport {
     pub transition_sequence: u64,
     pub transitions: Vec<DetectionTransition>,
     pub last_error_code: Option<String>,
+}
+
+pub struct DetectionEngine {
+    identity: RateIdentity,
+    last_trustworthy_monotonic_ns: u64,
+    resume_state: DetectionState,
+    last_candidate: StormCandidate,
+    candidate_streak: u8,
+    clear_streak: u8,
+    cooldown_started_at_monotonic_ns: Option<u64>,
+    last_anomalous_state: Option<DetectionState>,
+    transition_sequence: u64,
+    transitions: VecDeque<DetectionTransition>,
+    report: DetectionReport,
+}
+
+impl DetectionEngine {
+    pub fn new(
+        identity: RateIdentity,
+        started_at_monotonic_ns: u64,
+        started_at_unix_ms: u64,
+    ) -> Self {
+        Self {
+            identity,
+            last_trustworthy_monotonic_ns: started_at_monotonic_ns,
+            resume_state: DetectionState::WarmingUp,
+            last_candidate: StormCandidate::None,
+            candidate_streak: 0,
+            clear_streak: 0,
+            cooldown_started_at_monotonic_ns: None,
+            last_anomalous_state: None,
+            transition_sequence: 0,
+            transitions: VecDeque::with_capacity(DETECTION_TRANSITION_CAPACITY),
+            report: DetectionReport::warming(identity, started_at_unix_ms),
+        }
+    }
+
+    pub const fn identity(&self) -> RateIdentity {
+        self.identity
+    }
+
+    pub const fn cached_report(&self) -> &DetectionReport {
+        &self.report
+    }
+
+    pub fn evaluate(
+        &mut self,
+        evaluated_at_monotonic_ns: u64,
+        evaluated_at_unix_ms: u64,
+        signals: DetectionSignals,
+    ) -> Result<DetectionReport, DetectionEngineError> {
+        signals
+            .validate()
+            .map_err(|_| DetectionEngineError::InvalidSignals)?;
+        if evaluated_at_monotonic_ns <= self.last_trustworthy_monotonic_ns
+            || self
+                .report
+                .last_trustworthy_at_unix_ms
+                .is_some_and(|previous| evaluated_at_unix_ms < previous)
+        {
+            return Err(DetectionEngineError::ClockRegression);
+        }
+
+        let published_state = self.report.state;
+        let current_state = if published_state == DetectionState::Unavailable {
+            self.resume_state
+        } else {
+            published_state
+        };
+        self.update_candidate_streak(signals.candidate);
+        let candidate_state = candidate_state(signals.candidate);
+        let desired_anomaly = strongest_anomaly(candidate_state, &signals);
+        let evidence_ready = evidence_ready(&signals);
+        let mut next_state = current_state;
+        let mut reason = None;
+
+        if current_state.is_anomalous() {
+            if desired_anomaly == Some(current_state) {
+                self.clear_streak = 0;
+            } else if desired_anomaly.is_some_and(|desired| {
+                anomaly_rank(desired) > anomaly_rank(current_state)
+                    && (is_relationship_state(desired)
+                        || self.candidate_streak >= DETECTION_ASSERT_TICKS)
+            }) {
+                next_state = desired_anomaly.unwrap_or(current_state);
+                self.clear_streak = 0;
+                reason = Some(reason_for_assertion(next_state));
+            } else {
+                self.clear_streak = self.clear_streak.saturating_add(1).min(DETECTION_CLEAR_TICKS);
+                if self.clear_streak >= DETECTION_CLEAR_TICKS {
+                    if let Some(desired) = desired_anomaly {
+                        next_state = desired;
+                        self.clear_streak = 0;
+                        reason = Some(DetectionTransitionReason::EvidenceCleared);
+                    } else {
+                        next_state = DetectionState::Cooldown;
+                        self.cooldown_started_at_monotonic_ns = Some(evaluated_at_monotonic_ns);
+                        reason = Some(DetectionTransitionReason::EvidenceCleared);
+                    }
+                }
+            }
+        } else if current_state == DetectionState::Cooldown {
+            if desired_anomaly.is_some() && self.candidate_streak >= DETECTION_ASSERT_TICKS {
+                next_state = desired_anomaly.unwrap_or(DetectionState::Cooldown);
+                self.clear_streak = 0;
+                self.cooldown_started_at_monotonic_ns = None;
+                reason = Some(reason_for_assertion(next_state));
+            } else if desired_anomaly.is_none()
+                && self.cooldown_elapsed(evaluated_at_monotonic_ns)?
+            {
+                next_state = DetectionState::Normal;
+                self.clear_streak = 0;
+                self.cooldown_started_at_monotonic_ns = None;
+                reason = Some(DetectionTransitionReason::CooldownCompleted);
+            }
+        } else if desired_anomaly.is_some() && self.candidate_streak >= DETECTION_ASSERT_TICKS {
+            next_state = desired_anomaly.unwrap_or(current_state);
+            self.clear_streak = 0;
+            reason = Some(reason_for_assertion(next_state));
+        } else if current_state == DetectionState::WarmingUp
+            && signals.candidate == StormCandidate::None
+            && evidence_ready
+        {
+            next_state = DetectionState::Normal;
+            reason = Some(DetectionTransitionReason::EvidenceReady);
+        }
+
+        if next_state.is_anomalous() {
+            self.last_anomalous_state = Some(next_state);
+        }
+        self.last_trustworthy_monotonic_ns = evaluated_at_monotonic_ns;
+        self.resume_state = next_state;
+        self.report.evaluated_at_unix_ms = evaluated_at_unix_ms;
+        self.report.last_trustworthy_at_unix_ms = Some(evaluated_at_unix_ms);
+        self.report.signals = signals;
+        self.report.candidate_streak = self.candidate_streak;
+        self.report.clear_streak = self.clear_streak;
+        self.report.last_error_code = None;
+
+        if published_state == DetectionState::Unavailable && next_state == current_state {
+            reason = Some(DetectionTransitionReason::EvidenceRecovered);
+        }
+        if published_state != next_state {
+            self.record_transition(
+                published_state,
+                next_state,
+                reason.unwrap_or(DetectionTransitionReason::EvidenceRecovered),
+                evaluated_at_unix_ms,
+            )?;
+        } else {
+            self.report.state = next_state;
+        }
+        self.sync_retained_state();
+        self.sync_history();
+        self.report
+            .validate()
+            .map_err(|_| DetectionEngineError::InvalidSignals)?;
+        Ok(self.report.clone())
+    }
+
+    pub fn unavailable(
+        &mut self,
+        evaluated_at_unix_ms: u64,
+        code: &str,
+    ) -> Result<DetectionReport, DetectionEngineError> {
+        self.publish_unavailable(
+            evaluated_at_unix_ms,
+            code,
+            DetectionTransitionReason::EvidenceUnavailable,
+            false,
+        )
+    }
+
+    pub fn pause(
+        &mut self,
+        evaluated_at_unix_ms: u64,
+    ) -> Result<DetectionReport, DetectionEngineError> {
+        self.publish_unavailable(
+            evaluated_at_unix_ms,
+            "SAMPLER_PAUSED",
+            DetectionTransitionReason::SamplerPaused,
+            false,
+        )
+    }
+
+    pub fn clear(
+        &mut self,
+        identity: RateIdentity,
+        cleared_at_monotonic_ns: u64,
+        cleared_at_unix_ms: u64,
+        code: &str,
+    ) -> Result<DetectionReport, DetectionEngineError> {
+        validate_error_code(code).map_err(|_| DetectionEngineError::InvalidErrorCode)?;
+        if identity != self.identity {
+            *self = Self::new(identity, cleared_at_monotonic_ns, cleared_at_unix_ms);
+            return Ok(self.report.clone());
+        }
+        self.last_trustworthy_monotonic_ns = cleared_at_monotonic_ns;
+        self.resume_state = DetectionState::WarmingUp;
+        self.last_candidate = StormCandidate::None;
+        self.candidate_streak = 0;
+        self.clear_streak = 0;
+        self.cooldown_started_at_monotonic_ns = None;
+        self.last_anomalous_state = None;
+        self.report.last_trustworthy_at_unix_ms = None;
+        self.publish_unavailable(
+            cleared_at_unix_ms,
+            code,
+            DetectionTransitionReason::IntegrityFailure,
+            true,
+        )
+    }
+
+    fn update_candidate_streak(&mut self, candidate: StormCandidate) {
+        if candidate == StormCandidate::None {
+            self.last_candidate = StormCandidate::None;
+            self.candidate_streak = 0;
+        } else if candidate == self.last_candidate {
+            self.candidate_streak = self
+                .candidate_streak
+                .saturating_add(1)
+                .min(DETECTION_ASSERT_TICKS);
+        } else {
+            self.last_candidate = candidate;
+            self.candidate_streak = 1;
+        }
+    }
+
+    fn cooldown_elapsed(
+        &self,
+        evaluated_at_monotonic_ns: u64,
+    ) -> Result<bool, DetectionEngineError> {
+        let started = self
+            .cooldown_started_at_monotonic_ns
+            .ok_or(DetectionEngineError::InvalidSignals)?;
+        let elapsed = evaluated_at_monotonic_ns
+            .checked_sub(started)
+            .ok_or(DetectionEngineError::ClockRegression)?;
+        Ok(elapsed >= DETECTION_COOLDOWN_MS.saturating_mul(1_000_000))
+    }
+
+    fn publish_unavailable(
+        &mut self,
+        evaluated_at_unix_ms: u64,
+        code: &str,
+        reason: DetectionTransitionReason,
+        reset_signals: bool,
+    ) -> Result<DetectionReport, DetectionEngineError> {
+        validate_error_code(code).map_err(|_| DetectionEngineError::InvalidErrorCode)?;
+        let previous = self.report.state;
+        if previous != DetectionState::Unavailable && !reset_signals {
+            self.resume_state = previous;
+        }
+        self.report.evaluated_at_unix_ms = evaluated_at_unix_ms;
+        self.report.last_error_code = Some(code.to_owned());
+        if reset_signals {
+            self.report.signals = DetectionSignals::warming();
+        }
+        self.report.signals.fingerprint_window =
+            FingerprintWindowReport::unavailable(code)
+                .map_err(|_| DetectionEngineError::InvalidErrorCode)?;
+        self.report.candidate_streak = self.candidate_streak;
+        self.report.clear_streak = self.clear_streak;
+        if previous != DetectionState::Unavailable {
+            self.record_transition(
+                previous,
+                DetectionState::Unavailable,
+                reason,
+                evaluated_at_unix_ms,
+            )?;
+        }
+        self.sync_retained_state();
+        self.sync_history();
+        self.report
+            .validate()
+            .map_err(|_| DetectionEngineError::InvalidSignals)?;
+        Ok(self.report.clone())
+    }
+
+    fn record_transition(
+        &mut self,
+        previous_state: DetectionState,
+        current_state: DetectionState,
+        reason: DetectionTransitionReason,
+        occurred_at_unix_ms: u64,
+    ) -> Result<(), DetectionEngineError> {
+        let sequence = self
+            .transition_sequence
+            .checked_add(1)
+            .ok_or(DetectionEngineError::SequenceOverflow)?;
+        self.transition_sequence = sequence;
+        if self.transitions.len() == DETECTION_TRANSITION_CAPACITY {
+            self.transitions.pop_front();
+        }
+        self.transitions.push_back(DetectionTransition {
+            sequence,
+            previous_state,
+            current_state,
+            reason,
+            occurred_at_unix_ms,
+        });
+        self.report.state = current_state;
+        self.report.state_since_unix_ms = occurred_at_unix_ms;
+        Ok(())
+    }
+
+    fn sync_retained_state(&mut self) {
+        self.report.retained_anomalous_state = match self.report.state {
+            DetectionState::Cooldown => self.last_anomalous_state,
+            DetectionState::Unavailable => {
+                if self.resume_state.is_anomalous() {
+                    Some(self.resume_state)
+                } else if self.resume_state == DetectionState::Cooldown {
+                    self.last_anomalous_state
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+    }
+
+    fn sync_history(&mut self) {
+        self.report.transition_sequence = self.transition_sequence;
+        self.report.transitions = self.transitions.iter().copied().collect();
+    }
+}
+
+fn evidence_ready(signals: &DetectionSignals) -> bool {
+    signals.source_window_end_unix_ms.is_some()
+        && signals.ingress.bum_packets_per_second.is_some()
+        && signals.egress.bum_packets_per_second.is_some()
+        && signals.ingress.baseline_elevated.is_some()
+        && signals.egress.baseline_elevated.is_some()
+}
+
+const fn candidate_state(candidate: StormCandidate) -> Option<DetectionState> {
+    match candidate {
+        StormCandidate::None => None,
+        StormCandidate::Ingress => Some(DetectionState::IngressStormConfirmed),
+        StormCandidate::Egress => Some(DetectionState::EgressStormConfirmed),
+        StormCandidate::Bidirectional => Some(DetectionState::BidirectionalStormConfirmed),
+    }
+}
+
+fn strongest_anomaly(
+    candidate: Option<DetectionState>,
+    signals: &DetectionSignals,
+) -> Option<DetectionState> {
+    let supports_relationship = matches!(
+        signals.candidate,
+        StormCandidate::Ingress | StormCandidate::Bidirectional
+    );
+    if supports_relationship && signals.loop_high_confidence == Some(true) {
+        Some(DetectionState::ExternalLoopHighConfidence)
+    } else if supports_relationship && signals.loop_suspected == Some(true) {
+        Some(DetectionState::ExternalLoopSuspected)
+    } else {
+        candidate
+    }
+}
+
+const fn is_relationship_state(state: DetectionState) -> bool {
+    matches!(
+        state,
+        DetectionState::ExternalLoopSuspected | DetectionState::ExternalLoopHighConfidence
+    )
+}
+
+const fn anomaly_rank(state: DetectionState) -> u8 {
+    match state {
+        DetectionState::EgressStormConfirmed => 1,
+        DetectionState::IngressStormConfirmed => 2,
+        DetectionState::BidirectionalStormConfirmed => 3,
+        DetectionState::ExternalLoopSuspected => 4,
+        DetectionState::ExternalLoopHighConfidence => 5,
+        _ => 0,
+    }
+}
+
+const fn reason_for_assertion(state: DetectionState) -> DetectionTransitionReason {
+    match state {
+        DetectionState::ExternalLoopSuspected => DetectionTransitionReason::RelationshipSuspected,
+        DetectionState::ExternalLoopHighConfidence => {
+            DetectionTransitionReason::RelationshipHighConfidence
+        }
+        _ => DetectionTransitionReason::StormAsserted,
+    }
 }
 
 impl DetectionReport {
