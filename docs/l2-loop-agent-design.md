@@ -1,13 +1,13 @@
 # 二层环路检测 Agent 设计方案
 
 日期：2026-08-06  
-状态：产品设计基线；已实现只读预检、隔离安全挂载、隔离被动累计观测、有界固定速率窗口、动态基线、有界指纹关系和观测健康
+状态：产品设计基线；已实现只读预检、隔离安全挂载、隔离被动累计观测、有界固定速率窗口、动态基线、有界指纹关系、观测健康和被动检测状态机
 实现语言：Rust + eBPF/XDP/TC  
 范围：独立物理 Agent，不依赖 Neutron，不进行跨节点通信
 
-当前实现边界比完整产品设计更窄：只允许生成的隔离 network namespace/veth 会话，已实现单层 VLAN 二层分类、XDP ingress/TC egress 按 generation 累计 packets/bytes、真实 `observe/status`、身份精确回滚、daemon 内存中的 1 Hz 后台采样、固定 1/10/60 秒 PPS/BPS 窗口、基于固定 10 秒窗口的动态基线、有界被动帧指纹、隐私缩减的 ingress/egress 关系以及独立观测健康。速率历史每个 generation 最多保留 64 个成功样本；基线为 16 个 subject，每个容量 300、至少 60 个样本，使用 upper median/MAD、6 倍 MAD、4 倍 median、10 pps 与 16 KiB/s 噪声下限。指纹使用固定 shift 4、8,192 项 LRU，并仅在请求读取时聚合关系。请求读取不学习或重算基线。Observation schema 为 4，控制协议仍为 1。100 ms 采样、持久化历史、绝对安全阈值、环路状态机、证据包、主动探针、限速及生产/物理接口挂载仍是后续阶段，不能把本文件中的完整产品能力理解为当前可用命令。
+当前实现边界比完整产品设计更窄：只允许生成的隔离 network namespace/veth 会话，已实现单层 VLAN 二层分类、XDP ingress/TC egress 按 generation 累计 packets/bytes、真实 `observe/status`、身份精确回滚、daemon 内存中的 1 Hz 后台采样、固定 1/10/60 秒 PPS/BPS 窗口、基于固定 10 秒窗口的动态基线、有界被动帧指纹、隐私缩减的 ingress/egress 关系、独立观测健康和 generation-scoped 被动检测状态机。速率历史每个 generation 最多保留 64 个成功样本；基线为 16 个 subject，每个容量 300、至少 60 个样本，使用 upper median/MAD、6 倍 MAD、4 倍 median、10 pps 与 16 KiB/s 噪声下限。指纹使用固定 shift 4、8,192 项 LRU；请求时聚合累计关系，后台每 10 秒进行一次身份确认的完整扫描并计算 delta。请求读取不学习或重算任何历史。Observation schema 为 5，控制协议仍为 1。当前被动状态最高只到 `external_loop_high_confidence`；100 ms 采样、持久化历史、证据包/告警、确认环路、主动探针、限速及生产/物理接口挂载仍是后续阶段，不能把本文件中的完整产品能力理解为当前可用命令。
 
-当前动态基线只表达同一 generation 内的相对速率偏离，不表达“正常”“安全”“风暴”或“环路”。状态固定为 `learning`、`within_baseline`、`elevated`、`unavailable`；可信 elevated 不会把观测健康降级。初始约 69～70 秒学习盲区允许持续异常被学入基线。ready 后任一 PPS/BPS 指标 elevated 时，该 subject 的成对样本整体拒绝，其他 subject 继续学习。瞬时采样故障保留历史并在恢复时先比较后接纳；身份、generation、时钟、计数器或完整性失败清空历史；detach/shutdown 销毁历史。
+动态基线本身仍只表达同一 generation 内的相对速率偏离，不表达“安全”或“环路”；可信 elevated 不会把观测健康降级。被动检测器在基线之上增加固定自适应路径，并用 1 秒绝对阈值路径覆盖约 69～70 秒学习盲区。相同 storm candidate 连续 3 tick 才确认，弱化/清除需要 10 tick，清除后保留最后异常并冷却 30 秒；状态最高只到 `external_loop_high_confidence`，不能确认因果。瞬时采样故障保留有界历史并在恢复时先比较后接纳；身份、generation、时钟、计数器或完整性失败清空历史；detach/shutdown 销毁历史。
 
 ## 1. 设计结论
 
