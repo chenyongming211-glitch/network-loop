@@ -1,8 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use l2_loop_common::{
-    FingerprintKey, FingerprintValue, NO_VLAN, direction,
-};
+use l2_loop_common::{FingerprintKey, FingerprintValue, NO_VLAN, direction};
 use serde::{Deserialize, Serialize};
 
 use crate::DomainError;
