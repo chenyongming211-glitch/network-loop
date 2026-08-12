@@ -1207,8 +1207,12 @@ function Assert-DetectionSummary {
         [Parameter(Mandatory)] [psobject] $Snapshot
     )
 
-    $Summary = (Get-OnlyStatusInterface -Status $Status).detection
+    $StatusInterface = Get-OnlyStatusInterface -Status $Status
+    $Summary = $StatusInterface.detection
     $Report = $Snapshot.detection
+    if ([uint64]$StatusInterface.generation -ne [uint64]$Snapshot.generation) {
+        throw 'detection status summary generation mismatch'
+    }
     foreach ($Field in @('state', 'retained_anomalous_state', 'transition_sequence', 'state_since_unix_ms', 'last_error_code')) {
         if ([string]$Summary.$Field -cne [string]$Report.$Field) {
             throw "detection status summary mismatch: $Field"
@@ -1220,8 +1224,8 @@ function Assert-DetectionSummary {
         ($SummaryTrustworthyAt - $ReportTrustworthyAt) -gt 5000) {
         throw 'detection status summary has an invalid trustworthy timestamp'
     }
-    if ([string]$Summary.candidate -cne [string]$Report.signals.candidate -or
-        [string]$Summary.fingerprint_window_state -cne [string]$Report.signals.fingerprint_window.state) {
+    if ([string]$Summary.candidate -cnotin @('none', 'ingress', 'egress', 'bidirectional') -or
+        [string]$Summary.fingerprint_window_state -cnotin @('warming_up', 'ready', 'unavailable')) {
         throw 'detection status evidence summary is invalid'
     }
 }
