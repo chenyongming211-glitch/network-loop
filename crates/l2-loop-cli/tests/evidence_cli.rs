@@ -41,8 +41,7 @@ fn evidence_list_applies_fixed_default_and_forwards_bound_filter_and_cursor() {
             interface: Some(InterfaceName::new("l2h0123456789").unwrap()),
             limit: EVIDENCE_LIST_MAX_LIMIT,
             cursor: Some(
-                "1-0000000000000001-01010101010101010101010101010101-af63bc4c8601b62c"
-                    .to_owned()
+                "1-0000000000000001-01010101010101010101010101010101-af63bc4c8601b62c".to_owned()
             ),
         }
     );
@@ -52,14 +51,7 @@ fn evidence_list_applies_fixed_default_and_forwards_bound_filter_and_cursor() {
 fn evidence_list_refuses_zero_and_above_max_before_transport() {
     for invalid in ["0", "201"] {
         assert!(
-            Cli::try_parse_from([
-                "l2-loopctl",
-                "evidence",
-                "list",
-                "--limit",
-                invalid,
-            ])
-            .is_err()
+            Cli::try_parse_from(["l2-loopctl", "evidence", "list", "--limit", invalid,]).is_err()
         );
     }
 }
@@ -81,8 +73,7 @@ fn evidence_show_parses_only_a_canonical_event_id_before_transport() {
     for invalid in ["../0101010101010101010101010101", "ABC", "é"] {
         assert!(
             ParsedCli::try_from(
-                Cli::try_parse_from(["l2-loopctl", "evidence", "show", "--id", invalid])
-                    .unwrap()
+                Cli::try_parse_from(["l2-loopctl", "evidence", "show", "--id", invalid]).unwrap()
             )
             .is_err()
         );

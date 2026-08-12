@@ -1,8 +1,8 @@
 use l2_loop_agent::protocol::ControlResponse;
 use l2_loop_cli::{OutputFormat, render_response};
 use l2_loop_core::{
-    AgentResult, AlertCode, AlertSeverity, DetectionState, EvidenceIntegrity, EvidenceListPageV1,
-    EvidenceSummaryV1, EventId, InterfaceName,
+    AgentResult, AlertCode, AlertSeverity, DetectionState, EventId, EvidenceIntegrity,
+    EvidenceListPageV1, EvidenceSummaryV1, InterfaceName,
 };
 
 fn summary() -> EvidenceSummaryV1 {
