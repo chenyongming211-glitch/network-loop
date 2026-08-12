@@ -103,8 +103,11 @@ async fn observe_round_trips_from_the_cli_client_through_the_daemon_dispatcher()
     assert!(observe_text.stdout.contains("pps: 7"));
     assert!(observe_text.stdout.contains("baseline:"));
     assert!(observe_text.stdout.contains("learning_subject_count: 16"));
+    assert!(observe_text.stdout.contains("fingerprints:"));
+    assert!(observe_text.stdout.contains("correlated_relation_count: 1"));
     let observe_value: serde_json::Value = serde_json::from_str(&observe_json.stdout).unwrap();
     assert_eq!(observe_value["schema_version"], 4);
+    assert_eq!(observe_value["fingerprints"]["state"], "observed");
     assert_eq!(
         observe_value["rate_windows"][0]["hooks"][0]["total"]["bytes_per_second"],
         700
@@ -131,7 +134,20 @@ async fn observe_round_trips_from_the_cli_client_through_the_daemon_dispatcher()
     assert!(status_text.stdout.contains("baseline:"));
     assert!(status_text.stdout.contains("subject_sample_counts:"));
     assert!(status_text.stdout.contains("elevated:"));
+    assert!(status_text.stdout.contains("fingerprints:"));
+    assert!(status_text.stdout.contains("correlated_relation_count: 1"));
     assert!(!status_text.stdout.contains("traffic_class:"));
+    for prohibited in [
+        "source_mac",
+        "destination_mac",
+        "first_seen_ns",
+        "last_seen_ns",
+        "fingerprint\"",
+    ] {
+        assert!(!observe_text.stdout.contains(prohibited));
+        assert!(!observe_json.stdout.contains(prohibited));
+        assert!(!status_text.stdout.contains(prohibited));
+    }
 
     assert_eq!(
         calls.lock().unwrap().as_slice(),
@@ -245,7 +261,7 @@ const CLASS_ORDER: [TrafficClass; OBSERVED_CLASS_COUNT] = [
 ];
 
 fn observation() -> ObservationSnapshot {
-    ObservationSnapshot::new(
+    let mut snapshot = ObservationSnapshot::new(
         InterfaceName::new("l2h0123456789").unwrap(),
         41,
         7,
@@ -258,7 +274,17 @@ fn observation() -> ObservationSnapshot {
         SamplingStatus::default(),
         detailed_rate_windows(),
     )
-    .unwrap()
+    .unwrap();
+    snapshot.fingerprints.state = l2_loop_core::FingerprintState::Observed;
+    snapshot.fingerprints.captured_entry_count = 2;
+    snapshot.fingerprints.relation_count = 1;
+    snapshot.fingerprints.correlated_relation_count = 1;
+    snapshot.fingerprints.ingress_first_relation_count = 1;
+    snapshot.fingerprints.ingress.packets = 2;
+    snapshot.fingerprints.ingress.bytes = 128;
+    snapshot.fingerprints.egress.packets = 3;
+    snapshot.fingerprints.egress.bytes = 192;
+    snapshot
 }
 
 fn status_from(snapshot: &ObservationSnapshot) -> InterfaceStatus {
