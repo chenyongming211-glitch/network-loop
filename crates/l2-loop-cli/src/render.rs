@@ -2,7 +2,9 @@ use std::fmt::Write;
 
 use l2_loop_agent::protocol::{ControlResponse, ERROR_INTERNAL, ResponseBody};
 use l2_loop_core::{
-    AgentResult, InterfaceStatus, ObservationSnapshot, PreflightDecision, PreflightReport,
+    AgentResult, DetailedRateWindow, HookRate, InterfaceStatus, ObservationCounters,
+    ObservationSnapshot, PreflightDecision, PreflightReport, RateCounters, SamplingStatus,
+    StatusRateWindow,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -73,7 +75,11 @@ pub fn render_response(response: ControlResponse, format: OutputFormat) -> Rende
 }
 
 fn render_observation(snapshot: &ObservationSnapshot, format: OutputFormat) -> RenderedOutput {
-    render_serializable(snapshot, format)
+    let rendered = match format {
+        OutputFormat::Text => render_observation_text(snapshot),
+        OutputFormat::Json => serde_json::to_string_pretty(snapshot),
+    };
+    rendered_output(rendered, EXIT_SUCCESS)
 }
 
 #[derive(Serialize)]
@@ -82,19 +88,310 @@ struct StatusOutput<'a> {
 }
 
 fn render_status(interfaces: &[InterfaceStatus], format: OutputFormat) -> RenderedOutput {
-    render_serializable(&StatusOutput { interfaces }, format)
+    let rendered = match format {
+        OutputFormat::Text => render_status_text(interfaces),
+        OutputFormat::Json => serde_json::to_string_pretty(&StatusOutput { interfaces }),
+    };
+    rendered_output(rendered, EXIT_SUCCESS)
 }
 
-fn render_serializable<T>(value: &T, format: OutputFormat) -> RenderedOutput
-where
-    T: Serialize,
-{
-    let rendered = match format {
-        OutputFormat::Text => render_text(value),
-        OutputFormat::Json => serde_json::to_string_pretty(value),
+fn render_observation_text(
+    snapshot: &ObservationSnapshot,
+) -> Result<String, serde_json::Error> {
+    let mut output = String::new();
+    writeln!(output, "schema_version: {}", snapshot.schema_version).ok();
+    writeln!(output, "interface: {}", snapshot.interface.as_str()).ok();
+    writeln!(output, "ifindex: {}", snapshot.ifindex).ok();
+    writeln!(output, "generation: {}", snapshot.generation).ok();
+    writeln!(
+        output,
+        "captured_at_unix_ms: {}",
+        snapshot.captured_at_unix_ms
+    )
+    .ok();
+    writeln!(
+        output,
+        "vlan_visibility: {}",
+        serialized_scalar(&snapshot.vlan_visibility)?
+    )
+    .ok();
+    writeln!(
+        output,
+        "health: {}",
+        serialized_scalar(&snapshot.health)?
+    )
+    .ok();
+    writeln!(output, "hooks:").ok();
+    for hook in &snapshot.hooks {
+        render_cumulative_hook(&mut output, hook)?;
+    }
+    render_sampling_status(&mut output, &snapshot.sampling, 0);
+    writeln!(output, "rate_windows:").ok();
+    for window in &snapshot.rate_windows {
+        render_detailed_window(&mut output, window)?;
+    }
+    Ok(output.trim_end().to_owned())
+}
+
+fn render_status_text(interfaces: &[InterfaceStatus]) -> Result<String, serde_json::Error> {
+    let mut output = String::new();
+    writeln!(output, "interfaces:").ok();
+    if interfaces.is_empty() {
+        writeln!(output, "  []").ok();
+    }
+    for interface in interfaces {
+        writeln!(output, "  -").ok();
+        writeln!(output, "    interface: {}", interface.interface.as_str()).ok();
+        writeln!(
+            output,
+            "    state: {}",
+            serialized_scalar(&interface.state)?
+        )
+        .ok();
+        writeln!(output, "    generation: {}", interface.generation).ok();
+        writeln!(
+            output,
+            "    captured_at_unix_ms: {}",
+            interface.captured_at_unix_ms
+        )
+        .ok();
+        writeln!(
+            output,
+            "    health: {}",
+            serialized_scalar(&interface.health)?
+        )
+        .ok();
+        writeln!(
+            output,
+            "    vlan_visibility: {}",
+            serialized_scalar(&interface.vlan_visibility)?
+        )
+        .ok();
+        render_cumulative_counters(&mut output, "xdp_ingress", interface.xdp_ingress, 4);
+        render_cumulative_counters(&mut output, "tc_egress", interface.tc_egress, 4);
+        render_sampling_status(&mut output, &interface.sampling, 4);
+        writeln!(output, "    rate_windows:").ok();
+        for window in &interface.rate_windows {
+            render_status_window(&mut output, window)?;
+        }
+    }
+    Ok(output.trim_end().to_owned())
+}
+
+fn render_cumulative_hook(
+    output: &mut String,
+    hook: &l2_loop_core::HookObservation,
+) -> Result<(), serde_json::Error> {
+    writeln!(output, "  -").ok();
+    writeln!(
+        output,
+        "    role: {}",
+        serialized_scalar(&hook.role)?
+    )
+    .ok();
+    render_cumulative_counters(output, "total", hook.total, 4);
+    writeln!(output, "    classes:").ok();
+    for class in &hook.classes {
+        writeln!(output, "      -").ok();
+        writeln!(
+            output,
+            "        traffic_class: {}",
+            serialized_scalar(&class.traffic_class)?
+        )
+        .ok();
+        render_cumulative_counters(output, "counters", class.counters, 8);
+    }
+    render_cumulative_counters(output, "parse_errors", hook.parse_errors, 4);
+    Ok(())
+}
+
+fn render_cumulative_counters(
+    output: &mut String,
+    label: &str,
+    counters: ObservationCounters,
+    indent: usize,
+) {
+    let padding = " ".repeat(indent);
+    writeln!(output, "{padding}{label}:").ok();
+    writeln!(output, "{padding}  packets: {}", counters.packets).ok();
+    writeln!(output, "{padding}  bytes: {}", counters.bytes).ok();
+}
+
+fn render_sampling_status(output: &mut String, sampling: &SamplingStatus, indent: usize) {
+    let padding = " ".repeat(indent);
+    writeln!(output, "{padding}sampling:").ok();
+    writeln!(
+        output,
+        "{padding}  latest_success_at_unix_ms: {}",
+        option_number(sampling.latest_success_at_unix_ms)
+    )
+    .ok();
+    writeln!(
+        output,
+        "{padding}  last_error_code: {}",
+        sampling.last_error_code.as_deref().unwrap_or("null")
+    )
+    .ok();
+    writeln!(
+        output,
+        "{padding}  consecutive_failures: {}",
+        sampling.consecutive_failures
+    )
+    .ok();
+    writeln!(
+        output,
+        "{padding}  sampling_paused: {}",
+        sampling.sampling_paused
+    )
+    .ok();
+}
+
+fn render_detailed_window(
+    output: &mut String,
+    window: &DetailedRateWindow,
+) -> Result<(), serde_json::Error> {
+    render_window_header(output, window.window_ms, &window.state, window.coverage_ms, 2)?;
+    let Some(hooks) = &window.hooks else {
+        return Ok(());
     };
+    render_window_evidence(
+        output,
+        window.elapsed_ns,
+        window.start_unix_ms,
+        window.end_unix_ms,
+        4,
+    );
+    writeln!(output, "    hooks:").ok();
+    for hook in hooks {
+        render_hook_rate(output, hook)?;
+    }
+    Ok(())
+}
+
+fn render_status_window(
+    output: &mut String,
+    window: &StatusRateWindow,
+) -> Result<(), serde_json::Error> {
+    render_window_header(output, window.window_ms, &window.state, window.coverage_ms, 6)?;
+    let (Some(xdp), Some(tc)) = (window.xdp_ingress, window.tc_egress) else {
+        return Ok(());
+    };
+    render_window_evidence(
+        output,
+        window.elapsed_ns,
+        window.start_unix_ms,
+        window.end_unix_ms,
+        8,
+    );
+    render_rate_counters(output, "xdp_ingress", xdp, 8);
+    render_rate_counters(output, "tc_egress", tc, 8);
+    Ok(())
+}
+
+fn render_window_header<T: Serialize>(
+    output: &mut String,
+    window_ms: u64,
+    state: &T,
+    coverage_ms: u64,
+    indent: usize,
+) -> Result<(), serde_json::Error> {
+    let padding = " ".repeat(indent);
+    writeln!(output, "{padding}-").ok();
+    writeln!(output, "{padding}  window: {}", window_label(window_ms)).ok();
+    writeln!(
+        output,
+        "{padding}  state: {}",
+        serialized_scalar(state)?
+    )
+    .ok();
+    writeln!(output, "{padding}  coverage_ms: {coverage_ms}").ok();
+    Ok(())
+}
+
+fn render_window_evidence(
+    output: &mut String,
+    elapsed_ns: Option<u64>,
+    start_unix_ms: Option<u64>,
+    end_unix_ms: Option<u64>,
+    indent: usize,
+) {
+    let padding = " ".repeat(indent);
+    writeln!(output, "{padding}elapsed_ns: {}", option_number(elapsed_ns)).ok();
+    writeln!(
+        output,
+        "{padding}start_unix_ms: {}",
+        option_number(start_unix_ms)
+    )
+    .ok();
+    writeln!(
+        output,
+        "{padding}end_unix_ms: {}",
+        option_number(end_unix_ms)
+    )
+    .ok();
+}
+
+fn render_hook_rate(output: &mut String, hook: &HookRate) -> Result<(), serde_json::Error> {
+    writeln!(output, "      -").ok();
+    writeln!(
+        output,
+        "        role: {}",
+        serialized_scalar(&hook.role)?
+    )
+    .ok();
+    render_rate_counters(output, "total", hook.total, 8);
+    writeln!(output, "        classes:").ok();
+    for class in &hook.classes {
+        writeln!(output, "          -").ok();
+        writeln!(
+            output,
+            "            traffic_class: {}",
+            serialized_scalar(&class.traffic_class)?
+        )
+        .ok();
+        render_rate_counters(output, "counters", class.counters, 12);
+    }
+    render_rate_counters(output, "parse_errors", hook.parse_errors, 8);
+    Ok(())
+}
+
+fn render_rate_counters(output: &mut String, label: &str, rates: RateCounters, indent: usize) {
+    let padding = " ".repeat(indent);
+    writeln!(output, "{padding}{label}:").ok();
+    writeln!(output, "{padding}  packet_delta: {}", rates.packet_delta).ok();
+    writeln!(output, "{padding}  byte_delta: {}", rates.byte_delta).ok();
+    writeln!(
+        output,
+        "{padding}  pps: {}",
+        rates.packets_per_second
+    )
+    .ok();
+    writeln!(output, "{padding}  B/s: {}", rates.bytes_per_second).ok();
+}
+
+fn window_label(window_ms: u64) -> &'static str {
+    match window_ms {
+        1_000 => "1s",
+        10_000 => "10s",
+        60_000 => "60s",
+        _ => "invalid",
+    }
+}
+
+fn option_number(value: Option<u64>) -> String {
+    value.map_or_else(|| "null".to_owned(), |value| value.to_string())
+}
+
+fn serialized_scalar<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
+    Ok(scalar_text(&serde_json::to_value(value)?))
+}
+
+fn rendered_output(
+    rendered: Result<String, serde_json::Error>,
+    exit_code: u8,
+) -> RenderedOutput {
     match rendered {
-        Ok(stdout) => RenderedOutput::success(stdout, EXIT_SUCCESS),
+        Ok(stdout) => RenderedOutput::success(stdout, exit_code),
         Err(_) => RenderedOutput::failure(format!("{ERROR_INTERNAL}: response rendering failed")),
     }
 }
