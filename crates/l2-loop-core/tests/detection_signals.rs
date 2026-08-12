@@ -162,7 +162,7 @@ fn suspected_requires_every_relationship_condition_and_refuses_egress_only() {
         let signals = relationship_signals(
             HookFixture::new(100_000, 0),
             HookFixture::new(0, 0),
-            HookFixture::new(800, 0),
+            ingress_share(800),
             fingerprint,
             END_MS,
         );
@@ -172,7 +172,7 @@ fn suspected_requires_every_relationship_condition_and_refuses_egress_only() {
     let low_bum_share = relationship_signals(
         HookFixture::new(100_000, 0),
         HookFixture::new(0, 0),
-        HookFixture::new(799, 0),
+        ingress_share(799),
         base.clone(),
         END_MS,
     );
@@ -181,7 +181,7 @@ fn suspected_requires_every_relationship_condition_and_refuses_egress_only() {
     let ingress = relationship_signals(
         HookFixture::new(100_000, 0),
         HookFixture::new(0, 0),
-        HookFixture::new(800, 0),
+        ingress_share(800),
         base.clone(),
         END_MS,
     );
@@ -190,7 +190,7 @@ fn suspected_requires_every_relationship_condition_and_refuses_egress_only() {
     let egress_only = relationship_signals(
         HookFixture::new(0, 0),
         HookFixture::new(100_000, 0),
-        HookFixture::new(800, 0),
+        ingress_share(800),
         base,
         END_MS,
     );
@@ -207,7 +207,7 @@ fn high_confidence_requires_egress_first_and_four_x_directional_amplification() 
     let below = relationship_signals(
         HookFixture::new(100_000, 0),
         HookFixture::new(0, 0),
-        HookFixture::new(800, 0),
+        ingress_share(800),
         fingerprint.clone(),
         END_MS,
     );
@@ -217,7 +217,7 @@ fn high_confidence_requires_egress_first_and_four_x_directional_amplification() 
     let equal = relationship_signals(
         HookFixture::new(100_000, 0),
         HookFixture::new(0, 0),
-        HookFixture::new(800, 0),
+        ingress_share(800),
         fingerprint,
         END_MS,
     );
@@ -230,7 +230,7 @@ fn stale_or_unavailable_fingerprint_evidence_cannot_upgrade_a_storm() {
     let stale = relationship_signals(
         HookFixture::new(100_000, 0),
         HookFixture::new(0, 0),
-        HookFixture::new(800, 0),
+        ingress_share(800),
         ready_fingerprint(),
         END_MS + 15_001,
     );
@@ -240,7 +240,7 @@ fn stale_or_unavailable_fingerprint_evidence_cannot_upgrade_a_storm() {
     let unavailable = relationship_signals(
         HookFixture::new(100_000, 0),
         HookFixture::new(0, 0),
-        HookFixture::new(800, 0),
+        ingress_share(800),
         FingerprintWindowReport::unavailable("FINGERPRINT_READ_FAILED").unwrap(),
         END_MS,
     );
@@ -301,6 +301,15 @@ fn relationship_signals(
         evaluated_at_unix_ms,
     )
     .unwrap()
+}
+
+const fn ingress_share(bum_pps: u64) -> HookFixture {
+    HookFixture {
+        bum_pps,
+        bum_bps: 0,
+        excluded_pps: 1_000 - bum_pps,
+        excluded_bps: 0,
+    }
 }
 
 fn derive(

@@ -1,8 +1,12 @@
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::{
-    DomainError, FingerprintWindowReport, FingerprintWindowState, RateIdentity,
+    BaselineReport, BaselineState, BaselineSubject, DetailedRateWindow, DomainError,
+    FingerprintWindowReport, FingerprintWindowState, HookRate, HookRole, RateIdentity,
+    RateWindowState, TrafficClass,
     fingerprint_window::validate_error_code,
+    rate::validate_detailed_rate_windows,
 };
 
 pub const DETECTION_ADAPTIVE_PACKET_FLOOR_PPS: u64 = 1_000;
@@ -127,6 +131,22 @@ pub struct DetectionSignals {
     pub loop_high_confidence: Option<bool>,
 }
 
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+pub enum DetectionError {
+    #[error("rate evidence is invalid for passive detection")]
+    InvalidRateEvidence,
+    #[error("baseline evidence is invalid for passive detection")]
+    InvalidBaselineEvidence,
+    #[error("fingerprint-window evidence is invalid for passive detection")]
+    InvalidFingerprintEvidence,
+    #[error("passive detection source windows do not share one endpoint")]
+    SourceEndpointMismatch,
+    #[error("passive detection wall clock precedes its evidence")]
+    ClockRegression,
+    #[error("passive detection checked arithmetic failed")]
+    CalculationFailed,
+}
+
 impl DetectionSignals {
     pub const fn warming() -> Self {
         Self {
@@ -138,6 +158,72 @@ impl DetectionSignals {
             loop_suspected: None,
             loop_high_confidence: None,
         }
+    }
+
+    pub fn derive(
+        rate_windows: &[DetailedRateWindow; crate::RATE_WINDOW_COUNT],
+        baseline: &BaselineReport,
+        fingerprint_window: &FingerprintWindowReport,
+        evaluated_at_unix_ms: u64,
+    ) -> Result<Self, DetectionError> {
+        validate_detailed_rate_windows(rate_windows)
+            .map_err(|_| DetectionError::InvalidRateEvidence)?;
+        baseline
+            .validate()
+            .map_err(|_| DetectionError::InvalidBaselineEvidence)?;
+        fingerprint_window
+            .validate()
+            .map_err(|_| DetectionError::InvalidFingerprintEvidence)?;
+
+        let one_second = fixed_window(rate_windows, 1_000)?;
+        let ten_second = fixed_window(rate_windows, 10_000)?;
+        let source_window_end_unix_ms = validate_source_endpoints(
+            rate_windows,
+            baseline,
+            fingerprint_window,
+            evaluated_at_unix_ms,
+        )?;
+
+        let ingress = derive_hook(
+            one_second,
+            ten_second,
+            baseline,
+            HookRole::ExternalXdpIngress,
+        )?;
+        let egress = derive_hook(
+            one_second,
+            ten_second,
+            baseline,
+            HookRole::PhysicalTcEgress,
+        )?;
+        let ingress_candidate = hook_is_candidate(&ingress);
+        let egress_candidate = hook_is_candidate(&egress);
+        let candidate = match (ingress_candidate, egress_candidate) {
+            (false, false) => StormCandidate::None,
+            (true, false) => StormCandidate::Ingress,
+            (false, true) => StormCandidate::Egress,
+            (true, true) => StormCandidate::Bidirectional,
+        };
+
+        let (loop_suspected, loop_high_confidence) = derive_relationship_signals(
+            candidate,
+            &ingress,
+            fingerprint_window,
+            evaluated_at_unix_ms,
+        )?;
+        let signals = Self {
+            source_window_end_unix_ms,
+            ingress,
+            egress,
+            candidate,
+            fingerprint_window: fingerprint_window.clone(),
+            loop_suspected,
+            loop_high_confidence,
+        };
+        signals
+            .validate()
+            .map_err(|_| DetectionError::CalculationFailed)?;
+        Ok(signals)
     }
 
     pub fn validate(&self) -> Result<(), DomainError> {
@@ -156,6 +242,224 @@ impl DetectionSignals {
         }
         Ok(())
     }
+}
+
+fn fixed_window(
+    windows: &[DetailedRateWindow; crate::RATE_WINDOW_COUNT],
+    window_ms: u64,
+) -> Result<&DetailedRateWindow, DetectionError> {
+    windows
+        .iter()
+        .find(|window| window.window_ms == window_ms)
+        .ok_or(DetectionError::InvalidRateEvidence)
+}
+
+fn validate_source_endpoints(
+    rate_windows: &[DetailedRateWindow; crate::RATE_WINDOW_COUNT],
+    baseline: &BaselineReport,
+    fingerprint_window: &FingerprintWindowReport,
+    evaluated_at_unix_ms: u64,
+) -> Result<Option<u64>, DetectionError> {
+    let mut source_end = None;
+    for window in rate_windows
+        .iter()
+        .filter(|window| window.state == RateWindowState::Ready)
+    {
+        let end = window
+            .end_unix_ms
+            .ok_or(DetectionError::InvalidRateEvidence)?;
+        if source_end.is_some_and(|existing| existing != end) {
+            return Err(DetectionError::SourceEndpointMismatch);
+        }
+        if end > evaluated_at_unix_ms {
+            return Err(DetectionError::ClockRegression);
+        }
+        source_end = Some(end);
+    }
+    if let Some(baseline_end) = baseline.source_end_unix_ms {
+        if source_end != Some(baseline_end) {
+            return Err(DetectionError::SourceEndpointMismatch);
+        }
+        if baseline_end > evaluated_at_unix_ms {
+            return Err(DetectionError::ClockRegression);
+        }
+    }
+    if fingerprint_window
+        .end_unix_ms
+        .is_some_and(|end| end > evaluated_at_unix_ms)
+    {
+        return Err(DetectionError::ClockRegression);
+    }
+    Ok(source_end)
+}
+
+fn derive_hook(
+    one_second: &DetailedRateWindow,
+    ten_second: &DetailedRateWindow,
+    baseline: &BaselineReport,
+    role: HookRole,
+) -> Result<HookDetectionSignals, DetectionError> {
+    let ten_second_rates = hook_rates(ten_second, role)?;
+    let one_second_rates = hook_rates(one_second, role)?;
+    let baseline_elevated = baseline_bum_elevated(baseline, role)?;
+
+    let (bum_packets_per_second, bum_bytes_per_second, bum_ratio_milli) =
+        if let Some(rates) = ten_second_rates {
+            let (packets, bytes) = bum_rates(rates)?;
+            let ratio = ratio_milli(packets, rates.total.packets_per_second)?;
+            (Some(packets), Some(bytes), Some(ratio))
+        } else {
+            (None, None, None)
+        };
+    let adaptive_candidate = match (
+        bum_packets_per_second,
+        bum_bytes_per_second,
+        baseline_elevated,
+    ) {
+        (Some(packets), Some(bytes), Some(elevated)) => Some(
+            elevated
+                && (packets >= DETECTION_ADAPTIVE_PACKET_FLOOR_PPS
+                    || bytes >= DETECTION_ADAPTIVE_BYTE_FLOOR_BPS),
+        ),
+        _ => None,
+    };
+    let absolute_candidate = one_second_rates
+        .map(bum_rates)
+        .transpose()?
+        .map(|(packets, bytes)| {
+            packets >= DETECTION_ABSOLUTE_PACKET_THRESHOLD_PPS
+                || bytes >= DETECTION_ABSOLUTE_BYTE_THRESHOLD_BPS
+        });
+
+    Ok(HookDetectionSignals {
+        bum_packets_per_second,
+        bum_bytes_per_second,
+        bum_ratio_milli,
+        baseline_elevated,
+        adaptive_candidate,
+        absolute_candidate,
+    })
+}
+
+fn hook_rates(
+    window: &DetailedRateWindow,
+    role: HookRole,
+) -> Result<Option<&HookRate>, DetectionError> {
+    if window.state != RateWindowState::Ready {
+        return Ok(None);
+    }
+    window
+        .hooks
+        .as_ref()
+        .and_then(|hooks| hooks.iter().find(|hook| hook.role == role))
+        .map(Some)
+        .ok_or(DetectionError::InvalidRateEvidence)
+}
+
+fn bum_rates(rates: &HookRate) -> Result<(u64, u64), DetectionError> {
+    let mut packets = 0_u64;
+    let mut bytes = 0_u64;
+    for class in rates.classes.iter().take(4) {
+        packets = packets
+            .checked_add(class.counters.packets_per_second)
+            .ok_or(DetectionError::CalculationFailed)?;
+        bytes = bytes
+            .checked_add(class.counters.bytes_per_second)
+            .ok_or(DetectionError::CalculationFailed)?;
+    }
+    if packets > rates.total.packets_per_second || bytes > rates.total.bytes_per_second {
+        return Err(DetectionError::InvalidRateEvidence);
+    }
+    Ok((packets, bytes))
+}
+
+fn ratio_milli(numerator: u64, denominator: u64) -> Result<u64, DetectionError> {
+    if denominator == 0 {
+        return if numerator == 0 {
+            Ok(0)
+        } else {
+            Err(DetectionError::InvalidRateEvidence)
+        };
+    }
+    let ratio = u128::from(numerator)
+        .checked_mul(1_000)
+        .ok_or(DetectionError::CalculationFailed)?
+        / u128::from(denominator);
+    u64::try_from(ratio).map_err(|_| DetectionError::CalculationFailed)
+}
+
+fn baseline_bum_elevated(
+    baseline: &BaselineReport,
+    role: HookRole,
+) -> Result<Option<bool>, DetectionError> {
+    const BUM_CLASSES: [TrafficClass; 4] = [
+        TrafficClass::L2Broadcast,
+        TrafficClass::Ipv4Multicast,
+        TrafficClass::Ipv6Multicast,
+        TrafficClass::OtherL2Multicast,
+    ];
+    let mut elevated = false;
+    for traffic_class in BUM_CLASSES {
+        let subject = baseline
+            .subjects
+            .iter()
+            .find(|subject| {
+                subject.hook == role
+                    && subject.subject == (BaselineSubject::TrafficClass { traffic_class })
+            })
+            .ok_or(DetectionError::InvalidBaselineEvidence)?;
+        match subject.state {
+            BaselineState::Learning | BaselineState::Unavailable => return Ok(None),
+            BaselineState::WithinBaseline | BaselineState::Elevated => {
+                elevated |= subject.packets.elevated == Some(true)
+                    || subject.bytes.elevated == Some(true);
+            }
+        }
+    }
+    Ok(Some(elevated))
+}
+
+fn hook_is_candidate(signals: &HookDetectionSignals) -> bool {
+    signals.adaptive_candidate == Some(true) || signals.absolute_candidate == Some(true)
+}
+
+fn derive_relationship_signals(
+    candidate: StormCandidate,
+    ingress: &HookDetectionSignals,
+    fingerprint: &FingerprintWindowReport,
+    evaluated_at_unix_ms: u64,
+) -> Result<(Option<bool>, Option<bool>), DetectionError> {
+    if fingerprint.state != FingerprintWindowState::Ready {
+        return Ok((None, None));
+    }
+    let end = fingerprint
+        .end_unix_ms
+        .ok_or(DetectionError::InvalidFingerprintEvidence)?;
+    let age = evaluated_at_unix_ms
+        .checked_sub(end)
+        .ok_or(DetectionError::ClockRegression)?;
+    if age > crate::DETECTION_FINGERPRINT_FRESHNESS_MS {
+        return Ok((None, None));
+    }
+    let ingress_or_bidirectional = matches!(
+        candidate,
+        StormCandidate::Ingress | StormCandidate::Bidirectional
+    );
+    let suspected = ingress_or_bidirectional
+        && ingress
+            .bum_ratio_milli
+            .is_some_and(|ratio| ratio >= DETECTION_BUM_RATIO_MILLI)
+        && fingerprint.ingress.packets >= DETECTION_MINIMUM_INGRESS_SAMPLES
+        && fingerprint.repeated_relation_count > 0
+        && fingerprint
+            .dominant_ingress_packet_ratio_milli
+            .is_some_and(|ratio| ratio >= DETECTION_DOMINANT_RATIO_MILLI);
+    let high_confidence = suspected
+        && fingerprint.egress_first_correlated_relation_count > 0
+        && fingerprint
+            .maximum_ingress_to_egress_packet_ratio_milli
+            .is_some_and(|ratio| ratio >= DETECTION_AMPLIFICATION_RATIO_MILLI);
+    Ok((Some(suspected), Some(high_confidence)))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
