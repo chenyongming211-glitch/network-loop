@@ -112,6 +112,7 @@ fn renders_observation_and_status_as_stable_text_and_json() {
         sampling: snapshot.sampling.clone(),
         rate_windows: status_rate_windows(),
         baseline: l2_loop_core::BaselineSummary::from_report(&snapshot.baseline),
+        fingerprints: l2_loop_core::FingerprintSummary::from(&snapshot.fingerprints),
     };
 
     let text = render_response(
@@ -363,6 +364,7 @@ fn status_from(snapshot: &ObservationSnapshot) -> InterfaceStatus {
         sampling: snapshot.sampling.clone(),
         rate_windows: status_rate_windows(),
         baseline: l2_loop_core::BaselineSummary::from_report(&snapshot.baseline),
+        fingerprints: l2_loop_core::FingerprintSummary::from(&snapshot.fingerprints),
     }
 }
 

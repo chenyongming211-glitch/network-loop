@@ -274,6 +274,7 @@ fn status_from(snapshot: &ObservationSnapshot) -> InterfaceStatus {
         sampling: snapshot.sampling.clone(),
         rate_windows: status_rate_windows(),
         baseline: l2_loop_core::BaselineSummary::from_report(&snapshot.baseline),
+        fingerprints: l2_loop_core::FingerprintSummary::from(&snapshot.fingerprints),
     }
 }
 

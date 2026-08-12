@@ -1,14 +1,15 @@
 use std::time::UNIX_EPOCH;
 
 use l2_loop_core::{
-    BaselineEngine, BaselineState, BaselineSummary, InterfaceName, InterfaceState, InterfaceStatus,
-    OBSERVED_HOOK_COUNT, ObservationHealth, ObservationSnapshot, RATE_WINDOW_COUNT, RateHistory,
-    RateHistoryError, RateIdentity, RateSample, RateWindowState, SamplingStatus, StatusRateWindow,
+    BaselineEngine, BaselineState, BaselineSummary, FingerprintReport, FingerprintState,
+    FingerprintSummary, InterfaceName, InterfaceState, InterfaceStatus, OBSERVED_HOOK_COUNT,
+    ObservationHealth, ObservationSnapshot, RATE_WINDOW_COUNT, RateHistory, RateHistoryError,
+    RateIdentity, RateSample, RateWindowState, SamplingStatus, StatusRateWindow,
     warming_detailed_rate_windows, warming_status_rate_windows,
 };
 
 use crate::{
-    Clock, ObservationReadPurpose, ObservationReader, PortError, RawObservation,
+    Clock, ObservationReadPurpose, ObservationReader, PortError, RawFingerprints, RawObservation,
     ownership::OwnershipRecord,
 };
 
@@ -243,6 +244,7 @@ where
             sampling: snapshot.sampling,
             rate_windows,
             baseline,
+            fingerprints: FingerprintSummary::from(&snapshot.fingerprints),
         }])
     }
 
@@ -284,7 +286,7 @@ where
             generation,
             vlan_visibility,
             hooks,
-            fingerprints: _,
+            fingerprints,
         } = self
             .reader
             .read_exact(ownership, ObservationReadPurpose::Request)
@@ -339,7 +341,13 @@ where
             .ok_or_else(session_error)?
             .cached_report()
             .clone();
-        let health = observation_health(&sampling, &rate_windows, baseline.state);
+        let fingerprints = fingerprint_report(ifindex, generation, fingerprints)?;
+        let health = observation_health(
+            &sampling,
+            &rate_windows,
+            baseline.state,
+            fingerprints.state,
+        );
         let mut snapshot = ObservationSnapshot::new(
             requested.clone(),
             ifindex,
@@ -353,6 +361,7 @@ where
         .map_err(|_| snapshot_error())?;
         snapshot.health = health;
         snapshot.baseline = baseline;
+        snapshot.fingerprints = fingerprints;
         Ok((snapshot, status_rate_windows))
     }
 }
@@ -402,6 +411,7 @@ fn observation_health(
     sampling: &SamplingStatus,
     windows: &[l2_loop_core::DetailedRateWindow; RATE_WINDOW_COUNT],
     baseline_state: BaselineState,
+    fingerprint_state: FingerprintState,
 ) -> ObservationHealth {
     if sampling.sampling_paused
         || sampling.last_error_code.is_some()
@@ -409,10 +419,27 @@ fn observation_health(
             .iter()
             .any(|window| window.state == RateWindowState::Stale)
         || baseline_state == BaselineState::Unavailable
+        || fingerprint_state == FingerprintState::Unavailable
     {
         ObservationHealth::Degraded
     } else {
         ObservationHealth::Healthy
+    }
+}
+
+fn fingerprint_report(
+    ifindex: u32,
+    generation: u64,
+    raw: RawFingerprints,
+) -> Result<FingerprintReport, ObservationError> {
+    match raw {
+        RawFingerprints::NotRequested => Ok(FingerprintReport::empty()),
+        RawFingerprints::Available(evidence) => {
+            FingerprintReport::build(ifindex, generation, evidence).map_err(|_| snapshot_error())
+        }
+        RawFingerprints::Unavailable { code } => {
+            FingerprintReport::unavailable(code).map_err(|_| snapshot_error())
+        }
     }
 }
 
@@ -483,7 +510,7 @@ where
             generation,
             vlan_visibility,
             hooks,
-            fingerprints: _,
+            fingerprints,
         } = self
             .reader
             .read_exact(ownership, ObservationReadPurpose::Request)
@@ -494,7 +521,7 @@ where
 
         let captured_at_unix_ms = wall_time_ms(&self.clock).ok_or_else(snapshot_error)?;
 
-        ObservationSnapshot::new(
+        let mut snapshot = ObservationSnapshot::new(
             requested.clone(),
             ifindex,
             generation,
@@ -504,7 +531,12 @@ where
             SamplingStatus::default(),
             warming_detailed_rate_windows(),
         )
-        .map_err(|_| snapshot_error())
+        .map_err(|_| snapshot_error())?;
+        snapshot.fingerprints = fingerprint_report(ifindex, generation, fingerprints)?;
+        if snapshot.fingerprints.state == FingerprintState::Unavailable {
+            snapshot.health = ObservationHealth::Degraded;
+        }
+        Ok(snapshot)
     }
 
     pub fn status(
@@ -540,6 +572,7 @@ where
             sampling: snapshot.sampling,
             rate_windows: warming_status_rate_windows(),
             baseline,
+            fingerprints: FingerprintSummary::from(&snapshot.fingerprints),
         }])
     }
 }
