@@ -115,7 +115,7 @@ foreach ($Required in @(
     "'snapshot'",
     "'verify-owned'",
     "'counters'",
-    "[ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset')]",
+    "[ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset', 'BaselineLifecycle', 'BaselineSamplingRecovery', 'BaselineGenerationReset')]",
     'L2_LOOP_ACCEPTANCE_FAULT',
     'TC_ATTACH_FAILED',
     'MAP_INITIALIZE_FAILED',
@@ -197,6 +197,45 @@ Assert-True (-not [regex]::IsMatch($Harness, '(?m)Assert-StatusRateWindows -Stat
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)Assert-DetailedRateWindows -Snapshot \$(?:FirstGeneration|SecondGenerationReady)[^\r\n]*-RequireTraffic')) 'generation reset duplicates the fixed-traffic rate assertion'
 $GenerationLifecycle = '(?s)''RateGenerationReset'' \{(?:(?!''ObservationMapFailure'').)*\$FirstDetach(?:(?!''ObservationMapFailure'').)*-Phase ''links-down''(?:(?!''ObservationMapFailure'').)*first generation detach did not restore prepared state(?:(?!''ObservationMapFailure'').)*\$SecondAttach(?:(?!''ObservationMapFailure'').)*''verify-second-hooks''(?:(?!''ObservationMapFailure'').)*-Phase ''links-up''(?:(?!''ObservationMapFailure'').)*\$SecondGenerationInitial(?:(?!''ObservationMapFailure'').)*\$SecondDetach(?:(?!''ObservationMapFailure'').)*-Phase ''links-down''(?:(?!''ObservationMapFailure'').)*second generation detach did not restore prepared state'
 Assert-True ([regex]::IsMatch($Harness, $GenerationLifecycle)) 'generation reset does not symmetrically restore the generated link lifecycle'
+
+foreach ($Required in @(
+    "'BaselineLifecycle'",
+    "'BaselineSamplingRecovery'",
+    "'BaselineGenerationReset'",
+    'BASELINE_LEARNING_SECONDS=70',
+    'BASELINE_ELEVATED_FRAMES=128',
+    'BASELINE_SUBJECT_COUNT=16',
+    'BASELINE_METRIC_COUNT=32',
+    'schema_version -ne 3',
+    'source_window_ms -ne 10000',
+    'capacity -ne 300',
+    'minimum_samples -ne 60',
+    'packet_noise_floor_pps -ne 10',
+    'byte_noise_floor_bps -ne 16384',
+    'Assert-BaselineReport',
+    'Assert-BaselineSummary',
+    'Assert-SubjectAtomicRejection',
+    'Assert-BaselineCountsRetained',
+    'Assert-CompareBeforeAcceptRecovery',
+    'baseline-sampling-map-read-recovery',
+    "-ExpectedState 'learning'",
+    "-ExpectedState 'within_baseline'",
+    "-ExpectedState 'elevated'",
+    "-ExpectedState 'unavailable'",
+    'Start-Sleep -Seconds $BASELINE_LEARNING_SECONDS',
+    'for ($BaselineIteration = 1; $BaselineIteration -le $BASELINE_LEARNING_SECONDS; $BaselineIteration++)',
+    '[uint64]$BASELINE_ELEVATED_FRAMES',
+    'first baseline generation detach did not restore prepared state',
+    'second baseline generation detach did not restore prepared state'
+)) {
+    Assert-True ($Harness.Contains($Required)) "harness is missing dynamic baseline marker: $Required"
+}
+$BaselineLifecycle = '(?s)''BaselineLifecycle'' \{(?:(?!''BaselineSamplingRecovery'').)*Assert-SubjectAtomicRejection(?:(?!''BaselineSamplingRecovery'').)*Assert-BaselineCountsRetained(?:(?!''BaselineSamplingRecovery'').)*-ExpectedState ''within_baseline'''
+Assert-True ([regex]::IsMatch($Harness, $BaselineLifecycle)) 'baseline lifecycle does not prove rejection, sibling learning, and recovery'
+$BaselineRecovery = '(?s)''BaselineSamplingRecovery'' \{(?:(?!''BaselineGenerationReset'').)*-ExpectedState ''unavailable''(?:(?!''BaselineGenerationReset'').)*Assert-BaselineCountsRetained(?:(?!''BaselineGenerationReset'').)*Assert-CompareBeforeAcceptRecovery'
+Assert-True ([regex]::IsMatch($Harness, $BaselineRecovery)) 'sampling recovery does not prove retention and compare-before-accept'
+$BaselineGeneration = '(?s)''BaselineGenerationReset'' \{(?:(?!''ObservationMapFailure'').)*first baseline generation detach did not restore prepared state(?:(?!''ObservationMapFailure'').)*-ExpectedState ''learning''(?:(?!''ObservationMapFailure'').)*second baseline generation detach did not restore prepared state'
+Assert-True ([regex]::IsMatch($Harness, $BaselineGeneration)) 'baseline generation reset is not symmetric and independently bounded'
 Assert-True (
     [regex]::Matches($Harness, [regex]::Escape('socket.htons(0x0003)')).Count -ge 3
 ) 'passive observation receivers do not subscribe to ETH_P_ALL'
