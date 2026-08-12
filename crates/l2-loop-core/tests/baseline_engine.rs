@@ -27,7 +27,12 @@ fn engine_learns_exact_fixed_subjects_and_becomes_ready_at_sixty() {
     assert_eq!(report.state, BaselineState::WithinBaseline);
     assert_eq!(report.learning_subject_count, 0);
     assert_eq!(report.elevated_metric_count, 0);
-    assert!(report.subjects.iter().all(|subject| subject.sample_count == 60));
+    assert!(
+        report
+            .subjects
+            .iter()
+            .all(|subject| subject.sample_count == 60)
+    );
     assert!(report.validate().is_ok());
 }
 
@@ -76,7 +81,12 @@ fn duplicate_or_regressed_endpoint_is_an_integrity_failure() {
     );
     let cleared = engine.cached_report();
     assert_eq!(cleared.state, BaselineState::Unavailable);
-    assert!(cleared.subjects.iter().all(|subject| subject.sample_count == 0));
+    assert!(
+        cleared
+            .subjects
+            .iter()
+            .all(|subject| subject.sample_count == 0)
+    );
     assert_eq!(cleared.source_end_unix_ms, None);
 }
 
@@ -85,13 +95,26 @@ fn transient_unavailable_retains_history_and_first_recovery_compares_before_acce
     let mut engine = ready_engine();
     let unavailable = engine.unavailable(70_001, "baseline_read_failed");
     assert_eq!(unavailable.state, BaselineState::Unavailable);
-    assert_eq!(unavailable.last_error_code.as_deref(), Some("baseline_read_failed"));
-    assert_eq!(unavailable.last_successful_evaluation_at_unix_ms, Some(69_001));
-    assert!(unavailable.subjects.iter().all(|subject| subject.sample_count == 60));
-    assert!(unavailable
-        .subjects
-        .iter()
-        .all(|subject| subject.packets.current.is_none() && subject.bytes.current.is_none()));
+    assert_eq!(
+        unavailable.last_error_code.as_deref(),
+        Some("baseline_read_failed")
+    );
+    assert_eq!(
+        unavailable.last_successful_evaluation_at_unix_ms,
+        Some(69_001)
+    );
+    assert!(
+        unavailable
+            .subjects
+            .iter()
+            .all(|subject| subject.sample_count == 60)
+    );
+    assert!(
+        unavailable
+            .subjects
+            .iter()
+            .all(|subject| subject.packets.current.is_none() && subject.bytes.current.is_none())
+    );
 
     let recovered = engine
         .evaluate_ready_window(&window(70_000, 401, 100_000), 70_002)
@@ -107,20 +130,33 @@ fn integrity_clear_restarts_learning_for_the_new_generation() {
     let cleared = engine.clear_integrity(new_identity, 70_000, "baseline_identity_changed");
     assert_eq!(engine.identity(), new_identity);
     assert_eq!(cleared.state, BaselineState::Unavailable);
-    assert!(cleared.subjects.iter().all(|subject| subject.sample_count == 0));
+    assert!(
+        cleared
+            .subjects
+            .iter()
+            .all(|subject| subject.sample_count == 0)
+    );
 
     let learning = engine
         .evaluate_ready_window(&window(71_000, 100, 100_000), 71_001)
         .unwrap();
     assert_eq!(learning.state, BaselineState::Learning);
-    assert!(learning.subjects.iter().all(|subject| subject.sample_count == 1));
+    assert!(
+        learning
+            .subjects
+            .iter()
+            .all(|subject| subject.sample_count == 1)
+    );
 }
 
 fn ready_engine() -> BaselineEngine {
     let mut engine = engine(11);
     for index in 0..BASELINE_MINIMUM_SAMPLES {
         engine
-            .evaluate_ready_window(&window(10_000 + index as u64 * 1_000, 100, 100_000), 10_001 + index as u64 * 1_000)
+            .evaluate_ready_window(
+                &window(10_000 + index as u64 * 1_000, 100, 100_000),
+                10_001 + index as u64 * 1_000,
+            )
             .unwrap();
     }
     engine
