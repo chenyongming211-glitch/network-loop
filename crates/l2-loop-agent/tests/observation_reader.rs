@@ -6,7 +6,7 @@ use std::{
 };
 
 use l2_loop_agent::{
-    ObservationReadPurpose, ObservationReader, PortError,
+    ObservationReadPurpose, ObservationReader, PortError, RawFingerprints,
     linux::observation::{LinuxObservationReader, ObservationIo},
     ownership::{
         OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnedTc, OwnedXdp, OwnershipRecord,
@@ -14,15 +14,18 @@ use l2_loop_agent::{
     },
 };
 use l2_loop_common::{
-    ABI_VERSION, CounterValue, InterfaceConfig, StatsKey, agent_mode, hook_role, traffic_class,
-    vlan_visibility,
+    ABI_VERSION, CounterValue, FingerprintKey, FingerprintValue, InterfaceConfig, StatsKey,
+    agent_mode, direction, hook_role, traffic_class, vlan_visibility,
 };
-use l2_loop_core::{HookRole, ObservationCounters, TrafficClass, VlanVisibility};
+use l2_loop_core::{
+    FingerprintEvidence, HookRole, ObservationCounters, TrafficClass, VlanVisibility,
+};
 
 const IFINDEX: u32 = 41;
 const GENERATION: u64 = 7;
 const IFACE_CONFIG: &str = "IFACE_CONFIG";
 const HOOK_STATS: &str = "HOOK_STATS";
+const FINGERPRINTS: &str = "FINGERPRINTS";
 const RUN_ROOT: &str = "/sys/fs/bpf/l2-loop/test/0123456789abcdef0123456789abcdef";
 
 #[test]
@@ -58,6 +61,76 @@ fn changed_hook_stats_pin_is_refused_before_content_reads() {
             .iter()
             .all(|event| !event.starts_with("read_"))
     );
+}
+
+#[test]
+fn background_sampling_never_touches_the_fingerprint_map() {
+    let io = FakeIo::complete();
+    let events = io.events();
+
+    let raw = LinuxObservationReader::new(io)
+        .read_exact(&ownership(), ObservationReadPurpose::BackgroundSample)
+        .unwrap();
+
+    assert_eq!(raw.fingerprints, RawFingerprints::NotRequested);
+    assert!(
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|event| !event.contains(FINGERPRINTS))
+    );
+}
+
+#[test]
+fn request_reads_journal_confirmed_fingerprint_evidence() {
+    let evidence = fingerprint_evidence(direction::INGRESS, 2, 128);
+    let io = FakeIo::complete().fingerprints(vec![evidence]);
+
+    let raw = LinuxObservationReader::new(io)
+        .read_exact(&ownership(), ObservationReadPurpose::Request)
+        .unwrap();
+
+    assert_eq!(raw.fingerprints, RawFingerprints::Available(vec![evidence]));
+}
+
+#[test]
+fn changed_fingerprint_pin_identity_is_a_hard_refusal() {
+    let io = FakeIo::complete().map_id(FINGERPRINTS, 999);
+    let events = io.events();
+
+    let error = LinuxObservationReader::new(io)
+        .read_exact(&ownership(), ObservationReadPurpose::Request)
+        .unwrap_err();
+
+    assert_eq!(error.stable_code(), Some("OBS_MAP_IDENTITY_MISMATCH"));
+    assert!(
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|event| event != "read_fingerprints:FINGERPRINTS")
+    );
+}
+
+#[test]
+fn fingerprint_iteration_failure_degrades_only_relationship_evidence() {
+    let io = FakeIo::complete().fingerprint_error(PortError::coded_adapter(
+        "OBS_FINGERPRINT_UNAVAILABLE",
+        "fingerprint iteration failed",
+    ));
+
+    let raw = LinuxObservationReader::new(io)
+        .read_exact(&ownership(), ObservationReadPurpose::Request)
+        .unwrap();
+
+    assert_eq!(
+        raw.fingerprints,
+        RawFingerprints::Unavailable {
+            code: "OBS_FINGERPRINT_UNAVAILABLE"
+        }
+    );
+    assert_eq!(raw.hooks[0].total, counters(0, 0));
 }
 
 #[test]
@@ -240,6 +313,7 @@ struct FakeIo {
     config: InterfaceConfig,
     counters: Vec<(StatsKey, Vec<CounterValue>)>,
     keys: Vec<StatsKey>,
+    fingerprints: Result<Vec<FingerprintEvidence>, PortError>,
     events: Arc<Mutex<Vec<String>>>,
 }
 
@@ -247,7 +321,11 @@ impl FakeIo {
     fn complete() -> Self {
         Self {
             hook_error: None,
-            map_ids: vec![(IFACE_CONFIG.to_owned(), 301), (HOOK_STATS.to_owned(), 302)],
+            map_ids: vec![
+                (IFACE_CONFIG.to_owned(), 301),
+                (HOOK_STATS.to_owned(), 302),
+                (FINGERPRINTS.to_owned(), 303),
+            ],
             config: InterfaceConfig::new(
                 GENERATION,
                 0,
@@ -259,6 +337,7 @@ impl FakeIo {
             ),
             counters: Vec::new(),
             keys: approved_keys(),
+            fingerprints: Ok(Vec::new()),
             events: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -294,6 +373,16 @@ impl FakeIo {
 
     fn events(&self) -> Arc<Mutex<Vec<String>>> {
         self.events.clone()
+    }
+
+    fn fingerprints(mut self, evidence: Vec<FingerprintEvidence>) -> Self {
+        self.fingerprints = Ok(evidence);
+        self
+    }
+
+    fn fingerprint_error(mut self, error: PortError) -> Self {
+        self.fingerprints = Err(error);
+        self
     }
 
     fn record(&self, event: impl Into<String>) {
@@ -342,6 +431,14 @@ impl ObservationIo for FakeIo {
     fn current_keys(&mut self, pin: &OwnedMapPin) -> Result<Vec<StatsKey>, PortError> {
         self.record(format!("read_keys:{}", pin.name));
         Ok(self.keys.clone())
+    }
+
+    fn read_fingerprints(
+        &mut self,
+        pin: &OwnedMapPin,
+    ) -> Result<Vec<FingerprintEvidence>, PortError> {
+        self.record(format!("read_fingerprints:{}", pin.name));
+        self.fingerprints.clone()
     }
 }
 
@@ -407,4 +504,29 @@ const fn counters(packets: u64, bytes: u64) -> ObservationCounters {
 
 fn pin(name: &str) -> PathBuf {
     Path::new(RUN_ROOT).join(name)
+}
+
+fn fingerprint_evidence(direction: u8, packets: u64, bytes: u64) -> FingerprintEvidence {
+    FingerprintEvidence {
+        key: FingerprintKey {
+            interface_generation: GENERATION,
+            fingerprint: 0x1234,
+            ifindex: IFINDEX,
+            outer_vlan_id: l2_loop_common::NO_VLAN,
+            ether_type: 0x0800,
+            frame_len: 64,
+            direction,
+            vlan_depth: 0,
+            protocol: 17,
+            subtype: 0,
+            reserved: [0; 2],
+        },
+        value: FingerprintValue {
+            first_seen_ns: 100,
+            last_seen_ns: 200,
+            packets,
+            bytes,
+            reserved: [0; 4],
+        },
+    }
 }
