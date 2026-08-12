@@ -104,7 +104,7 @@ async fn observe_round_trips_from_the_cli_client_through_the_daemon_dispatcher()
     assert!(observe_text.stdout.contains("baseline:"));
     assert!(observe_text.stdout.contains("learning_subject_count: 16"));
     let observe_value: serde_json::Value = serde_json::from_str(&observe_json.stdout).unwrap();
-    assert_eq!(observe_value["schema_version"], 3);
+    assert_eq!(observe_value["schema_version"], 4);
     assert_eq!(
         observe_value["rate_windows"][0]["hooks"][0]["total"]["bytes_per_second"],
         700

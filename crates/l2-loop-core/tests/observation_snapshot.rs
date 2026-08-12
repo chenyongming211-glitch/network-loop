@@ -115,7 +115,7 @@ fn fixed_rate_windows() -> [DetailedRateWindow; RATE_WINDOW_COUNT] {
     ]
 }
 
-fn schema_three_snapshot() -> ObservationSnapshot {
+fn schema_four_snapshot() -> ObservationSnapshot {
     ObservationSnapshot::new(
         InterfaceName::new("l2h0123456789").unwrap(),
         41,
@@ -167,7 +167,7 @@ fn fixed_rate_contract_uses_only_the_approved_bounds() {
 
 #[test]
 fn schema_four_has_fixed_unambiguous_observation_fields() {
-    let value = serde_json::to_value(schema_three_snapshot()).unwrap();
+    let value = serde_json::to_value(schema_four_snapshot()).unwrap();
     let object = value.as_object().unwrap();
     let actual = object.keys().map(String::as_str).collect::<BTreeSet<_>>();
     let expected = [

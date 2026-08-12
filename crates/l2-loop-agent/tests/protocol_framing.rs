@@ -86,7 +86,7 @@ fn response_round_trips_with_stable_success_tag() {
 }
 
 #[test]
-fn schema_two_observation_round_trips_inside_protocol_one() {
+fn schema_four_observation_round_trips_inside_protocol_one() {
     let response = ControlResponse::success(AgentResult::Observation {
         snapshot: observation(),
     });
@@ -96,7 +96,7 @@ fn schema_two_observation_round_trips_inside_protocol_one() {
     assert_eq!(json["protocol_version"], 1);
     assert_eq!(json["kind"], "success");
     assert_eq!(json["result"]["kind"], "observation");
-    assert_eq!(json["result"]["snapshot"]["schema_version"], 3);
+    assert_eq!(json["result"]["snapshot"]["schema_version"], 4);
     assert_eq!(
         json["result"]["snapshot"]["rate_windows"][0]["elapsed_ns"],
         1_000_000_000_u64

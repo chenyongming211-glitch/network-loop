@@ -148,7 +148,7 @@ fn renders_observation_and_status_as_stable_text_and_json() {
     assert!(text.stdout.contains("sample_count: 0"));
     assert_eq!(json.exit_code, EXIT_SUCCESS);
     let value: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
-    assert_eq!(value["schema_version"], 3);
+    assert_eq!(value["schema_version"], 4);
     assert_eq!(value["hooks"][1]["role"], "physical_tc_egress");
     assert_eq!(value["rate_windows"][0]["elapsed_ns"], 1_000_000_000_u64);
     assert_eq!(
