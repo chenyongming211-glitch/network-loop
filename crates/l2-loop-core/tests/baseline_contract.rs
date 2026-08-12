@@ -3,6 +3,7 @@ use l2_loop_core::{
     BASELINE_MINIMUM_SAMPLES, BASELINE_PACKET_NOISE_FLOOR_PPS, BASELINE_SOURCE_WINDOW_MS,
     BASELINE_SUBJECT_COUNT, BASELINE_SUBJECTS_PER_HOOK, BaselineMetric, BaselineState,
     BaselineSubject, HookRole, OBSERVATION_SCHEMA_VERSION, RateIdentity, TrafficClass,
+    evaluate_metric,
 };
 
 #[test]
@@ -123,4 +124,27 @@ fn interface_priority_never_hides_unavailable_or_elevated() {
         l2_loop_core::aggregate_baseline_state(&report.subjects),
         BaselineState::Unavailable
     );
+}
+
+#[test]
+fn status_summary_preserves_fixed_elevated_identifiers() {
+    let identity = RateIdentity::new(7, 11).unwrap();
+    let mut report = l2_loop_core::BaselineReport::learning(identity, 1_000);
+    report.state = BaselineState::Elevated;
+    report.learning_subject_count = 15;
+    report.elevated_metric_count = 1;
+    report.subjects[0].state = BaselineState::Elevated;
+    report.subjects[0].sample_count = 60;
+    report.subjects[0].packets = evaluate_metric(401, 100, 0, 10);
+    report.subjects[0].bytes = evaluate_metric(100_000, 100_000, 0, 16_384);
+
+    let summary = l2_loop_core::BaselineSummary::from_report(&report);
+
+    assert_eq!(summary.state, BaselineState::Elevated);
+    assert_eq!(summary.elevated_metric_count, 1);
+    assert_eq!(summary.elevated.len(), 1);
+    assert_eq!(summary.elevated[0].hook, HookRole::ExternalXdpIngress);
+    assert_eq!(summary.elevated[0].subject, BaselineSubject::Total);
+    assert_eq!(summary.elevated[0].metric, BaselineMetric::Packets);
+    assert!(summary.validate().is_ok());
 }

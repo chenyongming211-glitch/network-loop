@@ -976,6 +976,14 @@ mod tests {
 
         assert_eq!(snapshot.generation, 7);
         assert_eq!(snapshot.sampling, l2_loop_core::SamplingStatus::default());
+        assert_eq!(snapshot.baseline.state, l2_loop_core::BaselineState::Learning);
+        assert!(
+            snapshot
+                .baseline
+                .subjects
+                .iter()
+                .all(|subject| subject.sample_count == 0)
+        );
         assert!(
             snapshot
                 .rate_windows
@@ -1073,6 +1081,14 @@ mod tests {
 
         assert_eq!(snapshot.generation, 8);
         assert_eq!(snapshot.sampling, l2_loop_core::SamplingStatus::default());
+        assert_eq!(snapshot.baseline.state, l2_loop_core::BaselineState::Learning);
+        assert!(
+            snapshot
+                .baseline
+                .subjects
+                .iter()
+                .all(|subject| subject.sample_count == 0)
+        );
         assert!(
             snapshot
                 .rate_windows
