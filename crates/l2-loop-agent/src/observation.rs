@@ -1,9 +1,10 @@
 use std::time::UNIX_EPOCH;
 
 use l2_loop_core::{
-    BaselineSummary, InterfaceName, InterfaceState, InterfaceStatus, OBSERVED_HOOK_COUNT,
-    ObservationHealth, ObservationSnapshot, RATE_WINDOW_COUNT, RateHistory, RateHistoryError,
-    RateIdentity, RateSample, RateWindowState, SamplingStatus, StatusRateWindow,
+    BaselineEngine, BaselineState, BaselineSummary, InterfaceName, InterfaceState,
+    InterfaceStatus, OBSERVED_HOOK_COUNT, ObservationHealth, ObservationSnapshot,
+    RATE_WINDOW_COUNT, RateHistory, RateHistoryError, RateIdentity, RateSample, RateWindowState,
+    SamplingStatus, StatusRateWindow,
     warming_detailed_rate_windows, warming_status_rate_windows,
 };
 
@@ -21,6 +22,12 @@ pub const OBS_RATE_CLOCK_REGRESSION: &str = "OBS_RATE_CLOCK_REGRESSION";
 pub const OBS_RATE_COUNTER_REGRESSION: &str = "OBS_RATE_COUNTER_REGRESSION";
 pub const OBS_RATE_CALCULATION_FAILED: &str = "OBS_RATE_CALCULATION_FAILED";
 pub const OBS_RATE_SAMPLER_PAUSED: &str = "OBS_RATE_SAMPLER_PAUSED";
+pub const BASELINE_SOURCE_UNAVAILABLE: &str = "BASELINE_SOURCE_UNAVAILABLE";
+pub const BASELINE_IDENTITY_CHANGED: &str = "BASELINE_IDENTITY_CHANGED";
+pub const BASELINE_CLOCK_REGRESSION: &str = "BASELINE_CLOCK_REGRESSION";
+pub const BASELINE_COUNTER_REGRESSION: &str = "BASELINE_COUNTER_REGRESSION";
+pub const BASELINE_CALCULATION_FAILED: &str = "BASELINE_CALCULATION_FAILED";
+pub const BASELINE_SAMPLER_PAUSED: &str = "BASELINE_SAMPLER_PAUSED";
 
 const OBS_MAP_IDENTITY_MISMATCH: &str = "OBS_MAP_IDENTITY_MISMATCH";
 
@@ -54,6 +61,7 @@ pub struct SamplingService<R, C> {
     reader: R,
     clock: C,
     history: Option<RateHistory>,
+    baseline: Option<BaselineEngine>,
 }
 
 impl<R, C> SamplingService<R, C>
@@ -66,26 +74,30 @@ where
             reader,
             clock,
             history: None,
+            baseline: None,
         }
     }
 
     pub fn start(&mut self, ownership: &OwnershipRecord) -> Result<(), ObservationError> {
         let identity = RateIdentity::new(ownership.ifindex, ownership.generation)
             .map_err(|_| ownership_error())?;
+        let started_at_unix_ms = wall_time_ms(&self.clock).ok_or_else(snapshot_error)?;
         self.history = Some(
             RateHistory::new(identity, self.clock.monotonic_ns()).map_err(|_| snapshot_error())?,
         );
+        self.baseline = Some(BaselineEngine::new(identity, started_at_unix_ms));
         Ok(())
     }
 
     pub fn sample_tick(&mut self, ownership: &OwnershipRecord) -> SamplingTickOutcome {
-        if self.history.is_none() {
+        if self.history.is_none() || self.baseline.is_none() {
             return SamplingTickOutcome::Rejected;
         }
         let read_result = self
             .reader
             .read_exact(ownership, ObservationReadPurpose::BackgroundSample);
         let now_monotonic_ns = self.clock.monotonic_ns();
+        let evaluated_at_unix_ms = wall_time_ms(&self.clock).unwrap_or_default();
         let Some(history) = self.history.as_mut() else {
             return SamplingTickOutcome::Rejected;
         };
@@ -95,31 +107,100 @@ where
                 let code = error.stable_code().unwrap_or(OBS_MAP_UNAVAILABLE);
                 if is_identity_code(code) {
                     history.record_identity_failure(now_monotonic_ns, code);
+                    if let Some(baseline) = self.baseline.as_mut() {
+                        baseline.clear_integrity(
+                            baseline.identity(),
+                            evaluated_at_unix_ms,
+                            BASELINE_IDENTITY_CHANGED,
+                        );
+                    }
                 } else {
                     history.record_transient_failure(code);
+                    if let Some(baseline) = self.baseline.as_mut() {
+                        baseline.unavailable(
+                            evaluated_at_unix_ms,
+                            BASELINE_SOURCE_UNAVAILABLE,
+                        );
+                    }
                 }
                 return SamplingTickOutcome::Rejected;
             }
         };
         if raw.ifindex != ownership.ifindex || raw.generation != ownership.generation {
             history.record_identity_failure(now_monotonic_ns, OBS_OWNERSHIP_MISMATCH);
+            if let Some(baseline) = self.baseline.as_mut() {
+                baseline.clear_integrity(
+                    baseline.identity(),
+                    evaluated_at_unix_ms,
+                    BASELINE_IDENTITY_CHANGED,
+                );
+            }
             return SamplingTickOutcome::Rejected;
         }
         let Some(captured_at_unix_ms) = wall_time_ms(&self.clock) else {
             history.record_rate_failure(now_monotonic_ns, OBS_SNAPSHOT_FAILED);
+            if let Some(baseline) = self.baseline.as_mut() {
+                baseline.clear_integrity(
+                    baseline.identity(),
+                    evaluated_at_unix_ms,
+                    BASELINE_CLOCK_REGRESSION,
+                );
+            }
             return SamplingTickOutcome::Rejected;
         };
         let sample = match rate_sample(raw, now_monotonic_ns, captured_at_unix_ms) {
             Ok(sample) => sample,
             Err(()) => {
                 history.record_rate_failure(now_monotonic_ns, OBS_RATE_CALCULATION_FAILED);
+                if let Some(baseline) = self.baseline.as_mut() {
+                    baseline.clear_integrity(
+                        baseline.identity(),
+                        captured_at_unix_ms,
+                        BASELINE_CALCULATION_FAILED,
+                    );
+                }
                 return SamplingTickOutcome::Rejected;
             }
         };
         match history.record_success(sample) {
-            Ok(()) => SamplingTickOutcome::Sampled,
+            Ok(()) => {
+                let windows = match history.detailed_windows(now_monotonic_ns) {
+                    Ok(windows) => windows,
+                    Err(error) => {
+                        record_history_failure(history, now_monotonic_ns, error);
+                        if let Some(baseline) = self.baseline.as_mut() {
+                            baseline.clear_integrity(
+                                baseline.identity(),
+                                captured_at_unix_ms,
+                                baseline_code_for_rate_error(error),
+                            );
+                        }
+                        return SamplingTickOutcome::Rejected;
+                    }
+                };
+                if windows[1].state == RateWindowState::Ready
+                    && self
+                        .baseline
+                        .as_mut()
+                        .is_none_or(|baseline| {
+                            baseline
+                                .evaluate_ready_window(&windows[1], captured_at_unix_ms)
+                                .is_err()
+                        })
+                {
+                    return SamplingTickOutcome::Rejected;
+                }
+                SamplingTickOutcome::Sampled
+            }
             Err(error) => {
                 record_history_failure(history, now_monotonic_ns, error);
+                if let Some(baseline) = self.baseline.as_mut() {
+                    baseline.clear_integrity(
+                        baseline.identity(),
+                        captured_at_unix_ms,
+                        baseline_code_for_rate_error(error),
+                    );
+                }
                 SamplingTickOutcome::Rejected
             }
         }
@@ -176,10 +257,17 @@ where
         if let Some(history) = self.history.as_mut() {
             history.pause(self.clock.monotonic_ns(), OBS_RATE_SAMPLER_PAUSED);
         }
+        if let Some(baseline) = self.baseline.as_mut() {
+            baseline.unavailable(
+                wall_time_ms(&self.clock).unwrap_or_default(),
+                BASELINE_SAMPLER_PAUSED,
+            );
+        }
     }
 
     pub fn clear(&mut self) {
         self.history = None;
+        self.baseline = None;
     }
 
     fn current_snapshot(
@@ -251,7 +339,13 @@ where
             }
         };
         let sampling = history.sampling_status();
-        let health = observation_health(&sampling, &rate_windows);
+        let baseline = self
+            .baseline
+            .as_ref()
+            .ok_or_else(session_error)?
+            .cached_report()
+            .clone();
+        let health = observation_health(&sampling, &rate_windows, baseline.state);
         let mut snapshot = ObservationSnapshot::new(
             requested.clone(),
             ifindex,
@@ -264,6 +358,7 @@ where
         )
         .map_err(|_| snapshot_error())?;
         snapshot.health = health;
+        snapshot.baseline = baseline;
         Ok((snapshot, status_rate_windows))
     }
 }
@@ -312,16 +407,27 @@ fn rate_history_error(error: RateHistoryError) -> ObservationError {
 fn observation_health(
     sampling: &SamplingStatus,
     windows: &[l2_loop_core::DetailedRateWindow; RATE_WINDOW_COUNT],
+    baseline_state: BaselineState,
 ) -> ObservationHealth {
     if sampling.sampling_paused
         || sampling.last_error_code.is_some()
         || windows
             .iter()
             .any(|window| window.state == RateWindowState::Stale)
+        || baseline_state == BaselineState::Unavailable
     {
         ObservationHealth::Degraded
     } else {
         ObservationHealth::Healthy
+    }
+}
+
+const fn baseline_code_for_rate_error(error: RateHistoryError) -> &'static str {
+    match error {
+        RateHistoryError::IdentityMismatch => BASELINE_IDENTITY_CHANGED,
+        RateHistoryError::ClockRegression => BASELINE_CLOCK_REGRESSION,
+        RateHistoryError::CounterRegression => BASELINE_COUNTER_REGRESSION,
+        RateHistoryError::CalculationFailed => BASELINE_CALCULATION_FAILED,
     }
 }
 

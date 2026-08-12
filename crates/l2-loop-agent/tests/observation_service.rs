@@ -8,8 +8,9 @@ use std::{
 };
 
 use l2_loop_agent::{
-    Clock, OBS_MAP_UNAVAILABLE, OBS_RATE_COUNTER_REGRESSION, ObservationReadPurpose,
-    ObservationReader, PortError, RawObservation, SamplingService, SamplingTickOutcome,
+    BASELINE_SOURCE_UNAVAILABLE, Clock, OBS_MAP_UNAVAILABLE, OBS_RATE_COUNTER_REGRESSION,
+    ObservationReadPurpose, ObservationReader, PortError, RawObservation, SamplingService,
+    SamplingTickOutcome,
     ownership::{OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnershipRecord},
 };
 use l2_loop_common::ABI_VERSION;
@@ -178,7 +179,7 @@ fn transient_background_error_retains_history() {
     assert_eq!(snapshot.rate_windows[0].state, RateWindowState::Ready);
     assert_eq!(
         snapshot.sampling.last_error_code.as_deref(),
-        Some(OBS_MAP_UNAVAILABLE)
+        Some(BASELINE_SOURCE_UNAVAILABLE)
     );
     assert_eq!(snapshot.sampling.consecutive_failures, 1);
 }
