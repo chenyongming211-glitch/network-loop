@@ -542,12 +542,14 @@ where
         let Some(recorder) = self.incident_recorder.as_mut() else {
             return;
         };
-        for transition in report
+        let unseen: Vec<_> = report
             .transitions
             .iter()
+            .copied()
             .filter(|transition| transition.sequence > recorder.last_transition_sequence())
-        {
-            if recorder.acknowledge_without_output(transition).is_err() {
+            .collect();
+        for transition in unseen {
+            if recorder.acknowledge_without_output(&transition).is_err() {
                 break;
             }
         }
