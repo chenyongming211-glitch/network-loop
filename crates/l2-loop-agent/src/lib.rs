@@ -2,6 +2,7 @@
 
 #[cfg(target_os = "linux")]
 mod attach;
+mod incident;
 #[cfg(target_os = "linux")]
 pub mod daemon;
 #[cfg(target_os = "linux")]
@@ -21,6 +22,7 @@ pub mod transport;
 
 #[cfg(target_os = "linux")]
 pub use attach::*;
+pub use incident::*;
 #[cfg(target_os = "linux")]
 pub use observation::*;
 pub use ports::*;
