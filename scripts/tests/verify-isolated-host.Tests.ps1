@@ -128,6 +128,32 @@ foreach ($Required in @(
 }
 
 foreach ($Required in @(
+    "'FingerprintRelationship'",
+    "'FingerprintReadFailure'",
+    "'FingerprintGenerationReset'",
+    'fingerprint-map-read-once',
+    "'fingerprint-traffic'",
+    'FINGERPRINT_SAMPLE_SHIFT=4',
+    'FINGERPRINT_CAPACITY=8192',
+    'def fingerprint_hash(frame):',
+    'if fingerprint_hash(frame) & 15 == 0',
+    'Assert-FingerprintReport',
+    'Assert-FingerprintSummary',
+    'OBS_FINGERPRINT_UNAVAILABLE',
+    'schema_version -ne 4',
+    'first fingerprint generation detach did not restore prepared state',
+    'second fingerprint generation detach did not restore prepared state',
+    'source_mac',
+    'destination_mac',
+    'first_seen_ns',
+    'last_seen_ns'
+)) {
+    Assert-True ($Harness.Contains($Required)) "harness is missing bounded fingerprint marker: $Required"
+}
+$FingerprintGeneration = '(?s)''FingerprintGenerationReset'' \{(?:(?!''ObservationMapFailure'').)*first fingerprint generation detach did not restore prepared state(?:(?!''ObservationMapFailure'').)*''verify-second-hooks''(?:(?!''ObservationMapFailure'').)*second fingerprint generation detach did not restore prepared state'
+Assert-True ([regex]::IsMatch($Harness, $FingerprintGeneration)) 'fingerprint generation reset is not symmetric and independently bounded'
+
+foreach ($Required in @(
     "'PassiveObservation'",
     "'ObservationMapFailure'",
     "'ObservationIdentityChange'",
