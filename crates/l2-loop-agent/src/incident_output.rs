@@ -150,9 +150,7 @@ where
 const fn alert_message(code: l2_loop_core::AlertCode) -> &'static str {
     match code {
         l2_loop_core::AlertCode::StormConfirmed => "passive L2 storm confirmed",
-        l2_loop_core::AlertCode::ExternalLoopSuspected => {
-            "passive L2 loop relationship suspected"
-        }
+        l2_loop_core::AlertCode::ExternalLoopSuspected => "passive L2 loop relationship suspected",
         l2_loop_core::AlertCode::ExternalLoopHighConfidence => {
             "passive L2 loop relationship high confidence"
         }
