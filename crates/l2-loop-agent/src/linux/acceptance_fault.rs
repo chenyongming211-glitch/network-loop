@@ -1,16 +1,23 @@
+use std::{
+    io,
+    path::{Path, PathBuf},
+};
+
 use l2_loop_common::{CounterValue, InterfaceConfig, StatsKey};
-use l2_loop_core::FingerprintEvidence;
+use l2_loop_core::{EvidenceStatus, FingerprintEvidence};
 use thiserror::Error;
 
 use crate::{
-    LoadedBpfObject, MapPublisher, ObservationReadPurpose, ObservationReader, PortError,
-    RawObservation, SafeTcPort,
+    AlertIo, IncidentOutputBackend, IncidentOutputError, IncidentWriteJob, LoadedBpfObject,
+    MapPublisher, ObservationReadPurpose, ObservationReader, PortError, RawObservation, SafeTcPort,
     linux::{observation::ObservationIo, tc::LoadedTc},
     ownership::{OwnedMapPin, OwnedTc, OwnershipRecord, TcHook},
 };
 
 pub const ACCEPTANCE_FAULT_ENV: &str = "L2_LOOP_ACCEPTANCE_FAULT";
 pub const ACCEPTANCE_DIAGNOSTICS_ENV: &str = "L2_LOOP_ACCEPTANCE_DIAGNOSTICS";
+pub const ACCEPTANCE_EVIDENCE_ROOT_ENV: &str = "L2_LOOP_ACCEPTANCE_EVIDENCE_ROOT";
+pub const ACCEPTANCE_EVIDENCE_FAILURE_ENV: &str = "L2_LOOP_ACCEPTANCE_EVIDENCE_FAILURE";
 const BASELINE_RECOVERY_GOOD_READS: u64 = 75;
 const BASELINE_RECOVERY_FAILED_READS: u64 = 8;
 
@@ -183,6 +190,102 @@ where
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 #[error("invalid isolated acceptance fault stage")]
 pub struct AcceptanceFaultError;
+
+pub fn parse_acceptance_evidence_root(
+    value: Option<&str>,
+) -> Result<Option<PathBuf>, AcceptanceFaultError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let prefix = "/run/l2-loop/accept/";
+    let suffix = "/evidence/v1";
+    let Some(run_id) = value
+        .strip_prefix(prefix)
+        .and_then(|value| value.strip_suffix(suffix))
+    else {
+        return Err(AcceptanceFaultError);
+    };
+    if run_id.len() != 32
+        || !run_id
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        || Path::new(value).components().count() != 7
+    {
+        return Err(AcceptanceFaultError);
+    }
+    Ok(Some(PathBuf::from(value)))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AcceptanceEvidenceFailure {
+    None,
+    OnePersist,
+}
+
+impl AcceptanceEvidenceFailure {
+    pub fn parse(value: Option<&str>) -> Result<Self, AcceptanceFaultError> {
+        match value {
+            None => Ok(Self::None),
+            Some("one-persist") => Ok(Self::OnePersist),
+            Some(_) => Err(AcceptanceFaultError),
+        }
+    }
+}
+
+pub struct FaultInjectingIncidentOutput<B> {
+    inner: B,
+    fail_next_persist: bool,
+}
+
+pub struct AcceptanceAlertIo<I> {
+    inner: I,
+    force_stderr: bool,
+}
+
+impl<I> AcceptanceAlertIo<I> {
+    pub const fn new(inner: I, force_stderr: bool) -> Self {
+        Self { inner, force_stderr }
+    }
+}
+
+impl<I: AlertIo> AlertIo for AcceptanceAlertIo<I> {
+    fn send_journal(&mut self, bytes: &[u8]) -> io::Result<()> {
+        if self.force_stderr {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "journald is disabled for isolated acceptance",
+            ));
+        }
+        self.inner.send_journal(bytes)
+    }
+
+    fn write_stderr(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.inner.write_stderr(bytes)
+    }
+}
+
+impl<B> FaultInjectingIncidentOutput<B> {
+    pub const fn new(inner: B, failure: AcceptanceEvidenceFailure) -> Self {
+        Self {
+            inner,
+            fail_next_persist: matches!(failure, AcceptanceEvidenceFailure::OnePersist),
+        }
+    }
+}
+
+impl<B: IncidentOutputBackend> IncidentOutputBackend for FaultInjectingIncidentOutput<B> {
+    fn persist(&mut self, job: &IncidentWriteJob) -> Result<(), IncidentOutputError> {
+        if self.fail_next_persist {
+            self.fail_next_persist = false;
+            return Err(IncidentOutputError::StoreUnavailable);
+        }
+        self.inner.persist(job)
+    }
+
+    fn alert(&mut self, job: &IncidentWriteJob, evidence_status: EvidenceStatus) {
+        self.inner.alert(job, evidence_status);
+    }
+}
 
 pub struct FaultInjectingTc<T> {
     inner: T,

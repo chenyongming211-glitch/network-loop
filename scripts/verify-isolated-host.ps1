@@ -10,7 +10,7 @@ param(
     [ValidateRange(30, 600)]
     [int] $TimeoutSeconds = 180,
 
-    [ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset', 'BaselineLifecycle', 'BaselineSamplingRecovery', 'BaselineGenerationReset', 'FingerprintRelationship', 'FingerprintReadFailure', 'FingerprintGenerationReset', 'DetectionAdaptiveLifecycle', 'DetectionAbsoluteStartup', 'DetectionRelationshipConfidence', 'DetectionFailureGenerationReset')]
+    [ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset', 'BaselineLifecycle', 'BaselineSamplingRecovery', 'BaselineGenerationReset', 'FingerprintRelationship', 'FingerprintReadFailure', 'FingerprintGenerationReset', 'DetectionAdaptiveLifecycle', 'DetectionAbsoluteStartup', 'DetectionRelationshipConfidence', 'DetectionFailureGenerationReset', 'IncidentLifecycle', 'IncidentPersistenceFailure', 'IncidentRestartRecovery')]
     [string] $Scenario = 'Success'
 )
 
@@ -207,6 +207,7 @@ second_journal="/run/l2-loop/tests/$second_run.json"
 second_pins="/sys/fs/bpf/l2-loop/test/$second_run"
 saved_journal="$root/ownership.original.json"
 changed_journal="$root/ownership.changed.json"
+evidence="$root/evidence/v1"
 
 fail() { printf '%s\n' "$1" >&2; exit 1; }
 assert_no_symlink() { test ! -L "$1" || fail "owned path is a symbolic link"; }
@@ -221,7 +222,7 @@ case "$second_run" in *[!0-9a-f]*|'') fail "second run ID is not generated" ;; e
 test "${#second_run}" -eq 32 || fail "second run ID length is invalid"
 test "$second_run" != "$run" || fail "second run ID did not change"
 case "$scenario" in
-    Success|TcAttachFailure|MapInitializeFailure|DaemonTermination|IdentityChange|TrafficInterruption|PassiveObservation|ObservationMapFailure|ObservationIdentityChange|RateWindows|RateSamplingFailure|RateGenerationReset|BaselineLifecycle|BaselineSamplingRecovery|BaselineGenerationReset|FingerprintRelationship|FingerprintReadFailure|FingerprintGenerationReset|DetectionAdaptiveLifecycle|DetectionAbsoluteStartup|DetectionRelationshipConfidence|DetectionFailureGenerationReset) ;;
+    Success|TcAttachFailure|MapInitializeFailure|DaemonTermination|IdentityChange|TrafficInterruption|PassiveObservation|ObservationMapFailure|ObservationIdentityChange|RateWindows|RateSamplingFailure|RateGenerationReset|BaselineLifecycle|BaselineSamplingRecovery|BaselineGenerationReset|FingerprintRelationship|FingerprintReadFailure|FingerprintGenerationReset|DetectionAdaptiveLifecycle|DetectionAbsoluteStartup|DetectionRelationshipConfidence|DetectionFailureGenerationReset|IncidentLifecycle|IncidentPersistenceFailure|IncidentRestartRecovery) ;;
     *) fail "unknown isolated acceptance scenario" ;;
 esac
 
@@ -256,6 +257,41 @@ cleanup_dir() {
     if test -d "$path" || test -L "$path"; then
         assert_no_symlink "$path"
         rmdir "$path"
+    fi
+}
+
+cleanup_evidence() {
+    if test -d "$evidence" || test -L "$evidence"; then
+        assert_no_symlink "$evidence"
+        python3 - "$evidence" <<'PY'
+import os, re, stat, sys
+root = sys.argv[1]
+if stat.S_IMODE(os.lstat(root).st_mode) != 0o700:
+    raise SystemExit("refusing unsafe evidence root cleanup")
+events = list(os.scandir(root))
+if len(events) > 4:
+    raise SystemExit("evidence cleanup event bound exceeded")
+for event in events:
+    if event.is_symlink() or not event.is_dir(follow_symlinks=False) or not re.fullmatch(r"[0-9a-f]{32}", event.name):
+        raise SystemExit("refusing non-canonical evidence event cleanup")
+    revisions = list(os.scandir(event.path))
+    if len(revisions) > 16:
+        raise SystemExit("evidence cleanup revision bound exceeded")
+    for revision in revisions:
+        if revision.is_symlink() or not revision.is_dir(follow_symlinks=False) or not re.fullmatch(r"[0-9a-f]{16}", revision.name):
+            raise SystemExit("refusing non-canonical evidence revision cleanup")
+        entries = sorted(os.scandir(revision.path), key=lambda item: item.name)
+        if [item.name for item in entries] != ["evidence.json", "manifest.json"]:
+            raise SystemExit("refusing unexpected evidence file cleanup")
+        for item in entries:
+            if item.is_symlink() or not item.is_file(follow_symlinks=False):
+                raise SystemExit("refusing unsafe evidence file cleanup")
+            os.unlink(item.path)
+        os.rmdir(revision.path)
+    os.rmdir(event.path)
+PY
+        cleanup_dir "$evidence"
+        cleanup_dir "$root/evidence"
     fi
 }
 
@@ -316,6 +352,7 @@ cleanup_state() {
 
 cleanup() {
     cleanup_state
+    cleanup_evidence
     cleanup_file "$root/l2-loopd"
     cleanup_file "$root/l2-loopctl"
     cleanup_file "$root/l2-loop-hostcheck"
@@ -355,6 +392,8 @@ case "$phase" in
         install -d -m 0700 /run/l2-loop
         install -d -m 0700 /run/l2-loop/accept
         install -d -m 0700 "$root"
+        install -d -m 0700 "$root/evidence"
+        install -d -m 0700 "$evidence"
         ;;
     prepare)
         ip netns add "$ns"
@@ -374,28 +413,31 @@ case "$phase" in
         ulimit -l unlimited
         case "$scenario" in
             TcAttachFailure)
-                env L2_LOOP_ACCEPTANCE_FAULT=tc-attach ./l2-loopd >daemon.log 2>&1 &
+                env L2_LOOP_ACCEPTANCE_FAULT=tc-attach L2_LOOP_ACCEPTANCE_EVIDENCE_ROOT="$evidence" ./l2-loopd >daemon.log 2>&1 &
                 ;;
             MapInitializeFailure)
-                env L2_LOOP_ACCEPTANCE_FAULT=map-initialize ./l2-loopd >daemon.log 2>&1 &
+                env L2_LOOP_ACCEPTANCE_FAULT=map-initialize L2_LOOP_ACCEPTANCE_EVIDENCE_ROOT="$evidence" ./l2-loopd >daemon.log 2>&1 &
                 ;;
             ObservationMapFailure)
-                env L2_LOOP_ACCEPTANCE_FAULT=observation-map-read ./l2-loopd >daemon.log 2>&1 &
+                env L2_LOOP_ACCEPTANCE_FAULT=observation-map-read L2_LOOP_ACCEPTANCE_EVIDENCE_ROOT="$evidence" ./l2-loopd >daemon.log 2>&1 &
                 ;;
             RateSamplingFailure)
-                env L2_LOOP_ACCEPTANCE_FAULT=rate-sampling-map-read ./l2-loopd >daemon.log 2>&1 &
+                env L2_LOOP_ACCEPTANCE_FAULT=rate-sampling-map-read L2_LOOP_ACCEPTANCE_EVIDENCE_ROOT="$evidence" ./l2-loopd >daemon.log 2>&1 &
                 ;;
             BaselineSamplingRecovery)
-                env L2_LOOP_ACCEPTANCE_FAULT=baseline-sampling-map-read-recovery ./l2-loopd >daemon.log 2>&1 &
+                env L2_LOOP_ACCEPTANCE_FAULT=baseline-sampling-map-read-recovery L2_LOOP_ACCEPTANCE_EVIDENCE_ROOT="$evidence" ./l2-loopd >daemon.log 2>&1 &
                 ;;
             FingerprintReadFailure)
-                env L2_LOOP_ACCEPTANCE_FAULT=fingerprint-map-read-once ./l2-loopd >daemon.log 2>&1 &
+                env L2_LOOP_ACCEPTANCE_FAULT=fingerprint-map-read-once L2_LOOP_ACCEPTANCE_EVIDENCE_ROOT="$evidence" ./l2-loopd >daemon.log 2>&1 &
                 ;;
             DetectionFailureGenerationReset)
-                env L2_LOOP_ACCEPTANCE_FAULT=analysis-fingerprint-map-read-once ./l2-loopd >daemon.log 2>&1 &
+                env L2_LOOP_ACCEPTANCE_FAULT=analysis-fingerprint-map-read-once L2_LOOP_ACCEPTANCE_EVIDENCE_ROOT="$evidence" ./l2-loopd >daemon.log 2>&1 &
+                ;;
+            IncidentPersistenceFailure)
+                env L2_LOOP_ACCEPTANCE_EVIDENCE_ROOT="$evidence" L2_LOOP_ACCEPTANCE_EVIDENCE_FAILURE=one-persist ./l2-loopd >daemon.log 2>&1 &
                 ;;
             *)
-                ./l2-loopd >daemon.log 2>&1 &
+                env L2_LOOP_ACCEPTANCE_EVIDENCE_ROOT="$evidence" ./l2-loopd >daemon.log 2>&1 &
                 ;;
         esac
         printf '%s\n' "$!" >daemon.pid
@@ -422,6 +464,54 @@ case "$phase" in
         ;;
     counters)
         "$root/l2-loop-hostcheck" 'counters' --journal "$journal"
+        ;;
+    evidence-audit)
+        python3 - "$evidence" <<'PY'
+import hashlib, json, os, re, stat, sys
+root = sys.argv[1]
+if os.path.islink(root) or stat.S_IMODE(os.lstat(root).st_mode) != 0o700:
+    raise SystemExit("evidence root mode is not 0700")
+digest = hashlib.sha256()
+events = sorted(os.scandir(root), key=lambda item: item.name)
+if not events or len(events) > 4:
+    raise SystemExit("evidence event count is outside the acceptance bound")
+revision_count = 0
+for event in events:
+    if event.is_symlink() or not event.is_dir(follow_symlinks=False) or not re.fullmatch(r"[0-9a-f]{32}", event.name):
+        raise SystemExit("evidence event identity is invalid")
+    if stat.S_IMODE(os.lstat(event.path).st_mode) != 0o700:
+        raise SystemExit("evidence event mode is not 0700")
+    revisions = sorted(os.scandir(event.path), key=lambda item: item.name)
+    if not revisions or len(revisions) > 16:
+        raise SystemExit("evidence revision count is outside the fixed bound")
+    for revision in revisions:
+        revision_count += 1
+        if revision.is_symlink() or not revision.is_dir(follow_symlinks=False) or not re.fullmatch(r"[0-9a-f]{16}", revision.name):
+            raise SystemExit("evidence revision identity is invalid")
+        if stat.S_IMODE(os.lstat(revision.path).st_mode) != 0o700:
+            raise SystemExit("evidence revision mode is not 0700")
+        entries = sorted(os.scandir(revision.path), key=lambda item: item.name)
+        if [item.name for item in entries] != ["evidence.json", "manifest.json"]:
+            raise SystemExit("evidence revision files are not exact")
+        for item in entries:
+            if item.is_symlink() or not item.is_file(follow_symlinks=False) or stat.S_IMODE(os.lstat(item.path).st_mode) != 0o600:
+                raise SystemExit("evidence revision mode is not 0600")
+            with open(item.path, "rb") as channel:
+                payload = channel.read(1048577)
+            if not payload or len(payload) > 1048576:
+                raise SystemExit("evidence revision file violates its byte bound")
+            value = json.loads(payload)
+            if value.get("schema_version") != 1:
+                raise SystemExit("evidence schema version is not 1")
+            digest.update(os.path.relpath(item.path, root).encode("ascii"))
+            digest.update(b"\0")
+            digest.update(payload)
+print(json.dumps({"event_count": len(events), "revision_count": revision_count, "sha256": digest.hexdigest()}, separators=(",", ":")))
+PY
+        ;;
+    daemon-log)
+        test -f "$root/daemon.log" && test ! -L "$root/daemon.log" || fail "owned daemon log is unavailable"
+        cat "$root/daemon.log"
         ;;
     traffic)
         python3 - "$host" "$count" <<'PY'
@@ -1030,6 +1120,115 @@ function Invoke-StatusCli {
     Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $Arguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds -AllowFailure:$AllowFailure
 }
 
+function Invoke-EvidenceListCli {
+    param(
+        [Parameter(Mandatory)] [psobject] $Names,
+        [Parameter(Mandatory)] [string] $Target,
+        [Parameter(Mandatory)] [string] $KeyPath,
+        [Parameter(Mandatory)] [string] $Interface,
+        [Parameter(Mandatory)] [int] $TimeoutSeconds
+    )
+
+    $Arguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+        "$($Names.RemoteRunRoot)/l2-loopctl", 'evidence', 'list', '--interface', $Interface,
+        '--limit', '4', '--json'
+    )
+    Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $Arguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+}
+
+function Invoke-EvidenceShowCli {
+    param(
+        [Parameter(Mandatory)] [psobject] $Names,
+        [Parameter(Mandatory)] [string] $Target,
+        [Parameter(Mandatory)] [string] $KeyPath,
+        [Parameter(Mandatory)] [string] $EventId,
+        [Parameter(Mandatory)] [int] $TimeoutSeconds
+    )
+
+    $Arguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+        "$($Names.RemoteRunRoot)/l2-loopctl", 'evidence', 'show', '--id', $EventId, '--json'
+    )
+    Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $Arguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+}
+
+function Assert-IncidentOutputPrivacy {
+    param([Parameter(Mandatory)] [psobject[]] $Results)
+
+    foreach ($Result in $Results) {
+        $Combined = "$($Result.Stdout)`n$($Result.Stderr)"
+        foreach ($Forbidden in @('source_mac', 'destination_mac', 'first_seen_ns', 'last_seen_ns', 'pin_path', 'ownership', 'frame_bytes', 'payload')) {
+            if ($Combined.Contains($Forbidden)) {
+                throw "incident output exposed prohibited raw evidence: $Forbidden"
+            }
+        }
+    }
+}
+
+function Wait-IncidentEvidencePage {
+    param(
+        [Parameter(Mandatory)] [psobject] $Names,
+        [Parameter(Mandatory)] [string] $Target,
+        [Parameter(Mandatory)] [string] $KeyPath,
+        [Parameter(Mandatory)] [int] $TimeoutSeconds,
+        [ValidateRange(1, 20)] [int] $MaxAttempts = 20
+    )
+
+    for ($Attempt = 1; $Attempt -le $MaxAttempts; $Attempt++) {
+        $Result = Invoke-EvidenceListCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds
+        Assert-IncidentOutputPrivacy -Results @($Result)
+        $Page = $Result.Stdout | ConvertFrom-Json
+        if (@($Page.items).Count -eq 1) {
+            return [pscustomobject]@{ Result = $Result; Page = $Page }
+        }
+        if ($Attempt -lt $MaxAttempts) { Start-Sleep -Milliseconds 250 }
+    }
+    throw 'incident evidence did not become visible within the bounded wait'
+}
+
+function Assert-IncidentEvidenceStore {
+    param(
+        [Parameter(Mandatory)] [psobject] $Names,
+        [Parameter(Mandatory)] [string] $Target,
+        [Parameter(Mandatory)] [string] $KeyPath,
+        [Parameter(Mandatory)] [int] $TimeoutSeconds,
+        [Parameter(Mandatory)] [uint64] $MinimumRevisions
+    )
+
+    $Audit = Invoke-IsolatedRemotePhase -Phase 'evidence-audit' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount 1 -TimeoutSeconds $TimeoutSeconds
+    $Value = $Audit.Stdout | ConvertFrom-Json
+    if ([uint64]$Value.event_count -ne 1 -or [uint64]$Value.revision_count -lt $MinimumRevisions -or
+        $Value.sha256 -cnotmatch '^[0-9a-f]{64}$') {
+        throw 'incident evidence store audit is invalid'
+    }
+    $Value
+}
+
+function Assert-IncidentLifecycle {
+    param(
+        [Parameter(Mandatory)] [psobject] $Names,
+        [Parameter(Mandatory)] [string] $Target,
+        [Parameter(Mandatory)] [string] $KeyPath,
+        [Parameter(Mandatory)] [int] $TimeoutSeconds,
+        [Parameter(Mandatory)] [uint64] $MinimumRevision
+    )
+
+    $Visible = Wait-IncidentEvidencePage -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+    $Summary = @($Visible.Page.items)[0]
+    if ($Summary.schema_version -ne 1 -or $Summary.interface -cne $Names.HostVeth -or
+        [uint64]$Summary.latest_revision -lt $MinimumRevision -or $Summary.integrity -cne 'valid') {
+        throw 'incident evidence list summary is invalid'
+    }
+    $Show = Invoke-EvidenceShowCli -Names $Names -Target $Target -KeyPath $KeyPath -EventId $Summary.event_id -TimeoutSeconds $TimeoutSeconds
+    Assert-IncidentOutputPrivacy -Results @($Visible.Result, $Show)
+    $Detail = $Show.Stdout | ConvertFrom-Json
+    if ($Detail.latest.schema_version -ne 1 -or $Detail.latest.event_id -cne $Summary.event_id -or
+        [uint64]$Detail.latest.revision -ne [uint64]$Summary.latest_revision -or
+        $Detail.latest.interface -cne $Names.HostVeth -or [uint64]$Detail.latest.interface_generation -eq 0) {
+        throw 'incident evidence detail is invalid'
+    }
+    [pscustomobject]@{ List = $Visible.Result; Show = $Show; Summary = $Summary; Detail = $Detail }
+}
+
 function Assert-ObservationFailure {
     param(
         [Parameter(Mandatory)] [psobject] $Result,
@@ -1092,7 +1291,10 @@ function Assert-ObservationIdentity {
         [ValidateSet('healthy', 'degraded')] [string] $ExpectedHealth = 'healthy'
     )
 
-    if ($Snapshot.schema_version -ne 5 -or
+    if ($Snapshot.schema_version -ne 5) {
+        throw 'observation schema version is not 5'
+    }
+    if (
         $Snapshot.interface -cne $Names.HostVeth -or
         [uint64]$Snapshot.generation -eq 0 -or
         [uint64]$Snapshot.captured_at_unix_ms -eq 0 -or
@@ -2220,6 +2422,119 @@ try {
             }
             catch {
                 throw "second fingerprint generation detach did not restore prepared state: $($_.Exception.Message)"
+            }
+            $Detached = $true
+        }
+        'IncidentLifecycle' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            for ($BaselineIteration = 1; $BaselineIteration -le $BASELINE_LEARNING_SECONDS; $BaselineIteration++) { Start-Sleep -Seconds 1 }
+            for ($DetectionIteration = 1; $DetectionIteration -le 5; $DetectionIteration++) {
+                $null = Invoke-IsolatedMutation -Phase 'detection-adaptive-ingress' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+                Start-Sleep -Seconds 1
+            }
+            $IncidentSnapshot = Wait-DetectionState -ExpectedState 'ingress_storm_confirmed' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            Assert-DetectionReport -Snapshot $IncidentSnapshot -ExpectedState 'ingress_storm_confirmed'
+            Assert-ObservationIdentity -Snapshot $IncidentSnapshot -Names $Names
+            $Opened = Assert-IncidentLifecycle -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -MinimumRevision 1
+            $OpenedStatusResult = Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json
+            Assert-IncidentOutputPrivacy -Results @($OpenedStatusResult)
+            $OpenedStatus = $OpenedStatusResult.Stdout | ConvertFrom-Json
+            if (@($OpenedStatus.interfaces).Count -ne 1 -or
+                $OpenedStatus.interfaces[0].active_incident.event_id -cne $Opened.Summary.event_id -or
+                $OpenedStatus.interfaces[0].output_health.state -cne 'healthy') {
+                throw 'active incident status metadata is invalid'
+            }
+            $null = Assert-IncidentEvidenceStore -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -MinimumRevisions 1
+
+            $DetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+                "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-detach', '--run-id', $RunId
+            )
+            $Detach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $DetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+            if ($Detach.Stdout.Trim() -cne 'accepted') { throw 'incident lifecycle detach was not acknowledged' }
+            $null = Invoke-IsolatedMutation -Phase 'links-down' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            $Closed = Assert-IncidentLifecycle -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -MinimumRevision 2
+            if ([uint64]$Closed.Summary.latest_revision -le [uint64]$Opened.Summary.latest_revision -or
+                $Closed.Summary.event_id -cne $Opened.Summary.event_id -or $Closed.Summary.closed_at_unix_ms -eq $null) {
+                throw 'incident lifecycle did not append an immutable closure revision'
+            }
+            $null = Assert-IncidentEvidenceStore -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -MinimumRevisions 2
+            $Detached = $true
+        }
+        'IncidentPersistenceFailure' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            for ($BaselineIteration = 1; $BaselineIteration -le $BASELINE_LEARNING_SECONDS; $BaselineIteration++) { Start-Sleep -Seconds 1 }
+            for ($DetectionIteration = 1; $DetectionIteration -le 5; $DetectionIteration++) {
+                $null = Invoke-IsolatedMutation -Phase 'detection-adaptive-ingress' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+                Start-Sleep -Seconds 1
+            }
+            $FailureIncident = Wait-DetectionState -ExpectedState 'ingress_storm_confirmed' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            Assert-DetectionReport -Snapshot $FailureIncident -ExpectedState 'ingress_storm_confirmed'
+            $FailureStatus = $null
+            for ($Attempt = 1; $Attempt -le 20; $Attempt++) {
+                $FailureStatusResult = Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json
+                Assert-IncidentOutputPrivacy -Results @($FailureStatusResult)
+                $FailureStatus = $FailureStatusResult.Stdout | ConvertFrom-Json
+                if ($FailureStatus.interfaces[0].output_health.state -ceq 'degraded') { break }
+                Start-Sleep -Milliseconds 250
+            }
+            if ($FailureStatus.interfaces[0].output_health.store_available -ne $false -or
+                $FailureStatus.interfaces[0].output_health.last_error_code -cne 'OUTPUT_STORE_UNAVAILABLE') {
+                throw 'incident persistence failure was not reported truthfully'
+            }
+            $EmptyEvidence = Invoke-EvidenceListCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds
+            Assert-IncidentOutputPrivacy -Results @($EmptyEvidence)
+            if (@(($EmptyEvidence.Stdout | ConvertFrom-Json).items).Count -ne 0) {
+                throw 'failed incident persistence published partial evidence'
+            }
+            $BeforeCounters = Convert-Counters -Text (Invoke-IsolatedRemotePhase -Phase 'counters' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds).Stdout
+            $null = Invoke-IsolatedMutation -Phase 'traffic' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $AfterCounters = Convert-Counters -Text (Invoke-IsolatedRemotePhase -Phase 'counters' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds).Stdout
+            foreach ($Role in @(1, 2)) {
+                if ($AfterCounters[$Role].Packets -lt ($BeforeCounters[$Role].Packets + $FrameCount)) {
+                    throw 'incident persistence failure did not preserve traffic forwarding'
+                }
+            }
+            $DaemonLog = Invoke-IsolatedRemotePhase -Phase 'daemon-log' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount 1 -TimeoutSeconds $TimeoutSeconds
+            Assert-IncidentOutputPrivacy -Results @($DaemonLog)
+            if (-not $DaemonLog.Stdout.Contains('"evidence_status":"unavailable"')) {
+                throw 'incident persistence failure did not emit a truthful sanitized alert'
+            }
+        }
+        'IncidentRestartRecovery' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            for ($BaselineIteration = 1; $BaselineIteration -le $BASELINE_LEARNING_SECONDS; $BaselineIteration++) { Start-Sleep -Seconds 1 }
+            $null = Invoke-IsolatedMutation -Phase 'detection-relationship-seed' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            Start-Sleep -Seconds ($DETECTION_ANALYSIS_SECONDS + 1)
+            if ((64 + ($DETECTION_RELATIONSHIP_SECONDS * (64 + 4096))) -gt $DETECTION_MAX_SCENARIO_FRAMES) {
+                throw 'relationship incident frame bound is invalid'
+            }
+            $null = Invoke-IsolatedMutation -Phase 'detection-relationship-window' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $RestartIncident = Wait-DetectionState -ExpectedState 'external_loop_high_confidence' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -MaxAttempts 20
+            Assert-DetectionReport -Snapshot $RestartIncident -ExpectedState 'external_loop_high_confidence'
+            $Opened = Assert-IncidentLifecycle -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -MinimumRevision 1
+            $DetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+                "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-detach', '--run-id', $RunId
+            )
+            $Detach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $DetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+            if ($Detach.Stdout.Trim() -cne 'accepted') { throw 'incident restart detach was not acknowledged' }
+            $null = Invoke-IsolatedMutation -Phase 'links-down' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            $BeforeRestart = Assert-IncidentLifecycle -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -MinimumRevision 2
+            $BeforeAudit = Assert-IncidentEvidenceStore -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -MinimumRevisions 2
+            $null = Invoke-IsolatedMutation -Phase 'stop-daemon' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedMutation -Phase 'launch' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $AfterRestart = Assert-IncidentLifecycle -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -MinimumRevision 2
+            $AfterAudit = Assert-IncidentEvidenceStore -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -MinimumRevisions 2
+            if ($AfterRestart.List.Stdout.Trim() -cne $BeforeRestart.List.Stdout.Trim() -or
+                $AfterRestart.Show.Stdout.Trim() -cne $BeforeRestart.Show.Stdout.Trim() -or
+                $AfterAudit.sha256 -cne $BeforeAudit.sha256) {
+                throw 'incident restart recovery changed immutable evidence'
+            }
+            $RecoveredStatus = Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $null -TimeoutSeconds $TimeoutSeconds -Json
+            Assert-IncidentOutputPrivacy -Results @($RecoveredStatus)
+            if (@(($RecoveredStatus.Stdout | ConvertFrom-Json).interfaces).Count -ne 0) {
+                throw 'incident restart recovery invented an active session'
             }
             $Detached = $true
         }

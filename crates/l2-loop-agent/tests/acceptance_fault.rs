@@ -13,8 +13,9 @@ use l2_loop_agent::{
     RawObservation, SafeTcPort,
     linux::{
         acceptance_fault::{
-            AcceptanceFault, FaultInjectingMaps, FaultInjectingObservation,
-            FaultInjectingObservationReader, FaultInjectingTc,
+            AcceptanceEvidenceFailure, AcceptanceFault, FaultInjectingMaps,
+            FaultInjectingObservation, FaultInjectingObservationReader, FaultInjectingTc,
+            parse_acceptance_evidence_root,
         },
         observation::ObservationIo,
         tc::LoadedTc,
@@ -62,6 +63,34 @@ fn accepts_only_the_authorized_fault_stages() {
     for invalid in ["", "xdp-attach", "tc-detach", "map-publish", "foreign"] {
         assert!(AcceptanceFault::parse(Some(invalid)).is_err());
     }
+}
+
+#[test]
+fn accepts_only_exact_generated_incident_output_configuration() {
+    let valid = "/run/l2-loop/accept/0123456789abcdef0123456789abcdef/evidence/v1";
+    assert_eq!(
+        parse_acceptance_evidence_root(Some(valid)).unwrap(),
+        Some(PathBuf::from(valid))
+    );
+    assert_eq!(parse_acceptance_evidence_root(None).unwrap(), None);
+    for invalid in [
+        "",
+        "/var/lib/l2-loop/evidence/v1",
+        "/run/l2-loop/accept/0123/evidence/v1",
+        "/run/l2-loop/accept/ABCDEF0123456789abcdef0123456789/evidence/v1",
+        "/run/l2-loop/accept/0123456789abcdef0123456789abcdef/../evidence/v1",
+    ] {
+        assert!(parse_acceptance_evidence_root(Some(invalid)).is_err());
+    }
+    assert_eq!(
+        AcceptanceEvidenceFailure::parse(Some("one-persist")).unwrap(),
+        AcceptanceEvidenceFailure::OnePersist
+    );
+    assert_eq!(
+        AcceptanceEvidenceFailure::parse(None).unwrap(),
+        AcceptanceEvidenceFailure::None
+    );
+    assert!(AcceptanceEvidenceFailure::parse(Some("always")).is_err());
 }
 
 #[test]

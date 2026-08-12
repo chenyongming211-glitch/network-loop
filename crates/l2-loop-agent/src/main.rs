@@ -10,8 +10,10 @@ use l2_loop_agent::{
     },
     linux::{
         acceptance_fault::{
-            ACCEPTANCE_FAULT_ENV, AcceptanceFault, FaultInjectingMaps, FaultInjectingObservation,
-            FaultInjectingObservationReader, FaultInjectingTc,
+            ACCEPTANCE_EVIDENCE_FAILURE_ENV, ACCEPTANCE_EVIDENCE_ROOT_ENV, ACCEPTANCE_FAULT_ENV,
+            AcceptanceAlertIo, AcceptanceEvidenceFailure, AcceptanceFault,
+            FaultInjectingIncidentOutput, FaultInjectingMaps, FaultInjectingObservation,
+            FaultInjectingObservationReader, FaultInjectingTc, parse_acceptance_evidence_root,
         },
         bpf_object::AyaObjectRuntime,
         inspector::SystemLinuxInspector,
@@ -46,6 +48,21 @@ async fn run() -> Result<(), DaemonError> {
     };
     let acceptance_fault = AcceptanceFault::parse(acceptance_fault_value.as_deref())
         .map_err(|_| DaemonError::InvalidAcceptanceFault)?;
+    let acceptance_evidence_root_value = read_optional_unicode_env(ACCEPTANCE_EVIDENCE_ROOT_ENV)?;
+    let acceptance_evidence_root =
+        parse_acceptance_evidence_root(acceptance_evidence_root_value.as_deref())
+            .map_err(|_| DaemonError::InvalidAcceptanceFault)?;
+    if let Some(root) = acceptance_evidence_root.as_ref() {
+        let canonical =
+            std::fs::canonicalize(root).map_err(|_| DaemonError::InvalidAcceptanceFault)?;
+        if canonical != *root {
+            return Err(DaemonError::InvalidAcceptanceFault);
+        }
+    }
+    let acceptance_evidence_failure = AcceptanceEvidenceFailure::parse(
+        read_optional_unicode_env(ACCEPTANCE_EVIDENCE_FAILURE_ENV)?.as_deref(),
+    )
+    .map_err(|_| DaemonError::InvalidAcceptanceFault)?;
     let mut terminate = signal(SignalKind::terminate()).map_err(|source| DaemonError::Io {
         operation: "register termination signal",
         source,
@@ -72,9 +89,13 @@ async fn run() -> Result<(), DaemonError> {
         FaultInjectingMaps::new(runtime.map_publisher(), acceptance_fault),
         FileOwnershipRepository,
     );
+    let evidence_root = acceptance_evidence_root
+        .as_deref()
+        .unwrap_or_else(|| Path::new("/var/lib/l2-loop/evidence/v1"));
+    let acceptance_alerts = acceptance_evidence_root.is_some();
     let evidence_store = LinuxEvidenceStore::open(
         StdEvidenceIo,
-        Path::new("/var/lib/l2-loop/evidence/v1"),
+        evidence_root,
         env!("CARGO_PKG_VERSION"),
     );
     let (backend, evidence_control) = match evidence_store {
@@ -83,15 +104,28 @@ async fn run() -> Result<(), DaemonError> {
             (
                 Box::new(StoredIncidentOutputBackend::new(
                     shared.clone(),
-                    LinuxAlertSink::new(SystemAlertIo),
+                    LinuxAlertSink::new(AcceptanceAlertIo::new(
+                        SystemAlertIo,
+                        acceptance_alerts,
+                    )),
                 )) as Box<dyn IncidentOutputBackend>,
                 Some(shared),
             )
         }
         Err(_) => (
-            Box::new(LinuxAlertSink::new(SystemAlertIo)) as Box<dyn IncidentOutputBackend>,
+            Box::new(LinuxAlertSink::new(AcceptanceAlertIo::new(
+                SystemAlertIo,
+                acceptance_alerts,
+            ))) as Box<dyn IncidentOutputBackend>,
             None,
         ),
+    };
+    let backend: Box<dyn IncidentOutputBackend> = match acceptance_evidence_failure {
+        AcceptanceEvidenceFailure::None => backend,
+        AcceptanceEvidenceFailure::OnePersist => Box::new(FaultInjectingIncidentOutput::new(
+            backend,
+            acceptance_evidence_failure,
+        )),
     };
     let (incident_output, incident_worker) = IncidentOutputWorker::start(backend);
     let isolated = TransactionIsolatedControl::new(
@@ -138,4 +172,12 @@ async fn run() -> Result<(), DaemonError> {
         coordinate_daemon(dispatcher, server, sampler, shutdown, shutdown_signal).await;
     let _ = incident_worker.shutdown(Duration::from_secs(5)).await;
     daemon_result
+}
+
+fn read_optional_unicode_env(name: &str) -> Result<Option<String>, DaemonError> {
+    match std::env::var(name) {
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err(DaemonError::InvalidAcceptanceFault),
+    }
 }

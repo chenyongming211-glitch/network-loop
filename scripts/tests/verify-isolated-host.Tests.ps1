@@ -115,7 +115,7 @@ foreach ($Required in @(
     "'snapshot'",
     "'verify-owned'",
     "'counters'",
-    "[ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset', 'BaselineLifecycle', 'BaselineSamplingRecovery', 'BaselineGenerationReset', 'FingerprintRelationship', 'FingerprintReadFailure', 'FingerprintGenerationReset', 'DetectionAdaptiveLifecycle', 'DetectionAbsoluteStartup', 'DetectionRelationshipConfidence', 'DetectionFailureGenerationReset')]",
+    "[ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset', 'BaselineLifecycle', 'BaselineSamplingRecovery', 'BaselineGenerationReset', 'FingerprintRelationship', 'FingerprintReadFailure', 'FingerprintGenerationReset', 'DetectionAdaptiveLifecycle', 'DetectionAbsoluteStartup', 'DetectionRelationshipConfidence', 'DetectionFailureGenerationReset', 'IncidentLifecycle', 'IncidentPersistenceFailure', 'IncidentRestartRecovery')]",
     'L2_LOOP_ACCEPTANCE_FAULT',
     'TC_ATTACH_FAILED',
     'MAP_INITIALIZE_FAILED',
