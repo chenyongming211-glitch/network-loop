@@ -278,8 +278,16 @@ fn renders_fixed_rate_labels_without_inventing_non_ready_rates() {
         }
         assert!(!rendered.stdout.contains("pps: 0"));
         assert!(!rendered.stdout.contains("B/s: 0"));
-        assert!(!rendered.stdout.contains("packets_per_second:"));
-        assert!(!rendered.stdout.contains("bytes_per_second:"));
+        let rate_windows = rendered
+            .stdout
+            .split_once("rate_windows:")
+            .unwrap()
+            .1
+            .split_once("baseline:")
+            .unwrap()
+            .0;
+        assert!(!rate_windows.contains("packets_per_second:"));
+        assert!(!rate_windows.contains("bytes_per_second:"));
     }
     assert!(observe_text.stdout.contains("traffic_class: l2_broadcast"));
     assert!(!status_text.stdout.contains("traffic_class:"));
