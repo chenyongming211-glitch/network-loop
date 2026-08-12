@@ -11,13 +11,13 @@ fn fixed_fnv_vectors_include_exact_length_and_bound_the_prefix() {
     let long = (0_u8..80)
         .map(|index| index.wrapping_mul(3).wrapping_add(7))
         .collect::<Vec<_>>();
-    assert_eq!(FINGERPRINT_PREFIX_LEN, 64);
-    assert_eq!(fingerprint_hash(&long), Some(0x4b9a_726a_580d_f57d));
+    assert_eq!(FINGERPRINT_PREFIX_LEN, 60);
+    assert_eq!(fingerprint_hash(&long), Some(0x8480_dad8_815a_62f9));
     assert_eq!(
         fingerprint_hash_with_length(80, &long[..FINGERPRINT_PREFIX_LEN]),
         fingerprint_hash(&long)
     );
-    assert_eq!(fingerprint_hash_with_length(80, &long[..63]), None);
+    assert_eq!(fingerprint_hash_with_length(80, &long[..59]), None);
 
     let mut same_prefix_different_tail = long.clone();
     same_prefix_different_tail[79] ^= 0xff;
@@ -29,7 +29,7 @@ fn fixed_fnv_vectors_include_exact_length_and_bound_the_prefix() {
     same_prefix_different_tail.push(0);
     assert_eq!(
         fingerprint_hash(&same_prefix_different_tail),
-        Some(0xa5ee_ce54_b987_0dca),
+        Some(0xfa47_a937_8f95_8332),
     );
 }
 
@@ -38,14 +38,14 @@ fn fingerprint_rejects_unrepresentable_frames_and_uses_fixed_shift_four() {
     let mut selected = (0_u8..64)
         .map(|index| index.wrapping_mul(5).wrapping_add(11))
         .collect::<Vec<_>>();
-    selected[63] = 9;
+    selected[59] = 1;
     let selected_hash = fingerprint_hash(&selected).expect("representable frame");
 
-    assert_eq!(selected_hash, 0xbeea_64c1_4d75_c5b0);
+    assert_eq!(selected_hash, 0xf7b5_05e5_552f_7ab0);
     assert_eq!(FINGERPRINT_SAMPLE_SHIFT, 4);
     assert!(fingerprint_selected(selected_hash));
 
-    selected[63] = 10;
+    selected[59] = 2;
     assert!(!fingerprint_selected(
         fingerprint_hash(&selected).expect("representable frame")
     ));

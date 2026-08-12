@@ -1,6 +1,6 @@
 use crate::NO_VLAN;
 
-pub const FINGERPRINT_PREFIX_LEN: usize = 64;
+pub const FINGERPRINT_PREFIX_LEN: usize = 60;
 pub const FINGERPRINT_SAMPLE_SHIFT: u8 = 4;
 
 const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;

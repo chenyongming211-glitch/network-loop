@@ -25,12 +25,12 @@ The existing six-Map ownership schema remains version 2. `FingerprintKey` and `F
 
 ## 3. Fixed Sampling Contract
 
-Only successfully parsed Ethernet frames with a length representable by `u16` are eligible. The data plane computes 64-bit FNV-1a over:
+Only successfully parsed Ethernet frames with a length representable by `u16` and at least 60 bytes are eligible. The data plane computes 64-bit FNV-1a over:
 
 1. the exact frame length encoded as two big-endian bytes; and
-2. the first `min(frame_length, 64)` bytes of the frame.
+2. the first fixed 60 bytes of the frame.
 
-The direction is intentionally excluded so an unchanged frame has the same fingerprint at ingress and egress. The exact length is included so equal prefixes with different lengths do not alias by construction. The algorithm is allocation-free and uses a statically bounded, verifier-visible maximum of 64 byte steps.
+The direction is intentionally excluded so an unchanged frame has the same fingerprint at ingress and egress. The exact length is included so equal prefixes with different lengths do not alias by construction. Frames below 60 bytes remain fail-open and continue cumulative classification but are not fingerprinted. The fixed span matches the standard minimum Ethernet frame as observed without FCS and lets the supported older kernel prove one packet-bound check without dynamic packet offsets. The algorithm is allocation-free and uses exactly 60 statically bounded, verifier-visible byte steps.
 
 `sample_shift` is fixed to `4` for this delivery. An eligible frame is selected when the low four fingerprint bits are zero, which is deterministic across hooks and approximately one sample per sixteen eligible frames. Values above `16` are invalid; callers cannot configure the value. The zero value used by older code is no longer published.
 

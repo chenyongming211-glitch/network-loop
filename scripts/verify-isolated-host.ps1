@@ -437,7 +437,7 @@ frame_count = int(raw_count)
 
 def fingerprint_hash(frame):
     value = 0xcbf29ce484222325
-    for byte in len(frame).to_bytes(2, "big") + frame[:64]:
+    for byte in len(frame).to_bytes(2, "big") + frame[:60]:
         value = ((value ^ byte) * 0x100000001b3) & 0xffffffffffffffff
     return value
 

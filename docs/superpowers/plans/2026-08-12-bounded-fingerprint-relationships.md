@@ -8,7 +8,7 @@
 
 ## Task 1: Freeze the Fingerprint Hash and Normalization Contract
 
-- Add RED tests in `l2-loop-common` for fixed FNV-1a vectors, length separation, maximum 64-byte prefix, deterministic shift-4 selection, post-tag EtherType, VLAN depth, protocol, and subtype.
+- Add RED tests in `l2-loop-common` for fixed FNV-1a vectors, length separation, the fixed 60-byte observation span, deterministic shift-4 selection, post-tag EtherType, VLAN depth, protocol, and subtype.
 - Extend the allocation-free packet contract with the required normalized metadata and fixed fingerprint helper.
 - Push RED and record the expected focused GitHub failure; implement GREEN and require all five CI jobs.
 

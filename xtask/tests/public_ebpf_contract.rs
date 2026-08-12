@@ -107,7 +107,7 @@ fn passive_fingerprints_are_fixed_bounded_and_fail_open() {
         "FINGERPRINT_SAMPLE_SHIFT",
         "fingerprint_hash",
         "fingerprint_selected",
-        "packet_fingerprint_metadata",
+        "parse_fingerprint_metadata",
         "direction::INGRESS",
         "direction::EGRESS",
         "bpf_ktime_get_ns",
@@ -128,12 +128,12 @@ fn passive_fingerprints_are_fixed_bounded_and_fail_open() {
 
 #[test]
 fn fingerprint_path_does_not_round_trip_packet_bytes_through_a_dynamic_stack_slice() {
-    assert!(PROGRAM_SOURCE.contains("packet_fingerprint_hash("));
-    assert!(PROGRAM_SOURCE.contains("packet_fingerprint_metadata("));
-    assert!(PROGRAM_SOURCE.contains("packet_byte_at!("));
+    assert!(PROGRAM_SOURCE.contains("packet_prefix::<FINGERPRINT_PREFIX_LEN>"));
+    assert!(PROGRAM_SOURCE.contains("fingerprint_hash_with_length(frame_len, frame)"));
+    assert!(PROGRAM_SOURCE.contains("parse_fingerprint_metadata(frame)"));
     assert!(!PROGRAM_SOURCE.contains("let mut prefix = [0_u8; FINGERPRINT_PREFIX_LEN]"));
     assert!(!PROGRAM_SOURCE.contains("&prefix[..prefix_len]"));
-    assert!(!PROGRAM_SOURCE.contains("offset: usize) -> Option<u8>"));
+    assert!(!PROGRAM_SOURCE.contains("packet_byte_at"));
 }
 
 #[test]
