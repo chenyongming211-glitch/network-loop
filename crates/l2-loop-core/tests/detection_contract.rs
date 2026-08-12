@@ -1,13 +1,12 @@
 use l2_loop_core::{
     DETECTION_ABSOLUTE_BYTE_THRESHOLD_BPS, DETECTION_ABSOLUTE_PACKET_THRESHOLD_PPS,
     DETECTION_ADAPTIVE_BYTE_FLOOR_BPS, DETECTION_ADAPTIVE_PACKET_FLOOR_PPS,
-    DETECTION_AMPLIFICATION_RATIO_MILLI, DETECTION_ASSERT_TICKS,
-    DETECTION_BUM_RATIO_MILLI, DETECTION_CLEAR_TICKS, DETECTION_COOLDOWN_MS,
-    DETECTION_DOMINANT_RATIO_MILLI, DETECTION_FINGERPRINT_FRESHNESS_MS,
-    DETECTION_FINGERPRINT_WINDOW_MS, DETECTION_MINIMUM_INGRESS_SAMPLES,
-    DETECTION_TRANSITION_CAPACITY, DetectionConfig, DetectionReport, DetectionState,
-    DetectionSummary, DetectionTransitionReason, FingerprintWindowReport, FingerprintWindowState,
-    OBSERVATION_SCHEMA_VERSION, RateIdentity,
+    DETECTION_AMPLIFICATION_RATIO_MILLI, DETECTION_ASSERT_TICKS, DETECTION_BUM_RATIO_MILLI,
+    DETECTION_CLEAR_TICKS, DETECTION_COOLDOWN_MS, DETECTION_DOMINANT_RATIO_MILLI,
+    DETECTION_FINGERPRINT_FRESHNESS_MS, DETECTION_FINGERPRINT_WINDOW_MS,
+    DETECTION_MINIMUM_INGRESS_SAMPLES, DETECTION_TRANSITION_CAPACITY, DetectionConfig,
+    DetectionReport, DetectionState, DetectionSummary, DetectionTransitionReason,
+    FingerprintWindowReport, FingerprintWindowState, OBSERVATION_SCHEMA_VERSION, RateIdentity,
 };
 
 #[test]
@@ -73,7 +72,10 @@ fn public_detection_states_and_transition_reasons_have_stable_names() {
             DetectionTransitionReason::RelationshipHighConfidence,
             "relationship_high_confidence",
         ),
-        (DetectionTransitionReason::EvidenceCleared, "evidence_cleared"),
+        (
+            DetectionTransitionReason::EvidenceCleared,
+            "evidence_cleared",
+        ),
         (
             DetectionTransitionReason::CooldownCompleted,
             "cooldown_completed",
@@ -87,7 +89,10 @@ fn public_detection_states_and_transition_reasons_have_stable_names() {
             "evidence_recovered",
         ),
         (DetectionTransitionReason::SamplerPaused, "sampler_paused"),
-        (DetectionTransitionReason::IntegrityFailure, "integrity_failure"),
+        (
+            DetectionTransitionReason::IntegrityFailure,
+            "integrity_failure",
+        ),
     ];
     for (reason, expected) in reasons {
         assert_eq!(serde_json::to_value(reason).unwrap(), expected);
