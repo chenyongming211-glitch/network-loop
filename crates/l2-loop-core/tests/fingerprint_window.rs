@@ -95,17 +95,17 @@ fn first_endpoint_warms_and_exact_window_builds_privacy_reduced_deltas() {
 
 #[test]
 fn early_scan_keeps_first_endpoint_and_long_gap_restarts_warming() {
-    let mut history = history();
-    history
+    let mut early_history = history();
+    early_history
         .record_scan(1_000_000_000, 1_000, first_scan())
         .unwrap();
 
-    let early = history
+    let early = early_history
         .record_scan(10_999_000_000, 10_999, second_scan())
         .unwrap();
     assert_eq!(early.state, FingerprintWindowState::WarmingUp);
 
-    let exact = history
+    let exact = early_history
         .record_scan(11_000_000_000, 11_000, second_scan())
         .unwrap();
     assert_eq!(exact.state, FingerprintWindowState::Ready);
