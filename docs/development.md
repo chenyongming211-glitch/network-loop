@@ -114,18 +114,22 @@ SIGINT and SIGTERM use graceful shutdown. Cleanup verifies the socket device and
 
 Do not compile these binaries locally. Deploy only the bundle from the exact green GitHub commit being accepted.
 
-## Observation and bounded-rate semantics
+## Observation, bounded-rate, and dynamic-baseline semantics
 
 ```text
 l2-loopctl observe --interface <IFACE> [--json]
 l2-loopctl status [--interface <IFACE>] [--json]
 ```
 
-Each request performs a current identity-confirmed Map read but never inserts a history sample. `observe` returns generation-scoped cumulative packets and bytes for XDP ingress and TC egress, split into the six fixed mutually exclusive classes plus aggregate and parse-error counters, together with detailed rate windows. `status` returns zero or one active session and summarizes cumulative and rate data to the two hook aggregates. Observation schema 2 is transported through protocol version 1.
+Each request performs a current identity-confirmed Map read but never inserts a rate or baseline sample. `observe` returns generation-scoped cumulative packets and bytes for XDP ingress and TC egress, split into the six fixed mutually exclusive classes plus aggregate and parse-error counters, together with detailed rate windows and the complete cached baseline report. `status` returns zero or one active session and summarizes cumulative/rate data, baseline state, the 16 subject sample counts, and at most 32 fixed-order elevated identifiers. Observation schema 3 is transported through protocol version 1.
 
 The independent background sampler runs once per second with missed ticks skipped. Its memory-only history contains at most 64 successful samples and is destroyed on successful detach; samples from different generations are never compared. Windows are fixed in the order 1, 10, and 60 seconds. Rates use checked integer arithmetic and monotonic elapsed nanoseconds: packets are rendered as `pps`, and bytes as `B/s`. `ready` includes endpoint evidence, deltas, and rates. `warming_up` means retained endpoints do not cover the requested duration. `stale` means the newest successful sample is strictly more than three seconds old or sampling is paused. Warming and stale windows expose `null` endpoints and rates, not zero or interpolated values.
 
-Transient background-read failures retain trustworthy same-generation samples, increment a bounded diagnostic count, degrade health, and eventually make windows stale; they never fail a successful current cumulative request or trigger detach. Identity, clock, or counter failures clear rate history before any cross-identity or regressed rate can be returned. There is no 100 ms sampling, persistent history, caller-selected window, dynamic baseline, fingerprint, loop verdict, probe, drop, policy, or production attachment.
+The baseline consumes only the ready 10-second window and processes at most one advancing endpoint per successful background tick. There are exactly 16 hook/subject series (aggregate, six classes, and parse errors for each hook). Each holds packet and byte rates as an atomic pair, has capacity 300, and becomes ready at 60 samples—approximately 69–70 seconds after attach because the source window itself first needs ten seconds of coverage. Upper median and upper MAD are evaluated with checked integer arithmetic. A metric is elevated only when it is strictly greater than `max(median + 6 * MAD, 4 * median, noise floor)`, using 10 pps and 16,384 B/s floors. `ratio_milli` is clamped integer evidence and may be null when the median is zero.
+
+The four baseline states are `learning`, `within_baseline`, `elevated`, and `unavailable`; aggregate priority is unavailable, elevated, learning, then within-baseline. `within_baseline` is relative evidence, not a safety or loop verdict. During learning every trustworthy sample is accepted, so a sustained startup abnormality can be learned. After readiness, if either packet or byte rate is elevated, the complete pair for that subject is rejected; unaffected siblings still advance. Baseline current/statistical values and `source_end_unix_ms` are cached background evidence, not request-time calculations.
+
+Observation health is orthogonal to traffic deviation. Trustworthy learning, within-baseline, and elevated results are healthy. Paused/stale sampling, unresolved read failure, or baseline integrity failure is degraded. Transient background-read failures retain rate and baseline histories, stop learning, publish unavailable baseline evidence without current/statistical values, and preserve counts/timestamps; the first recovered endpoint is compared before acceptance. Identity/generation, monotonic-clock, cumulative-counter, source-integrity, or internal baseline-invariant failures clear the complete histories. Successful detach and shutdown destroy them. There is no 100 ms sampling, persistent history, caller-selected baseline control, fingerprint, loop verdict, probe, drop, policy, or production attachment.
 
 The Layer 2 parser reads one optional outer VLAN tag. A nested tag is detected but not parsed through; the frame remains fail-open and uses destination-MAC-safe degraded classification. `verified_visible` means that at least one hook in the current session saw a real supported outer tag. It is not per-hook or per-VLAN proof.
 
@@ -143,6 +147,17 @@ Observation failures use stable codes:
 | `OBS_RATE_COUNTER_REGRESSION` | a cumulative counter fell below retained same-generation evidence |
 | `OBS_RATE_CALCULATION_FAILED` | checked delta, elapsed, or conversion arithmetic failed |
 | `OBS_RATE_SAMPLER_PAUSED` | exact detach was attempted and the retained session is paused |
+
+Baseline failures have a separate stable namespace so operators do not confuse traffic evidence with observation transport:
+
+| Code | Baseline meaning |
+|---|---|
+| `BASELINE_SOURCE_UNAVAILABLE` | a transient background source read failed; histories are retained |
+| `BASELINE_IDENTITY_CHANGED` | generation or ownership identity changed; histories are cleared |
+| `BASELINE_CLOCK_REGRESSION` | monotonic time regressed; histories are cleared |
+| `BASELINE_COUNTER_REGRESSION` | a cumulative counter regressed; histories are cleared |
+| `BASELINE_CALCULATION_FAILED` | source shape, arithmetic, or invariant validation failed; histories are cleared |
+| `BASELINE_SAMPLER_PAUSED` | sampling paused during exact detach; histories are unavailable/cleared by lifecycle |
 
 These errors do not trigger adoption, repair, detach, or cleanup.
 
@@ -164,17 +179,13 @@ Run all bounded acceptance scenarios against the same exact artifact:
 ```powershell
 $L2LoopScenarios = @(
     'Success',
-    'TcAttachFailure',
-    'MapInitializeFailure',
-    'DaemonTermination',
-    'IdentityChange',
-    'TrafficInterruption',
     'PassiveObservation',
-    'ObservationMapFailure',
-    'ObservationIdentityChange',
     'RateWindows',
     'RateSamplingFailure',
-    'RateGenerationReset'
+    'RateGenerationReset',
+    'BaselineLifecycle',
+    'BaselineSamplingRecovery',
+    'BaselineGenerationReset'
 )
 foreach ($L2LoopScenario in $L2LoopScenarios) {
     pwsh -NoProfile -File scripts/verify-isolated-host.ps1 `
@@ -189,6 +200,8 @@ retained for manual review until the original canonical journal is restored.
 `PassiveObservation` verifies the exact nine-frame-per-iteration classification matrix in both directions, real tagged visibility, nested-tag degradation, text/JSON Unix-socket round trips, and continued delivery to the peer. The receiver subscribes to all Ethernet protocols and reconstructs an offloaded VLAN header from `PACKET_AUXDATA` only for acceptance comparison. Generated veth endpoints use `addrgenmode none` to suppress unrelated IPv6 DAD traffic; the harness does not change a sysctl or NIC offload setting. `ObservationMapFailure` proves an injected read failure cannot affect forwarding or exact detach. `ObservationIdentityChange` proves observation refuses a changed journal before Map reads, then succeeds in exact cleanup only after the canonical journal is restored.
 
 `RateWindows` sends the fixed nine-frame matrix in both directions once per second for 65 iterations and validates warming-to-ready transitions, fixed hook/class order, cumulative monotonicity, forwarding, and independent recomputation of every rate from its returned delta and `elapsed_ns`. `RateSamplingFailure` injects only background-read failure and proves request reads and forwarding continue while all windows become stale with null rates and bounded diagnostics. `RateGenerationReset` performs identity-exact detach and reattach with a new run ID, proves the generation changes and all windows restart warming, then independently drives the new 1-second window ready. Every scenario retains full before/after network and eBPF identity equality and exact owned cleanup.
+
+`BaselineLifecycle` proves the bounded `learning -> within_baseline -> elevated -> within_baseline` sequence, fixed schema/cardinality, subject-atomic rejection, sibling learning, and recovery after elevated traffic leaves the 10-second source. `BaselineSamplingRecovery` uses a bounded background-only fault window to prove unavailable output with retained counts, continued request reads/forwarding, and compare-before-accept recovery. `BaselineGenerationReset` proves exact detach/reattach changes generation, clears all 16 histories, returns to learning, and independently advances the new generation. All eight required scenarios use one exact GitHub artifact and independently restore existing network/eBPF identity; a changing foreign identity causes refusal rather than being ignored.
 
 GitHub runs only the self-contained static/unit safety tests for this harness. CI never reads the task-scoped environment inputs and never contacts a test host.
 

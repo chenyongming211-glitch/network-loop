@@ -696,12 +696,9 @@ Re-run the five-job and exact-artifact checks from Task 2 Step 10 using `$FinalC
 - [ ] **Step 1: Establish task-scoped inputs without printing them**
 
 ```powershell
-$TestKeys = @(Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE '.ssh') `
-    -File -Filter '*codex_20260325_ed25519')
-if ($TestKeys.Count -ne 1) { throw 'authorized key is unavailable or ambiguous' }
-$RemoteUser = ('ro' + 'ot')
-$env:L2_LOOP_TEST_TARGET = @("${RemoteUser}@10", '58', '159', '4') -join '.'
-$env:L2_LOOP_TEST_KEY = $TestKeys[0].FullName
+# Resolve both task-scoped values outside the repository without printing them.
+$env:L2_LOOP_TEST_TARGET = '<explicit-user>@<authorized-test-target>'
+$env:L2_LOOP_TEST_KEY = '<task-scoped-private-key-path>'
 $FinalCommit = git rev-parse HEAD
 ```
 

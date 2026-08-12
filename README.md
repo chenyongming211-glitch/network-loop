@@ -2,7 +2,7 @@
 
 L2 Loop Detection Agent is a single-node Rust and eBPF service whose product roadmap covers observing, diagnosing, and temporarily containing Layer 2 loops on an explicitly selected physical interface.
 
-The currently implemented observation slice is deliberately narrow: it provides fail-open XDP ingress and TC egress cumulative observation plus bounded rate windows for one generated, isolated namespace/veth session. It does not classify a loop, establish a dynamic baseline, collect fingerprints, send probes, apply policies, drop traffic, or attach to production, physical, bond, bridge, OVS, tap, or shared interfaces.
+The currently implemented observation slice is deliberately narrow: it provides fail-open XDP ingress and TC egress cumulative observation, bounded rate windows, generation-scoped dynamic baselines, and separate observation-health reporting for one generated, isolated namespace/veth session. It does not classify a storm or loop, collect fingerprints, send probes, apply policies, drop traffic, or attach to production, physical, bond, bridge, OVS, tap, or shared interfaces.
 
 The broader product design remains observe-first. Later deliveries may add NIC/kernel correlation, bounded fingerprints and topology evidence, explicitly authorized one-frame probes, and expiring manual policing only after their own design and safety gates.
 
@@ -13,6 +13,7 @@ The broader product design remains observe-first. Later deliveries may add NIC/k
 - [Linux preflight and isolated safe-attach specification](docs/superpowers/specs/2026-08-06-linux-preflight-safe-attach-design.md)
 - [Isolated passive-observation specification](docs/superpowers/specs/2026-08-10-isolated-passive-observation-design.md)
 - [Bounded daemon sampler and rate-window specification](docs/superpowers/specs/2026-08-11-bounded-daemon-rate-windows-design.md)
+- [Dynamic baseline and observation-health specification](docs/superpowers/specs/2026-08-12-dynamic-baseline-observation-health-design.md)
 - [Local alert and evidence output specification](docs/superpowers/specs/2026-08-06-local-alert-evidence-output-design.md)
 - [Isolated safe-attach implementation plan](docs/superpowers/plans/2026-08-06-isolated-safe-attach.md)
 - [Isolated passive-observation implementation plan](docs/superpowers/plans/2026-08-10-isolated-passive-observation.md)
@@ -49,7 +50,7 @@ Preflight is read-only. It inspects the explicitly named interface, relevant XDP
 
 The socket parent must already exist, be owned by the daemon user (root for the default path), and not be group/world writable. The daemon creates the socket with mode `0600` and removes only the exact socket inode it owns during graceful shutdown.
 
-## Isolated observation and bounded rates
+## Isolated observation, bounded rates, and dynamic baseline
 
 After the daemon has established its one active generated isolated-veth session, these commands read that session without changing kernel state:
 
@@ -60,9 +61,13 @@ l2-loopctl status [--interface <IFACE>]
 l2-loopctl status [--interface <IFACE>] --json
 ```
 
-Both commands perform a fresh request-time read of generation-scoped cumulative counters. Client reads never insert samples or alter the independent one-second background sequence. `observe` returns aggregate packets/bytes, six fixed mutually exclusive classes, parse-error counters, VLAN visibility, sampling diagnostics, and detailed rates for XDP ingress and TC egress. `status` returns zero or one active session with cumulative hook aggregates and summarized hook rates.
+Both commands perform a fresh request-time read of generation-scoped cumulative counters. Client reads never insert rate or baseline samples and never recompute the cached baseline. `observe` returns aggregate packets/bytes, six fixed mutually exclusive classes, parse-error counters, VLAN visibility, sampling diagnostics, detailed rates, and the complete fixed-order baseline report for XDP ingress and TC egress. `status` returns zero or one active session with cumulative hook aggregates, summarized hook rates, baseline state, sample counts, and elevated identifiers.
 
-Rate history exists only in daemon memory, belongs to one exact interface generation, and holds at most 64 successful samples. The public windows are fixed at 1, 10, and 60 seconds. Packet rates are packets per second; byte rates are bytes per second and text output labels them `B/s`. A `ready` window contains deltas, exact elapsed nanoseconds, endpoints, and integer rates. `warming_up` and `stale` windows contain `null` endpoints and rates rather than synthetic zeroes. A sample is stale only when its age is strictly greater than three seconds; a paused sampler is also stale. Observation schema 2 carries this data while the local framing protocol remains version 1.
+Rate history exists only in daemon memory, belongs to one exact interface generation, and holds at most 64 successful samples. The public windows are fixed at 1, 10, and 60 seconds. Packet rates are packets per second; byte rates are bytes per second and text output labels them `B/s`. A `ready` window contains deltas, exact elapsed nanoseconds, endpoints, and integer rates. `warming_up` and `stale` windows contain `null` endpoints and rates rather than synthetic zeroes. A sample is stale only when its age is strictly greater than three seconds; a paused sampler is also stale.
+
+The baseline learns only the ready 10-second window, at most once per successful one-second background tick. It has exactly 16 hook/subject series; each series stores packet and byte rate as an atomic pair with capacity 300 and minimum 60 samples. Initial readiness therefore takes approximately 69–70 seconds after attach. Upper median and upper MAD produce deterministic integer thresholds: `max(median + 6 * MAD, 4 * median, noise floor)`, with floors of 10 pps and 16,384 B/s. Values must be strictly greater than a threshold to be elevated. The public states are `learning`, `within_baseline`, `elevated`, and `unavailable`. Observation health is independent: trustworthy elevated traffic remains healthy, while stale, paused, or unresolved sampling/baseline integrity is degraded. Observation schema 3 carries this data while the local framing protocol remains version 1.
+
+During learning, trustworthy values are accepted, so a sustained abnormal condition present at startup can be learned; this blind spot is explicit. Once ready, an elevated packet or byte metric rejects the complete pair for that subject, while unaffected sibling subjects continue learning. Transient background failures retain histories and publish unavailable evidence; recovery compares before accepting. Identity, generation, clock, counter, and baseline-integrity failures clear history. Detach and shutdown destroy it. Nothing is persisted.
 
 The parser reads Ethernet plus at most one `802.1Q` or `802.1ad` tag. If a second tag is present, it records that nesting was seen but does not parse through it: broadcast and link-local-control classification remains exact, while other group destinations degrade to other multicast and remaining destinations to unclassified. A real visible outer tag promotes the session-level visibility state to `verified_visible`; this does not prove that every hook can see every VLAN and does not create per-VLAN counters.
 
@@ -87,12 +92,13 @@ The implementation now contains:
 - real ownership-checked Aya observation reads with checked per-CPU aggregation;
 - real `observe` and `status` daemon/CLI paths with bounded text and JSON output;
 - a cancellation-aware one-second sampler with memory-only, generation-scoped 1/10/60-second rate windows and bounded diagnostics;
-- a bounded host harness covering attachment/lifecycle, passive observation, rate-window, sampling-failure, and generation-reset scenarios.
+- a bounded dynamic-baseline engine with fixed 10-second source, 300/60 bounds, robust integer thresholds, anti-contamination, and orthogonal health;
+- a bounded host harness covering eight exact-artifact regression and dynamic-baseline scenarios.
 
 Production and live-interface attachment remain disabled. Loading and attachment are
 available only through the generated isolated-veth verification path after the daemon
 independently approves preflight. The eBPF entry points always return pass/continue;
-this delivery derives rates from passive counters but never establishes a baseline, emits loop verdicts, fingerprints packets, sends probes, drops traffic, or applies policies. It has no 100 ms sampler, persistent rate history, or production-interface enablement.
+this delivery derives rates and baseline-relative evidence from passive counters but never emits storm/loop verdicts, fingerprints packets, sends probes, drops traffic, or applies policies. It has no 100 ms sampler, persistent history, or production-interface enablement.
 
 See [development.md](docs/development.md) for the CI workflow.
 

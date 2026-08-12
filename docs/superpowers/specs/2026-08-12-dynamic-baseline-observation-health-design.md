@@ -287,3 +287,9 @@ This delivery ends with trustworthy baseline-relative evidence and observation-h
 - production, physical, bond, bridge, OVS, tap, or shared-interface attachment.
 
 The next separate delivery may consume schema 3 evidence to design absolute safety signals and a loop-state machine without changing the baseline learning contract.
+
+## 15. Implementation and Acceptance Record
+
+This specification is implemented on `main`. The delivered code preserves the fixed 10-second source, 300/60 bounds, 10 pps and 16,384 B/s floors, upper-median/upper-MAD integer evaluation, subject-atomic rejection, request-pure cache semantics, retain-versus-clear matrix, four public states, and observation-health separation described above. No eBPF program or Map ABI change was required.
+
+GitHub CI compiles, formats, lints, tests, builds the eBPF object, and produces the exact static MUSL bundle. Authorized-host acceptance uses only that exact checksum-verified artifact. The required matrix contains `Success`, `PassiveObservation`, `RateWindows`, `RateSamplingFailure`, `RateGenerationReset`, `BaselineLifecycle`, `BaselineSamplingRecovery`, and `BaselineGenerationReset`. Each scenario uses only a generated namespace/veth pair and requires before/after foreign network/eBPF identity equality plus zero owned runtime, pin, namespace, and veth residue. A concurrent foreign identity change is a hard refusal and is never normalized away.
