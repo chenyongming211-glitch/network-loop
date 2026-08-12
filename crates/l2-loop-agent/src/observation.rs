@@ -272,12 +272,7 @@ where
                 {
                     return SamplingTickOutcome::Sampled;
                 }
-                self.evaluate_detection(
-                    ownership,
-                    &windows,
-                    now_monotonic_ns,
-                    captured_at_unix_ms,
-                );
+                self.evaluate_detection(ownership, &windows, now_monotonic_ns, captured_at_unix_ms);
                 SamplingTickOutcome::Sampled
             }
             Err(error) => {
@@ -398,11 +393,9 @@ where
         };
         match fingerprints {
             RawFingerprints::Available(evidence) => {
-                if let Err(error) = history.record_scan(
-                    captured_at_monotonic_ns,
-                    captured_at_unix_ms,
-                    evidence,
-                ) {
+                if let Err(error) =
+                    history.record_scan(captured_at_monotonic_ns, captured_at_unix_ms, evidence)
+                {
                     self.mark_detection_unavailable(captured_at_unix_ms, error.stable_code());
                     return false;
                 }
@@ -431,7 +424,10 @@ where
         evaluated_at_monotonic_ns: u64,
         evaluated_at_unix_ms: u64,
     ) {
-        let Some(baseline) = self.baseline.as_ref().map(|value| value.cached_report().clone())
+        let Some(baseline) = self
+            .baseline
+            .as_ref()
+            .map(|value| value.cached_report().clone())
         else {
             return;
         };
@@ -462,15 +458,16 @@ where
         let Some(detection) = self.detection.as_mut() else {
             return;
         };
-        if evaluated_at_monotonic_ns == 0 && detection.cached_report().last_trustworthy_at_unix_ms.is_none() {
+        if evaluated_at_monotonic_ns == 0
+            && detection
+                .cached_report()
+                .last_trustworthy_at_unix_ms
+                .is_none()
+        {
             return;
         }
         if detection
-            .evaluate(
-                evaluated_at_monotonic_ns,
-                evaluated_at_unix_ms,
-                signals,
-            )
+            .evaluate(evaluated_at_monotonic_ns, evaluated_at_unix_ms, signals)
             .is_err()
         {
             self.clear_detection_integrity(
@@ -502,12 +499,7 @@ where
             return;
         };
         if let Some(detection) = self.detection.as_mut() {
-            let _ = detection.clear(
-                identity,
-                cleared_at_monotonic_ns,
-                cleared_at_unix_ms,
-                code,
-            );
+            let _ = detection.clear(identity, cleared_at_monotonic_ns, cleared_at_unix_ms, code);
         }
     }
 

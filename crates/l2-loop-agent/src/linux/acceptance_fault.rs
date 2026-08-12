@@ -69,15 +69,12 @@ where
     ) -> Result<RawObservation, PortError> {
         let is_background = matches!(
             purpose,
-            ObservationReadPurpose::BackgroundSample
-                | ObservationReadPurpose::BackgroundAnalysis
+            ObservationReadPurpose::BackgroundSample | ObservationReadPurpose::BackgroundAnalysis
         );
         if is_background {
             self.background_reads = self.background_reads.saturating_add(1);
         }
-        if self.fault == AcceptanceFault::RateSamplingMapRead
-            && is_background
-        {
+        if self.fault == AcceptanceFault::RateSamplingMapRead && is_background {
             return Err(PortError::coded_adapter(
                 "OBS_MAP_UNAVAILABLE",
                 "authorized isolated rate sampling map read failure",
