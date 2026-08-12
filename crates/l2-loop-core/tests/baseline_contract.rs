@@ -56,12 +56,9 @@ fn learning_report_has_fixed_subject_order_and_null_statistics() {
         BaselineSubject::ParseErrors,
     ];
 
-    for (hook_index, expected_hook) in [
-        HookRole::ExternalXdpIngress,
-        HookRole::PhysicalTcEgress,
-    ]
-    .into_iter()
-    .enumerate()
+    for (hook_index, expected_hook) in [HookRole::ExternalXdpIngress, HookRole::PhysicalTcEgress]
+        .into_iter()
+        .enumerate()
     {
         for (subject_index, expected_subject) in expected_subjects.iter().enumerate() {
             let subject = &report.subjects[hook_index * BASELINE_SUBJECTS_PER_HOOK + subject_index];
@@ -84,8 +81,14 @@ fn learning_report_has_fixed_subject_order_and_null_statistics() {
 
 #[test]
 fn serialized_names_and_tagged_subjects_are_stable() {
-    assert_eq!(serde_json::to_string(&BaselineState::WithinBaseline).unwrap(), "\"within_baseline\"");
-    assert_eq!(serde_json::to_string(&BaselineMetric::Packets).unwrap(), "\"packets\"");
+    assert_eq!(
+        serde_json::to_string(&BaselineState::WithinBaseline).unwrap(),
+        "\"within_baseline\""
+    );
+    assert_eq!(
+        serde_json::to_string(&BaselineMetric::Packets).unwrap(),
+        "\"packets\""
+    );
     assert_eq!(
         serde_json::to_value(BaselineSubject::Total).unwrap(),
         serde_json::json!({"kind": "total"})
@@ -104,11 +107,20 @@ fn interface_priority_never_hides_unavailable_or_elevated() {
     let identity = RateIdentity::new(7, 11).unwrap();
     let mut report = l2_loop_core::BaselineReport::learning(identity, 1_000);
     report.subjects[0].state = BaselineState::WithinBaseline;
-    assert_eq!(l2_loop_core::aggregate_baseline_state(&report.subjects), BaselineState::Learning);
+    assert_eq!(
+        l2_loop_core::aggregate_baseline_state(&report.subjects),
+        BaselineState::Learning
+    );
 
     report.subjects[1].state = BaselineState::Elevated;
-    assert_eq!(l2_loop_core::aggregate_baseline_state(&report.subjects), BaselineState::Elevated);
+    assert_eq!(
+        l2_loop_core::aggregate_baseline_state(&report.subjects),
+        BaselineState::Elevated
+    );
 
     report.subjects[2].state = BaselineState::Unavailable;
-    assert_eq!(l2_loop_core::aggregate_baseline_state(&report.subjects), BaselineState::Unavailable);
+    assert_eq!(
+        l2_loop_core::aggregate_baseline_state(&report.subjects),
+        BaselineState::Unavailable
+    );
 }
