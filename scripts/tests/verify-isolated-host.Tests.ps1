@@ -128,6 +128,34 @@ foreach ($Required in @(
 }
 
 foreach ($Required in @(
+    "'IncidentLifecycle'",
+    "'IncidentPersistenceFailure'",
+    "'IncidentRestartRecovery'",
+    'L2_LOOP_ACCEPTANCE_EVIDENCE_ROOT',
+    'L2_LOOP_ACCEPTANCE_EVIDENCE_FAILURE',
+    'evidence="$root/evidence/v1"',
+    'evidence schema version is not 1',
+    'observation schema version is not 5',
+    'evidence root mode is not 0700',
+    'evidence event mode is not 0700',
+    'evidence revision mode is not 0600',
+    "'evidence', 'list'",
+    "'evidence', 'show'",
+    "'status'",
+    'Assert-IncidentOutputPrivacy',
+    'Assert-IncidentEvidenceStore',
+    'Assert-IncidentLifecycle',
+    'incident persistence failure did not preserve traffic forwarding',
+    'incident restart recovery changed immutable evidence',
+    'cleanup_dir "$evidence"',
+    'Wait-IsolatedRemoteState -Expected $BeforeState'
+)) {
+    Assert-True ($Harness.Contains($Required)) "harness is missing bounded incident output marker: $Required"
+}
+Assert-True (-not $Harness.Contains('/var/lib/l2-loop/evidence')) 'acceptance harness writes the production evidence root'
+Assert-True (-not $Harness.Contains('journalctl')) 'acceptance harness reads or mutates host journald state'
+
+foreach ($Required in @(
     "'FingerprintRelationship'",
     "'FingerprintReadFailure'",
     "'FingerprintGenerationReset'",
