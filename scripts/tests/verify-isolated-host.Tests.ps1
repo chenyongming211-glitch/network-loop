@@ -177,15 +177,26 @@ foreach ($Required in @(
     "'verify-second-hooks'",
     '[System.Diagnostics.Stopwatch]::StartNew()',
     'for ($RateIteration = 1; $RateIteration -le 65; $RateIteration++)',
+    "Assert-DetailedRateWindows -Snapshot `$InitialRateSnapshot -ExpectedStates @('ready', 'warming_up', 'warming_up')",
     'Start-Sleep -Milliseconds $RemainingMilliseconds',
     '[uint64](65 * 9)',
     'Start-Sleep -Seconds 4',
     "-ExpectedStates @('stale', 'stale', 'stale')",
     "'isolated-attach', '--interface', `$Names.HostVeth, '--run-id', `$SecondRunId",
-    "'isolated-detach', '--run-id', `$SecondRunId"
+    "'isolated-detach', '--run-id', `$SecondRunId",
+    "`$SecondInitialOneSecondState -cnotin @('warming_up', 'ready')",
+    'ebpf_identity=',
+    'network_links=',
+    'network_routes=',
+    'first generation detach did not restore prepared state',
+    'second generation detach did not restore prepared state'
 )) {
     Assert-True ($Harness.Contains($Required)) "harness is missing bounded rate marker: $Required"
 }
+Assert-True (-not [regex]::IsMatch($Harness, '(?m)Assert-StatusRateWindows -Status \$CurrentRateStatus[^\r\n]*-RequireTraffic')) 'independent status requests require the same non-zero sample delta as observe'
+Assert-True (-not [regex]::IsMatch($Harness, '(?m)Assert-DetailedRateWindows -Snapshot \$(?:FirstGeneration|SecondGenerationReady)[^\r\n]*-RequireTraffic')) 'generation reset duplicates the fixed-traffic rate assertion'
+$GenerationLifecycle = '(?s)''RateGenerationReset'' \{(?:(?!''ObservationMapFailure'').)*\$FirstDetach(?:(?!''ObservationMapFailure'').)*-Phase ''links-down''(?:(?!''ObservationMapFailure'').)*first generation detach did not restore prepared state(?:(?!''ObservationMapFailure'').)*\$SecondAttach(?:(?!''ObservationMapFailure'').)*''verify-second-hooks''(?:(?!''ObservationMapFailure'').)*-Phase ''links-up''(?:(?!''ObservationMapFailure'').)*\$SecondGenerationInitial(?:(?!''ObservationMapFailure'').)*\$SecondDetach(?:(?!''ObservationMapFailure'').)*-Phase ''links-down''(?:(?!''ObservationMapFailure'').)*second generation detach did not restore prepared state'
+Assert-True ([regex]::IsMatch($Harness, $GenerationLifecycle)) 'generation reset does not symmetrically restore the generated link lifecycle'
 Assert-True (
     [regex]::Matches($Harness, [regex]::Escape('socket.htons(0x0003)')).Count -ge 3
 ) 'passive observation receivers do not subscribe to ETH_P_ALL'

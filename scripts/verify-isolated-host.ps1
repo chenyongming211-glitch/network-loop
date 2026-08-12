@@ -201,19 +201,21 @@ case "$scenario" in
 esac
 
 snapshot() {
-    {
-        "$root/l2-loop-hostcheck" snapshot
-        ip -j link show
-        ip -j route show table all
-    } | sha256sum | awk '{print $1}'
+    printf 'ebpf_identity='
+    "$root/l2-loop-hostcheck" snapshot | sha256sum | awk '{print $1}'
+    printf 'network_links='
+    ip -j link show | sha256sum | awk '{print $1}'
+    printf 'network_routes='
+    ip -j route show table all | sha256sum | awk '{print $1}'
 }
 
 snapshot_prepared() {
-    {
-        "$root/l2-loop-hostcheck" snapshot
-        ip -j link show | python3 -c 'import json,sys; excluded=sys.argv[1]; value=json.load(sys.stdin); sum(1 for item in value if item.get("ifname") == excluded) != 1 and sys.exit("generated host veth is not unique"); filtered=[item for item in value if item.get("ifname") != excluded]; print(json.dumps(filtered,sort_keys=True,separators=(",",":")))' "$host"
-        ip -j route show table all
-    } | sha256sum | awk '{print $1}'
+    printf 'ebpf_identity='
+    "$root/l2-loop-hostcheck" snapshot | sha256sum | awk '{print $1}'
+    printf 'network_links='
+    ip -j link show | python3 -c 'import json,sys; excluded=sys.argv[1]; value=json.load(sys.stdin); sum(1 for item in value if item.get("ifname") == excluded) != 1 and sys.exit("generated host veth is not unique"); filtered=[item for item in value if item.get("ifname") != excluded]; print(json.dumps(filtered,sort_keys=True,separators=(",",":")))' "$host" | sha256sum | awk '{print $1}'
+    printf 'network_routes='
+    ip -j route show table all | sha256sum | awk '{print $1}'
 }
 
 cleanup_file() {
@@ -730,6 +732,17 @@ function Wait-IsolatedRemoteState {
             Start-Sleep -Milliseconds $DelayMilliseconds
         }
     }
+    if ($Phase -cin @('snapshot', 'snapshot-prepared')) {
+        $ExpectedComponents = @($Expected -split "`r?`n")
+        $CurrentComponents = @($Current -split "`r?`n")
+        $ChangedComponents = for ($Index = 0; $Index -lt [Math]::Max($ExpectedComponents.Count, $CurrentComponents.Count); $Index++) {
+            if ($Index -ge $ExpectedComponents.Count -or $Index -ge $CurrentComponents.Count -or $ExpectedComponents[$Index] -cne $CurrentComponents[$Index]) {
+                if ($Index -lt $ExpectedComponents.Count) { ($ExpectedComponents[$Index] -split '=', 2)[0] }
+                elseif ($Index -lt $CurrentComponents.Count) { ($CurrentComponents[$Index] -split '=', 2)[0] }
+            }
+        }
+        throw "existing network or eBPF identity snapshot changed during isolated acceptance: $(@($ChangedComponents) -join ', ')"
+    }
     Assert-IsolatedRemoteStateUnchanged -Before $Expected -After $Current
 }
 
@@ -929,7 +942,7 @@ function Assert-RateCounterEvidence {
     }
     if ($RequireTraffic -and
         ([uint64]$Counters.packet_delta -eq 0 -or [uint64]$Counters.byte_delta -eq 0)) {
-        throw "expected bounded traffic is absent from $Evidence"
+        throw "expected bounded traffic is absent from $Evidence`: packet_delta $($Counters.packet_delta), byte_delta $($Counters.byte_delta), elapsed_ns $ElapsedNs"
     }
     if ($RequireNonZeroRate -and
         ([uint64]$Counters.packets_per_second -eq 0 -or [uint64]$Counters.bytes_per_second -eq 0)) {
@@ -954,7 +967,7 @@ function Assert-DetailedRateWindows {
     for ($Index = 0; $Index -lt 3; $Index++) {
         $Window = $Windows[$Index]
         if ([uint64]$Window.window_ms -ne [uint64]$ExpectedWindowMs[$Index] -or $Window.state -cne $ExpectedStates[$Index]) {
-            throw "unexpected detailed rate window state at index $Index"
+            throw "unexpected detailed rate window state at index $Index`: expected $($ExpectedStates[$Index]), actual $($Window.state), coverage $($Window.coverage_ms) ms"
         }
         if ($Window.state -cne 'ready') {
             if ($null -ne $Window.elapsed_ns -or $null -ne $Window.start_unix_ms -or
@@ -1294,12 +1307,17 @@ try {
         }
         'RateWindows' {
             $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
-            $InitialRateSnapshot = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            $InitialRateSnapshot = $null
+            for ($Attempt = 1; $Attempt -le 5; $Attempt++) {
+                $InitialRateSnapshot = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+                if (@($InitialRateSnapshot.rate_windows)[0].state -ceq 'ready') { break }
+                Start-Sleep -Seconds 1
+            }
             Assert-ObservationIdentity -Snapshot $InitialRateSnapshot -Names $Names
-            Assert-DetailedRateWindows -Snapshot $InitialRateSnapshot -ExpectedStates @('warming_up', 'warming_up', 'warming_up')
+            Assert-DetailedRateWindows -Snapshot $InitialRateSnapshot -ExpectedStates @('ready', 'warming_up', 'warming_up')
             $InitialRateStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
             Assert-StatusMatchesObservation -Status $InitialRateStatus -Snapshot $InitialRateSnapshot
-            Assert-StatusRateWindows -Status $InitialRateStatus -ExpectedStates @('warming_up', 'warming_up', 'warming_up')
+            Assert-StatusRateWindows -Status $InitialRateStatus -ExpectedStates @('ready', 'warming_up', 'warming_up')
 
             $PreviousRateSnapshot = $InitialRateSnapshot
             $RateTimer = [System.Diagnostics.Stopwatch]::StartNew()
@@ -1317,7 +1335,7 @@ try {
                     Assert-DetailedRateWindows -Snapshot $CurrentRateSnapshot -ExpectedStates $ExpectedStates -RequireTraffic
                     $CurrentRateStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
                     Assert-StatusMatchesObservation -Status $CurrentRateStatus -Snapshot $CurrentRateSnapshot
-                    Assert-StatusRateWindows -Status $CurrentRateStatus -ExpectedStates $ExpectedStates -RequireTraffic
+                    Assert-StatusRateWindows -Status $CurrentRateStatus -ExpectedStates $ExpectedStates
                     $PreviousRateSnapshot = $CurrentRateSnapshot
                 }
                 $RemainingMilliseconds = ([int64]$RateIteration * 1000) - $RateTimer.ElapsedMilliseconds
@@ -1373,7 +1391,7 @@ try {
                 $FirstGeneration = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
                 if (@($FirstGeneration.rate_windows)[0].state -ceq 'ready') { break }
             }
-            Assert-DetailedRateWindows -Snapshot $FirstGeneration -ExpectedStates @('ready', 'warming_up', 'warming_up') -RequireTraffic
+            Assert-DetailedRateWindows -Snapshot $FirstGeneration -ExpectedStates @('ready', 'warming_up', 'warming_up')
             $FirstGenerationValue = [uint64]$FirstGeneration.generation
 
             $FirstDetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
@@ -1381,7 +1399,13 @@ try {
             )
             $FirstDetach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $FirstDetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
             if ($FirstDetach.Stdout.Trim() -cne 'accepted') { throw 'first generation detach was not acknowledged' }
-            Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedMutation -Phase 'links-down' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            try {
+                Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            }
+            catch {
+                throw "first generation detach did not restore prepared state: $($_.Exception.Message)"
+            }
 
             $SecondAttachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
                 "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-attach', '--interface', $Names.HostVeth, '--run-id', $SecondRunId
@@ -1389,11 +1413,16 @@ try {
             $SecondAttach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $SecondAttachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
             if ($SecondAttach.Stdout.Trim() -cne 'accepted') { throw 'second generation attach was not acknowledged' }
             $null = Invoke-IsolatedRemotePhase -Phase 'verify-second-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
 
             $SecondGenerationInitial = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
             Assert-ObservationIdentity -Snapshot $SecondGenerationInitial -Names $Names
             if ([uint64]$SecondGenerationInitial.generation -eq $FirstGenerationValue) { throw 'interface generation did not change after exact reattach' }
-            Assert-DetailedRateWindows -Snapshot $SecondGenerationInitial -ExpectedStates @('warming_up', 'warming_up', 'warming_up')
+            $SecondInitialOneSecondState = [string]@($SecondGenerationInitial.rate_windows)[0].state
+            if ($SecondInitialOneSecondState -cnotin @('warming_up', 'ready')) {
+                throw "second generation initial 1-second window had invalid state $SecondInitialOneSecondState"
+            }
+            Assert-DetailedRateWindows -Snapshot $SecondGenerationInitial -ExpectedStates @($SecondInitialOneSecondState, 'warming_up', 'warming_up')
 
             $SecondGenerationReady = $null
             for ($Attempt = 1; $Attempt -le 5; $Attempt++) {
@@ -1403,14 +1432,20 @@ try {
                 if (@($SecondGenerationReady.rate_windows)[0].state -ceq 'ready') { break }
             }
             if ([uint64]$SecondGenerationReady.generation -ne [uint64]$SecondGenerationInitial.generation) { throw 'second generation identity changed while warming' }
-            Assert-DetailedRateWindows -Snapshot $SecondGenerationReady -ExpectedStates @('ready', 'warming_up', 'warming_up') -RequireTraffic
+            Assert-DetailedRateWindows -Snapshot $SecondGenerationReady -ExpectedStates @('ready', 'warming_up', 'warming_up')
 
             $SecondDetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
                 "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-detach', '--run-id', $SecondRunId
             )
             $SecondDetach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $SecondDetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
             if ($SecondDetach.Stdout.Trim() -cne 'accepted') { throw 'second generation detach was not acknowledged' }
-            Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedMutation -Phase 'links-down' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            try {
+                Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            }
+            catch {
+                throw "second generation detach did not restore prepared state: $($_.Exception.Message)"
+            }
             $Detached = $true
         }
         'ObservationMapFailure' {
