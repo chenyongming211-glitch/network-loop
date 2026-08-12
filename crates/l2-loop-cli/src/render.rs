@@ -2,9 +2,9 @@ use std::fmt::Write;
 
 use l2_loop_agent::protocol::{ControlResponse, ERROR_INTERNAL, ResponseBody};
 use l2_loop_core::{
-    AgentResult, BaselineMetricReport, BaselineReport, BaselineSummary, DetailedRateWindow,
-    HookRate, InterfaceStatus, ObservationCounters, ObservationSnapshot, PreflightDecision,
-    PreflightReport, RateCounters, SamplingStatus, StatusRateWindow,
+    AgentResult, BaselineMetricReport, BaselineReport, BaselineSubject, BaselineSummary,
+    DetailedRateWindow, HookRate, InterfaceStatus, ObservationCounters, ObservationSnapshot,
+    PreflightDecision, PreflightReport, RateCounters, SamplingStatus, StatusRateWindow,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -254,8 +254,12 @@ fn render_baseline_summary(
             serialized_scalar(&subject.hook)?
         )
         .ok();
-        writeln!(output, "          subject:").ok();
-        render_serialized_value(output, &subject.subject, 12)?;
+        writeln!(
+            output,
+            "          subject: {}",
+            baseline_subject_label(subject.subject)?
+        )
+        .ok();
         writeln!(output, "          sample_count: {}", subject.sample_count).ok();
         writeln!(
             output,
@@ -276,8 +280,12 @@ fn render_baseline_summary(
             serialized_scalar(&elevated.hook)?
         )
         .ok();
-        writeln!(output, "          subject:").ok();
-        render_serialized_value(output, &elevated.subject, 12)?;
+        writeln!(
+            output,
+            "          subject: {}",
+            baseline_subject_label(elevated.subject)?
+        )
+        .ok();
         writeln!(
             output,
             "          metric: {}",
@@ -590,6 +598,16 @@ fn option_number(value: Option<u64>) -> String {
 
 fn serialized_scalar<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
     Ok(scalar_text(&serde_json::to_value(value)?))
+}
+
+fn baseline_subject_label(subject: BaselineSubject) -> Result<String, serde_json::Error> {
+    Ok(match subject {
+        BaselineSubject::Total => "total".to_owned(),
+        BaselineSubject::TrafficClass { traffic_class } => {
+            format!("class/{}", serialized_scalar(&traffic_class)?)
+        }
+        BaselineSubject::ParseErrors => "parse_errors".to_owned(),
+    })
 }
 
 fn rendered_output(rendered: Result<String, serde_json::Error>, exit_code: u8) -> RenderedOutput {
