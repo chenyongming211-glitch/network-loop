@@ -214,6 +214,61 @@ fn request_and_background_read_purposes_are_distinct() {
 }
 
 #[test]
+fn background_analysis_runs_once_at_each_ten_second_deadline() {
+    let outcomes = (0..22).map(|units| Ok(raw_observation(units)));
+    let (mut service, clock, purposes) = service(outcomes);
+    let ownership = ownership();
+
+    for units in 0..=20 {
+        clock.set(units * SECOND_NS, 1_000 + units * 1_000);
+        assert_eq!(
+            service.sample_tick(&ownership),
+            SamplingTickOutcome::Sampled
+        );
+    }
+
+    let purposes = purposes.lock().unwrap();
+    assert_eq!(purposes.len(), 21);
+    for (index, purpose) in purposes.iter().enumerate() {
+        let expected = if index == 10 || index == 20 {
+            ObservationReadPurpose::BackgroundAnalysis
+        } else {
+            ObservationReadPurpose::BackgroundSample
+        };
+        assert_eq!(*purpose, expected, "unexpected purpose at tick {index}");
+    }
+}
+
+#[test]
+fn missed_analysis_deadlines_do_not_replay_catch_up_reads() {
+    let (mut service, clock, purposes) = service([
+        Ok(raw_observation(0)),
+        Ok(raw_observation(35)),
+        Ok(raw_observation(36)),
+        Ok(raw_observation(40)),
+    ]);
+    let ownership = ownership();
+
+    service.sample_tick(&ownership);
+    clock.set(35 * SECOND_NS, 36_000);
+    service.sample_tick(&ownership);
+    clock.set(36 * SECOND_NS, 37_000);
+    service.sample_tick(&ownership);
+    clock.set(40 * SECOND_NS, 41_000);
+    service.sample_tick(&ownership);
+
+    assert_eq!(
+        purposes.lock().unwrap().as_slice(),
+        [
+            ObservationReadPurpose::BackgroundSample,
+            ObservationReadPurpose::BackgroundAnalysis,
+            ObservationReadPurpose::BackgroundSample,
+            ObservationReadPurpose::BackgroundAnalysis,
+        ]
+    );
+}
+
+#[test]
 fn transient_background_error_retains_history() {
     let (mut service, clock, _) = service([
         Ok(raw_observation(0)),
