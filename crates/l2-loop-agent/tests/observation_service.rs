@@ -9,14 +9,15 @@ use std::{
 
 use l2_loop_agent::{
     BASELINE_SOURCE_UNAVAILABLE, Clock, OBS_MAP_UNAVAILABLE, OBS_RATE_COUNTER_REGRESSION,
-    ObservationReadPurpose, ObservationReader, PortError, RawObservation, SamplingService,
-    SamplingTickOutcome,
+    ObservationReadPurpose, ObservationReader, PortError, RawFingerprints, RawObservation,
+    SamplingService, SamplingTickOutcome,
     ownership::{OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnershipRecord},
 };
-use l2_loop_common::ABI_VERSION;
+use l2_loop_common::{ABI_VERSION, FingerprintKey, FingerprintValue, direction};
 use l2_loop_core::{
-    BaselineState, ClassObservation, HookObservation, HookRole, InterfaceName, ObservationCounters,
-    ObservationHealth, RateWindowState, TrafficClass, VlanVisibility,
+    BaselineState, ClassObservation, FingerprintEvidence, FingerprintState, HookObservation,
+    HookRole, InterfaceName, ObservationCounters, ObservationHealth, RateWindowState, TrafficClass,
+    VlanVisibility,
 };
 
 const SECOND_NS: u64 = 1_000_000_000;
@@ -127,6 +128,58 @@ fn request_status_summarizes_the_same_rate_windows() {
     let hooks = detailed.hooks.as_ref().unwrap();
     assert_eq!(summary.xdp_ingress, Some(hooks[0].total));
     assert_eq!(summary.tc_egress, Some(hooks[1].total));
+}
+
+#[test]
+fn request_builds_privacy_reduced_fingerprint_relationships_for_observe_and_status() {
+    let ingress = fingerprint(direction::INGRESS, 100, 2, 128);
+    let egress = fingerprint(direction::EGRESS, 200, 3, 192);
+    let raw = raw_with_fingerprints(0, RawFingerprints::Available(vec![ingress, egress]));
+    let (mut service, _, _) = service([Ok(raw.clone()), Ok(raw)]);
+    let active = interface();
+    let ownership = ownership();
+
+    let observed = service.observe(&active, &active, &ownership).unwrap();
+    let status = service
+        .status(None, Some(&active), Some(&ownership))
+        .unwrap()
+        .remove(0);
+
+    assert_eq!(observed.fingerprints.state, FingerprintState::Observed);
+    assert_eq!(observed.fingerprints.captured_entry_count, 2);
+    assert_eq!(observed.fingerprints.correlated_relation_count, 1);
+    assert_eq!(status.fingerprints.correlated_relation_count, 1);
+    assert_eq!(
+        status.fingerprints.maximum_packet_ratio_milli,
+        observed.fingerprints.maximum_packet_ratio_milli
+    );
+    let json = serde_json::to_string(&observed).unwrap();
+    for forbidden in ["fingerprint\"", "source_mac", "destination_mac", "first_seen_ns"] {
+        assert!(!json.contains(forbidden));
+    }
+}
+
+#[test]
+fn recoverable_fingerprint_read_failure_degrades_health_without_losing_counters() {
+    let raw = raw_with_fingerprints(
+        0,
+        RawFingerprints::Unavailable {
+            code: "OBS_FINGERPRINT_UNAVAILABLE",
+        },
+    );
+    let (mut service, _, _) = service([Ok(raw)]);
+    let active = interface();
+    let ownership = ownership();
+
+    let observed = service.observe(&active, &active, &ownership).unwrap();
+
+    assert_eq!(observed.health, ObservationHealth::Degraded);
+    assert_eq!(observed.hooks[0].total, counters(100, 10_000));
+    assert_eq!(observed.fingerprints.state, FingerprintState::Unavailable);
+    assert_eq!(
+        observed.fingerprints.last_error_code.as_deref(),
+        Some("OBS_FINGERPRINT_UNAVAILABLE")
+    );
 }
 
 #[test]
@@ -473,6 +526,10 @@ impl Clock for MutableClock {
 }
 
 fn raw_observation(units: u64) -> RawObservation {
+    raw_with_fingerprints(units, RawFingerprints::Available(Vec::new()))
+}
+
+fn raw_with_fingerprints(units: u64, fingerprints: RawFingerprints) -> RawObservation {
     RawObservation {
         ifindex: 41,
         generation: 7,
@@ -481,7 +538,39 @@ fn raw_observation(units: u64) -> RawObservation {
             hook(HookRole::ExternalXdpIngress, units, 7, 700),
             hook(HookRole::PhysicalTcEgress, units, 11, 1_100),
         ],
-        fingerprints: l2_loop_agent::RawFingerprints::NotRequested,
+        fingerprints,
+    }
+}
+
+fn fingerprint(
+    direction: u8,
+    first_seen_ns: u64,
+    packets: u64,
+    bytes: u64,
+) -> FingerprintEvidence {
+    FingerprintEvidence {
+        key: FingerprintKey {
+            interface_generation: 7,
+            fingerprint: 0x1234,
+            ifindex: 41,
+            outer_vlan_id: l2_loop_common::NO_VLAN,
+            ether_type: 0x0800,
+            frame_len: 64,
+            direction,
+            vlan_depth: 0,
+            protocol: 17,
+            subtype: 0,
+            reserved: [0; 2],
+        },
+        value: FingerprintValue {
+            first_seen_ns,
+            last_seen_ns: first_seen_ns + 10,
+            packets,
+            bytes,
+            source_mac: [1; 6],
+            destination_mac: [2; 6],
+            reserved: [0; 4],
+        },
     }
 }
 
