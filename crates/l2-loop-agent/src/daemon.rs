@@ -18,8 +18,8 @@ use tokio::{
 };
 
 use crate::{
-    AttachmentSession, IsolatedAttachmentDriver, OBS_OWNERSHIP_MISMATCH, OBS_SESSION_NOT_FOUND,
-    IncidentOutputHandle, ObservationReader, PlatformInspector, PortError, PreflightService,
+    AttachmentSession, IncidentOutputHandle, IsolatedAttachmentDriver, OBS_OWNERSHIP_MISMATCH,
+    OBS_SESSION_NOT_FOUND, ObservationReader, PlatformInspector, PortError, PreflightService,
     SamplingService, SamplingTickOutcome, SystemClock,
     linux::acceptance_fault::ACCEPTANCE_DIAGNOSTICS_ENV,
     ownership::{FileOwnershipRepository, OwnershipRecord, RunId},

@@ -96,10 +96,7 @@ pub struct IncidentOutputHandle {
 }
 
 impl IncidentOutputHandle {
-    pub fn try_submit(
-        &self,
-        job: IncidentWriteJob,
-    ) -> Result<(), IncidentOutputSubmitError> {
+    pub fn try_submit(&self, job: IncidentWriteJob) -> Result<(), IncidentOutputSubmitError> {
         match self.sender.try_send(job) {
             Ok(()) => Ok(()),
             Err(mpsc::error::TrySendError::Full(_)) => {

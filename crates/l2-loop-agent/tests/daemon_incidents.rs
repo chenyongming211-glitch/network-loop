@@ -70,8 +70,8 @@ impl IncidentOutputBackend for RecordingBackend {
 }
 
 fn job(revision: u64) -> IncidentWriteJob {
-    let identity = IncidentIdentity::new(InterfaceName::new("l2h0123456789").unwrap(), 42, 7)
-        .unwrap();
+    let identity =
+        IncidentIdentity::new(InterfaceName::new("l2h0123456789").unwrap(), 42, 7).unwrap();
     let mut recorder = IncidentRecorder::new(identity, FixedId(EventId::from_bytes([1; 16])));
     let mut job = recorder
         .record(

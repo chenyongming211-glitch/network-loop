@@ -314,11 +314,7 @@ where
                     return SamplingTickOutcome::Sampled;
                 }
                 self.evaluate_detection(ownership, &windows, now_monotonic_ns, captured_at_unix_ms);
-                self.cache_background_snapshot(
-                    evidence_raw,
-                    now_monotonic_ns,
-                    captured_at_unix_ms,
-                );
+                self.cache_background_snapshot(evidence_raw, now_monotonic_ns, captured_at_unix_ms);
                 SamplingTickOutcome::Sampled
             }
             Err(error) => {

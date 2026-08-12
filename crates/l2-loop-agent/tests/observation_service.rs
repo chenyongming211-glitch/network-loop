@@ -15,9 +15,9 @@ use l2_loop_agent::{
 };
 use l2_loop_common::{ABI_VERSION, FingerprintKey, FingerprintValue, direction};
 use l2_loop_core::{
-    BaselineState, ClassObservation, DetectionState, FingerprintEvidence, FingerprintState,
-    EventId, HookObservation, HookRole, InterfaceName, ObservationCounters, ObservationHealth,
-    RateWindowState, TrafficClass, VlanVisibility,
+    BaselineState, ClassObservation, DetectionState, EventId, FingerprintEvidence,
+    FingerprintState, HookObservation, HookRole, InterfaceName, ObservationCounters,
+    ObservationHealth, RateWindowState, TrafficClass, VlanVisibility,
 };
 
 const SECOND_NS: u64 = 1_000_000_000;
@@ -57,7 +57,10 @@ fn request_reads_never_enqueue_incident_output() {
     assert!(service.take_incident_jobs().is_empty());
     assert_eq!(
         purposes.lock().unwrap().as_slice(),
-        [ObservationReadPurpose::Request, ObservationReadPurpose::Request]
+        [
+            ObservationReadPurpose::Request,
+            ObservationReadPurpose::Request
+        ]
     );
 }
 

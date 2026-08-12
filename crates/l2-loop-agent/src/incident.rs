@@ -264,19 +264,22 @@ impl<S: EventIdSource> IncidentRecorder<S> {
         closed_at_unix_ms: Option<u64>,
         snapshot: &ObservationSnapshot,
     ) -> Result<IncidentWriteJob, IncidentRecorderError> {
-        let rate_windows = snapshot.rate_windows.clone().map(|window| StatusRateWindow {
-            window_ms: window.window_ms,
-            state: window.state,
-            coverage_ms: window.coverage_ms,
-            elapsed_ns: window.elapsed_ns,
-            start_unix_ms: window.start_unix_ms,
-            end_unix_ms: window.end_unix_ms,
-            xdp_ingress: window.hooks.as_ref().map(|hooks| hooks[0].total),
-            tc_egress: window
-                .hooks
-                .as_ref()
-                .map(|hooks| hooks[OBSERVED_HOOK_COUNT - 1].total),
-        });
+        let rate_windows = snapshot
+            .rate_windows
+            .clone()
+            .map(|window| StatusRateWindow {
+                window_ms: window.window_ms,
+                state: window.state,
+                coverage_ms: window.coverage_ms,
+                elapsed_ns: window.elapsed_ns,
+                start_unix_ms: window.start_unix_ms,
+                end_unix_ms: window.end_unix_ms,
+                xdp_ingress: window.hooks.as_ref().map(|hooks| hooks[0].total),
+                tc_egress: window
+                    .hooks
+                    .as_ref()
+                    .map(|hooks| hooks[OBSERVED_HOOK_COUNT - 1].total),
+            });
         let revision = IncidentRevisionV1 {
             schema_version: EVIDENCE_SCHEMA_VERSION,
             event_id: active.event_id,
