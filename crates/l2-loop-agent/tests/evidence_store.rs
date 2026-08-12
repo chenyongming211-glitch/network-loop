@@ -1,8 +1,7 @@
 #![cfg(target_os = "linux")]
 
 use std::{
-    fs,
-    io,
+    fs, io,
     os::unix::fs::{PermissionsExt, symlink},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
@@ -13,11 +12,11 @@ use l2_loop_agent::{
     LinuxEvidenceStore, StdEvidenceIo,
 };
 use l2_loop_core::{
-    AlertCode, BaselineSummary, DetectionState, DetectionTransitionReason,
-    EVIDENCE_SCHEMA_VERSION, EventId, EvidenceIntegrity, EvidenceListQuery, EvidenceStatus,
-    FingerprintWindowReport, HookRole, IncidentRevisionV1, InterfaceName, ObservationCounters,
-    ObservationHealth, ObservationSnapshot, RateIdentity, SamplingStatus, TrafficClass,
-    VlanVisibility, warming_detailed_rate_windows, warming_status_rate_windows,
+    AlertCode, BaselineSummary, DetectionState, DetectionTransitionReason, EVIDENCE_SCHEMA_VERSION,
+    EventId, EvidenceIntegrity, EvidenceListQuery, EvidenceStatus, FingerprintWindowReport,
+    HookRole, IncidentRevisionV1, InterfaceName, ObservationCounters, ObservationHealth,
+    ObservationSnapshot, RateIdentity, SamplingStatus, TrafficClass, VlanVisibility,
+    warming_detailed_rate_windows, warming_status_rate_windows,
 };
 
 static ROOT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -275,15 +274,22 @@ fn every_atomic_publish_failure_preserves_the_prior_revision() {
             .put(&revision(event_id, 1))
             .unwrap();
 
-        let mut failing = LinuxEvidenceStore::open(FailingIo { fail: step }, root.path(), "0.1.0")
-            .unwrap();
-        assert!(failing.put(&revision(event_id, 2)).is_err(), "step {step:?}");
+        let mut failing =
+            LinuxEvidenceStore::open(FailingIo { fail: step }, root.path(), "0.1.0").unwrap();
+        assert!(
+            failing.put(&revision(event_id, 2)).is_err(),
+            "step {step:?}"
+        );
         drop(failing);
 
         let recovered = LinuxEvidenceStore::open(StdEvidenceIo, root.path(), "0.1.0").unwrap();
         assert_eq!(
             recovered.get(event_id).unwrap().latest.revision,
-            if step == EvidenceIoStep::SyncEvent { 2 } else { 1 },
+            if step == EvidenceIoStep::SyncEvent {
+                2
+            } else {
+                1
+            },
             "step {step:?}"
         );
     }
@@ -298,11 +304,7 @@ fn recovery_preserves_and_counts_corrupt_incomplete_and_unknown_objects() {
         .put(&revision(event_id, 1))
         .unwrap();
     let event_dir = root.path().join(event_id.to_string());
-    fs::write(
-        event_dir.join("0000000000000001/evidence.json"),
-        b"corrupt",
-    )
-    .unwrap();
+    fs::write(event_dir.join("0000000000000001/evidence.json"), b"corrupt").unwrap();
     fs::create_dir(event_dir.join(".tmp-owned-incomplete")).unwrap();
     fs::create_dir(root.path().join("unknown-object")).unwrap();
 
