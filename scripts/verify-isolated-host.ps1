@@ -24,6 +24,7 @@ $BASELINE_METRIC_COUNT = 32
 $FINGERPRINT_SAMPLE_SHIFT = 4
 $FINGERPRINT_CAPACITY = 8192
 $DETECTION_ANALYSIS_SECONDS = 10
+$DETECTION_RELATIONSHIP_SECONDS = 14
 $DETECTION_ASSERT_TICKS = 3
 $DETECTION_CLEAR_TICKS = 10
 $DETECTION_COOLDOWN_SECONDS = 30
@@ -195,6 +196,7 @@ BASELINE_METRIC_COUNT=32
 FINGERPRINT_SAMPLE_SHIFT=4
 FINGERPRINT_CAPACITY=8192
 DETECTION_ANALYSIS_SECONDS=10
+DETECTION_RELATIONSHIP_SECONDS=14
 DETECTION_ASSERT_TICKS=3
 DETECTION_CLEAR_TICKS=10
 DETECTION_COOLDOWN_SECONDS=30
@@ -579,9 +581,10 @@ with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
 PY
         ;;
     detection-relationship-window)
-        python3 - "$host" "$ns" "$peer" <<'PY'
+        python3 - "$host" "$ns" "$peer" "$DETECTION_RELATIONSHIP_SECONDS" <<'PY'
 import socket, subprocess, sys, time
-host, namespace, peer = sys.argv[1:]
+host, namespace, peer, duration_text = sys.argv[1:]
+duration = int(duration_text)
 
 def fingerprint_hash(frame):
     value = 0xcbf29ce484222325
@@ -604,7 +607,7 @@ with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
 """
 with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as egress:
     egress.bind((host, 0))
-    for _ in range(10):
+    for _ in range(duration):
         started = time.monotonic()
         for _ in range(64):
             egress.send(frame)
@@ -2259,6 +2262,9 @@ try {
             }
             $null = Invoke-IsolatedMutation -Phase 'detection-relationship-seed' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             Start-Sleep -Seconds ($DETECTION_ANALYSIS_SECONDS + 1)
+            if ((64 + ($DETECTION_RELATIONSHIP_SECONDS * (64 + 4096))) -gt $DETECTION_MAX_SCENARIO_FRAMES) {
+                throw 'relationship detection frame bound is invalid'
+            }
             $null = Invoke-IsolatedMutation -Phase 'detection-relationship-window' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $Relationship = Wait-DetectionState -ExpectedState 'external_loop_high_confidence' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -MaxAttempts 20
             Assert-DetectionReport -Snapshot $Relationship -ExpectedState 'external_loop_high_confidence'
