@@ -597,7 +597,10 @@ impl DetectionEngine {
                 self.clear_streak = 0;
                 reason = Some(reason_for_assertion(next_state));
             } else {
-                self.clear_streak = self.clear_streak.saturating_add(1).min(DETECTION_CLEAR_TICKS);
+                self.clear_streak = self
+                    .clear_streak
+                    .saturating_add(1)
+                    .min(DETECTION_CLEAR_TICKS);
                 if self.clear_streak >= DETECTION_CLEAR_TICKS {
                     if let Some(desired) = desired_anomaly {
                         next_state = desired;
@@ -767,9 +770,8 @@ impl DetectionEngine {
         if reset_signals {
             self.report.signals = DetectionSignals::warming();
         }
-        self.report.signals.fingerprint_window =
-            FingerprintWindowReport::unavailable(code)
-                .map_err(|_| DetectionEngineError::InvalidErrorCode)?;
+        self.report.signals.fingerprint_window = FingerprintWindowReport::unavailable(code)
+            .map_err(|_| DetectionEngineError::InvalidErrorCode)?;
         self.report.candidate_streak = self.candidate_streak;
         self.report.clear_streak = self.clear_streak;
         if previous != DetectionState::Unavailable {
