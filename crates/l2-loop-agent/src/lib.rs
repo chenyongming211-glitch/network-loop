@@ -5,6 +5,8 @@ mod attach;
 #[cfg(target_os = "linux")]
 pub mod daemon;
 #[cfg(target_os = "linux")]
+mod evidence_store;
+#[cfg(target_os = "linux")]
 pub mod host_acceptance;
 mod incident;
 #[cfg(target_os = "linux")]
@@ -22,6 +24,8 @@ pub mod transport;
 
 #[cfg(target_os = "linux")]
 pub use attach::*;
+#[cfg(target_os = "linux")]
+pub use evidence_store::*;
 pub use incident::*;
 #[cfg(target_os = "linux")]
 pub use observation::*;

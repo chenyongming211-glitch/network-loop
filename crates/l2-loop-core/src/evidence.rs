@@ -349,6 +349,14 @@ impl EvidenceCursor {
         }
         Ok(parsed)
     }
+
+    pub const fn last_transition_at_unix_ms(&self) -> u64 {
+        self.last_transition_at_unix_ms
+    }
+
+    pub const fn event_id(&self) -> EventId {
+        self.event_id
+    }
 }
 
 impl fmt::Display for EvidenceCursor {
