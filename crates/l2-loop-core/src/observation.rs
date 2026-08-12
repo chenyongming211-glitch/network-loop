@@ -114,10 +114,8 @@ impl ObservationSnapshot {
             ));
         }
         validate_detailed_rate_windows(&rate_windows)?;
-        let baseline = BaselineReport::learning(
-            RateIdentity::new(ifindex, generation)?,
-            captured_at_unix_ms,
-        );
+        let baseline =
+            BaselineReport::learning(RateIdentity::new(ifindex, generation)?, captured_at_unix_ms);
 
         Ok(Self {
             schema_version: OBSERVATION_SCHEMA_VERSION,

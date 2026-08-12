@@ -186,8 +186,7 @@ impl BaselineReport {
             ));
         }
         for (index, subject) in self.subjects.iter().enumerate() {
-            if subject.hook != hook_for_index(index)
-                || subject.subject != subject_for_index(index)
+            if subject.hook != hook_for_index(index) || subject.subject != subject_for_index(index)
             {
                 return Err(DomainError::InvalidObservation(
                     "baseline subjects do not match fixed order",
@@ -258,8 +257,7 @@ impl BaselineSummary {
             state: report.state,
             evaluated_at_unix_ms: report.evaluated_at_unix_ms,
             source_end_unix_ms: report.source_end_unix_ms,
-            last_successful_evaluation_at_unix_ms: report
-                .last_successful_evaluation_at_unix_ms,
+            last_successful_evaluation_at_unix_ms: report.last_successful_evaluation_at_unix_ms,
             last_error_code: report.last_error_code.clone(),
             learning_subject_count: report.learning_subject_count,
             elevated_metric_count: report.elevated_metric_count,
