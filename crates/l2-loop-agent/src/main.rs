@@ -2,8 +2,8 @@ use std::{path::Path, process::ExitCode, time::Duration};
 
 use l2_loop_agent::{
     AttachmentTransaction, IncidentOutputBackend, IncidentOutputWorker, LinuxAlertSink,
-    LinuxEvidenceStore, PreflightService, StdEvidenceIo, StoredIncidentOutputBackend,
-    SharedEvidenceStore, SystemAlertIo,
+    LinuxEvidenceStore, PreflightService, SharedEvidenceStore, StdEvidenceIo,
+    StoredIncidentOutputBackend, SystemAlertIo,
     daemon::{
         BoundedUnixServer, DEFAULT_SOCKET_PATH, DaemonDispatcher, DaemonError,
         TransactionIsolatedControl, coordinate_daemon, run_sampling_loop,

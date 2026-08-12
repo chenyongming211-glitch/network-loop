@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ActiveIncidentMetadata, BaselineSummary, DetectionSummary, EvidenceDetailV1,
-    EvidenceListPageV1, EventId, FingerprintSummary, InterfaceName, ObservationCounters,
-    ObservationHealth, ObservationSnapshot, OutputHealth, PolicyRequest, PreflightReport,
-    ProbeRequest, RATE_WINDOW_COUNT, SamplingStatus, StatusRateWindow, VlanVisibility,
+    ActiveIncidentMetadata, BaselineSummary, DetectionSummary, EventId, EvidenceDetailV1,
+    EvidenceListPageV1, FingerprintSummary, InterfaceName, ObservationCounters, ObservationHealth,
+    ObservationSnapshot, OutputHealth, PolicyRequest, PreflightReport, ProbeRequest,
+    RATE_WINDOW_COUNT, SamplingStatus, StatusRateWindow, VlanVisibility,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

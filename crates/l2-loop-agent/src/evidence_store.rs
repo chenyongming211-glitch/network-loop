@@ -321,7 +321,6 @@ impl<S> SharedEvidenceStore<S> {
         }
     }
 
-
     pub(crate) fn with_locked<T>(
         &self,
         operation: impl FnOnce(&mut S) -> T,

@@ -33,9 +33,8 @@ use crate::{
     transport::{TransportError, read_frame, write_frame},
 };
 use l2_loop_core::{
-    AgentCommand, AgentResult, EvidenceCursor, EvidenceDetailV1, EvidenceListPageV1,
-    EvidenceListQuery, EventId, InterfaceName, InterfaceStatus, ObservationSnapshot,
-    PF_OWNERSHIP_MISMATCH,
+    AgentCommand, AgentResult, EventId, EvidenceCursor, EvidenceDetailV1, EvidenceListPageV1,
+    EvidenceListQuery, InterfaceName, InterfaceStatus, ObservationSnapshot, PF_OWNERSHIP_MISMATCH,
 };
 
 pub const DEFAULT_SOCKET_PATH: &str = "/run/l2-loop/agent.sock";
@@ -197,7 +196,9 @@ where
                     return ControlResponse::error(EVIDENCE_UNAVAILABLE, "evidence is unavailable");
                 };
                 let controlled = tokio::task::spawn_blocking(move || {
-                    let evidence = evidence.lock().map_err(|_| EvidenceControlError::Unavailable)?;
+                    let evidence = evidence
+                        .lock()
+                        .map_err(|_| EvidenceControlError::Unavailable)?;
                     evidence.list(interface, limit, cursor.as_deref())
                 })
                 .await;
@@ -208,7 +209,9 @@ where
                     return ControlResponse::error(EVIDENCE_UNAVAILABLE, "evidence is unavailable");
                 };
                 let controlled = tokio::task::spawn_blocking(move || {
-                    let evidence = evidence.lock().map_err(|_| EvidenceControlError::Unavailable)?;
+                    let evidence = evidence
+                        .lock()
+                        .map_err(|_| EvidenceControlError::Unavailable)?;
                     evidence.show(event_id)
                 })
                 .await;
