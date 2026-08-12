@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-12
 
-**Status:** Approved by the standing recommendation authority
+**Status:** Implemented; final authorized-host acceptance is tracked by the Delivery F plan
 
 **Scope:** Durable, privacy-reduced incident evidence, local alert summaries, and root-only CLI queries for Schema 5 passive detection
 
@@ -36,7 +36,7 @@ One interface generation has at most one active incident. `transition_sequence` 
 
 All serialized names use `snake_case`; evidence schema is version 1.
 
-`EventId` contains exactly 16 bytes and renders as 32 lowercase hexadecimal characters. Parsing rejects all non-canonical text before any filesystem access. The Linux generator reads exactly 16 bytes from the kernel random source; collisions never overwrite and retry at most three times.
+`EventId` contains exactly 16 bytes and renders as 32 lowercase hexadecimal characters. Parsing rejects all non-canonical text before any filesystem access. The Linux generator reads exactly 16 bytes from the kernel random source. A collision can never overwrite because publication is no-replace; this implementation treats a collision as output failure rather than retrying or changing an already-published in-memory event identity.
 
 `IncidentRevisionV1` contains only bounded, already privacy-reduced evidence:
 
@@ -65,7 +65,7 @@ v1/<event-id>/0000000000000002/{evidence.json,manifest.json}
 
 Each commit writes a same-parent private temporary revision, fsyncs `evidence.json`, writes and fsyncs `manifest.json` last, fsyncs the directory, publishes with Linux no-replace rename, then fsyncs the event directory. Existing targets are never overwritten. The manifest records exact length and SHA-256 for `evidence.json`, total bytes, schema, event ID, revision, state, and package version.
 
-Startup scans at most 1,000 canonical event directories and at most 16 revisions per event. It validates names, modes, manifest shape, lengths, hashes, and identity. Highest valid revisions form the in-memory index. Corrupt, incomplete, linked, non-canonical, or unknown objects are preserved and counted, never adopted or broadly deleted. Only exact daemon-owned temporary names older than one hour may be removed.
+Startup adopts at most 1,000 canonical event directories and at most 16 canonical revisions per event. It validates names, modes, manifest shape, lengths, hashes, and identity. Highest valid revisions form the in-memory index. Corrupt, incomplete, linked, non-canonical, excess, or unknown objects are preserved and counted, never adopted or broadly deleted. Startup does not delete temporary or untrusted objects.
 
 ## 5. Fixed Bounds and Retention
 
@@ -93,14 +93,14 @@ l2-loopctl evidence list [--interface <IFACE>] [--limit <1-200>] [--cursor <OPAQ
 l2-loopctl evidence show --id <32-lower-hex> [--json]
 ```
 
-List order is last-transition time descending, then event ID descending. The opaque cursor encodes version, filter hash, last timestamp, and event ID and is validated before lookup. Show returns sanitized detail only. Stable errors distinguish invalid request, not found, corrupt, permission denied, response too large, and store unavailable.
+List order is last-transition time descending, then event ID descending. The opaque cursor encodes version, filter hash, last timestamp, and event ID and is validated before lookup. Show returns sanitized detail only. The implemented stable control errors are `EVIDENCE_INVALID_REQUEST`, `EVIDENCE_NOT_FOUND`, and `EVIDENCE_UNAVAILABLE`; internal filesystem and integrity details are intentionally collapsed into unavailable.
 
 ## 7. Failure and Lifecycle Semantics
 
 - output failure never changes a detection state, hook return, attachment, or cleanup identity;
 - a full queue drops only the output job, increments a bounded suppression/drop counter, degrades output health, and emits one deduplicated fallback warning;
 - persistence succeeds before `stored` is emitted; failure can only emit `unavailable`;
-- failed revision commit leaves the preceding valid revision authoritative;
+- failed revision commit leaves the preceding valid revision authoritative; jobs are not retried, and later non-contiguous revisions for that incident remain unavailable rather than filling a gap;
 - restart reconstructs the index only from complete validated revisions;
 - exact detach remains allowed when output is unavailable and records the failure in output health;
 - successful detach destroys only active in-memory incident state, not committed evidence;

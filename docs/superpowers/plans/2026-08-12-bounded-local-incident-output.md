@@ -8,6 +8,8 @@
 
 **Tech Stack:** Rust 2024, serde/serde_json, sha2, nix Linux filesystem primitives, Tokio bounded channels and `spawn_blocking`, existing Unix protocol/CLI, PowerShell exact-artifact harness.
 
+**Execution status (2026-08-12):** Tasks 1–7 are implemented and GitHub-green. Task 8 RED/GREEN harness work is complete and GitHub-green; authorized-host execution is pending target reachability. Task 9 documentation and non-compiling audits are complete; final exact-SHA CI and the 18-scenario host matrix remain pending.
+
 ## Global Constraints
 
 - Develop directly on `main`; no branch, worktree, PR, or subagent.
@@ -278,3 +280,4 @@ Run the existing 15 scenarios plus the three incident scenarios against the fina
 - Spec coverage: all eight design sections map to Tasks 1 through 9; production-root/group/journald host mutation, raw evidence, and PCAP are explicitly deferred rather than silently omitted.
 - Placeholder scan: the plan contains no deferred implementation placeholder; every task names files, interfaces, RED evidence, GREEN behavior, commits, and gates.
 - Type consistency: `EventId`, `IncidentRevisionV1`, `IncidentWriteJob`, `EvidenceStore`, `AlertSink`, `OutputHealth`, and evidence query/result names are defined once and consumed consistently.
+- Implementation correction: random IDs are read once from the kernel source; no-replace publication turns the practically improbable collision into output failure instead of retrying an already-published in-memory identity. A failed revision is not retried, so later non-contiguous jobs for that incident remain unavailable and the preceding complete revision stays authoritative.

@@ -176,6 +176,25 @@ Baseline failures have a separate stable namespace so operators do not confuse t
 
 These errors do not trigger adoption, repair, detach, or cleanup.
 
+## Incident output semantics
+
+Only background-sampler detection transitions create incident output. Request-time `observe` and `status` reads never create, advance, or close an incident. One generation has at most one active incident. An anomaly opens it; anomaly changes, retained-anomaly unavailability, cooldown, and normal closure append revisions; exact detach or shutdown appends `generation_ended` when the store can still accept the contiguous revision.
+
+The output path is outside eBPF and outside the sampling critical section. Submission uses non-blocking `try_send` into a fixed 32-entry queue. One blocking worker serializes retention, filesystem commit, and then alert publication. A full/closed queue or persistence failure affects output health only. Shutdown closes the queue and waits at most five seconds for already accepted jobs.
+
+The production root `/var/lib/l2-loop/evidence/v1` is an installation prerequisite: it must be an existing root-owned `0700` directory. The daemon does not create, chmod, follow, or repair it. A revision is committed through private `0700` directories, `0600` files, file and directory fsyncs, and `renameat2(RENAME_NOREPLACE)`. Every manifest binds schema, identity, length, SHA-256, state, package version, and total bytes. Recovery indexes only complete validated contiguous evidence; it preserves and counts untrusted objects. Retention enforces 1 GiB, 1,000 events, 16 revisions/event, 1 MiB/revision, 16 MiB/event, 30-day closed age, and max(512 MiB, 5%) free reserve. Only complete closed indexed events are eligible for exact deletion.
+
+The worker attempts persistence before alert publication. `evidence_status=stored` therefore means the revision was committed; `unavailable` means it was not. Production alerting first uses the journald socket, then permanently falls back to newline-delimited sanitized JSON on stderr if that send fails. `status` reports configured/observed sink mode, store availability, startup recovery counts, queue drops, and one stable output error. It does not claim that journald retained or delivered a message.
+
+Evidence queries traverse the root-only mode-`0600` Unix socket and never read filesystem paths in the CLI:
+
+```text
+l2-loopctl evidence list [--interface <IFACE>] [--limit <1-200>] [--cursor <OPAQUE>] [--json]
+l2-loopctl evidence show --id <32-lowercase-hex> [--json]
+```
+
+The daemon validates canonical event IDs, filter-bound cursors, response bounds, and sanitized result models. Failures use `EVIDENCE_INVALID_REQUEST`, `EVIDENCE_NOT_FOUND`, or `EVIDENCE_UNAVAILABLE`. There is no caller-selected root, capacity, retention, alert text, or threshold.
+
 ## Authorized isolated-host acceptance
 
 The acceptance harness requires task-scoped environment inputs and never stores the target or key path in the repository:
@@ -207,7 +226,10 @@ $L2LoopScenarios = @(
     'DetectionAdaptiveLifecycle',
     'DetectionAbsoluteStartup',
     'DetectionRelationshipConfidence',
-    'DetectionFailureGenerationReset'
+    'DetectionFailureGenerationReset',
+    'IncidentLifecycle',
+    'IncidentPersistenceFailure',
+    'IncidentRestartRecovery'
 )
 foreach ($L2LoopScenario in $L2LoopScenarios) {
     pwsh -NoProfile -File scripts/verify-isolated-host.ps1 `
@@ -227,7 +249,11 @@ retained for manual review until the original canonical journal is restored.
 
 `FingerprintRelationship` proves deterministic selected/unselected traffic, one unchanged selected frame correlated across ingress and egress, privacy-reduced output, and continued forwarding. `FingerprintReadFailure` injects one request-only iteration failure and proves unavailable/degraded relationship evidence without losing cumulative/rate/baseline output or forwarding, followed by request-local recovery. `FingerprintGenerationReset` proves exact detach/reattach changes generation, begins with an empty relationship report, and independently records only new-generation evidence.
 
-`DetectionAdaptiveLifecycle` proves baseline-ready adaptive assertion, ten-tick clearing, cooldown, and normal recovery. `DetectionAbsoluteStartup` proves the fixed 1-second absolute path can assert during baseline learning. `DetectionRelationshipConfidence` proves a fixed-window egress-first amplified relationship can reach high confidence but never a confirmed-loop value. `DetectionFailureGenerationReset` proves analysis-read failure retention and complete state reset under a new generation. All fifteen required scenarios use one exact GitHub artifact and independently restore existing network/eBPF identity; a changing foreign identity causes refusal rather than being ignored.
+`DetectionAdaptiveLifecycle` proves baseline-ready adaptive assertion, ten-tick clearing, cooldown, and normal recovery. `DetectionAbsoluteStartup` proves the fixed 1-second absolute path can assert during baseline learning. `DetectionRelationshipConfidence` proves a fixed-window egress-first amplified relationship can reach high confidence but never a confirmed-loop value. `DetectionFailureGenerationReset` proves analysis-read failure retention and complete state reset under a new generation.
+
+`IncidentLifecycle` proves an adaptive anomaly opens one event, list/show/status expose only sanitized Schema 1 data, detach appends a closure revision, all directories/files have exact private modes, and forwarding plus host identity are unchanged. `IncidentPersistenceFailure` injects one pre-persistence failure, requires degraded truthful output and an `unavailable` sanitized stderr alert, and proves forwarding is unaffected. `IncidentRestartRecovery` creates relationship-based high-confidence evidence, closes it, restarts the daemon against the same generated root, and requires byte-identical CLI results and evidence digest. Acceptance forces stderr instead of touching host journald, never uses `/var/lib`, and exactly removes the generated evidence tree.
+
+All eighteen required scenarios use one exact GitHub artifact and independently restore existing network/eBPF identity; a changing foreign identity causes refusal rather than being ignored.
 
 GitHub runs only the self-contained static/unit safety tests for this harness. CI never reads the task-scoped environment inputs and never contacts a test host.
 

@@ -1,11 +1,11 @@
 # 二层环路检测 Agent 设计方案
 
 日期：2026-08-06  
-状态：产品设计基线；已实现只读预检、隔离安全挂载、隔离被动累计观测、有界固定速率窗口、动态基线、有界指纹关系、观测健康和被动检测状态机
+状态：产品设计基线；已实现只读预检、隔离安全挂载、隔离被动累计观测、有界固定速率窗口、动态基线、有界指纹关系、观测健康、被动检测状态机和有界本地事件输出
 实现语言：Rust + eBPF/XDP/TC  
 范围：独立物理 Agent，不依赖 Neutron，不进行跨节点通信
 
-当前实现边界比完整产品设计更窄：只允许生成的隔离 network namespace/veth 会话，已实现单层 VLAN 二层分类、XDP ingress/TC egress 按 generation 累计 packets/bytes、真实 `observe/status`、身份精确回滚、daemon 内存中的 1 Hz 后台采样、固定 1/10/60 秒 PPS/BPS 窗口、基于固定 10 秒窗口的动态基线、有界被动帧指纹、隐私缩减的 ingress/egress 关系、独立观测健康和 generation-scoped 被动检测状态机。速率历史每个 generation 最多保留 64 个成功样本；基线为 16 个 subject，每个容量 300、至少 60 个样本，使用 upper median/MAD、6 倍 MAD、4 倍 median、10 pps 与 16 KiB/s 噪声下限。指纹使用固定 shift 4、8,192 项 LRU；请求时聚合累计关系，后台每 10 秒进行一次身份确认的完整扫描并计算 delta。请求读取不学习或重算任何历史。Observation schema 为 5，控制协议仍为 1。当前被动状态最高只到 `external_loop_high_confidence`；100 ms 采样、持久化历史、证据包/告警、确认环路、主动探针、限速及生产/物理接口挂载仍是后续阶段，不能把本文件中的完整产品能力理解为当前可用命令。
+当前实现边界比完整产品设计更窄：只允许生成的隔离 network namespace/veth 会话，已实现单层 VLAN 二层分类、XDP ingress/TC egress 按 generation 累计 packets/bytes、真实 `observe/status`、身份精确回滚、daemon 内存中的 1 Hz 后台采样、固定 1/10/60 秒 PPS/BPS 窗口、基于固定 10 秒窗口的动态基线、有界被动帧指纹、隐私缩减的 ingress/egress 关系、独立观测健康、generation-scoped 被动检测状态机，以及由后台 transition 驱动的有界本地事件输出。速率历史每个 generation 最多保留 64 个成功样本；基线为 16 个 subject，每个容量 300、至少 60 个样本，使用 upper median/MAD、6 倍 MAD、4 倍 median、10 pps 与 16 KiB/s 噪声下限。指纹使用固定 shift 4、8,192 项 LRU；请求时聚合累计关系，后台每 10 秒进行一次身份确认的完整扫描并计算 delta。请求读取不学习、重算历史或生成事件。Observation schema 为 5，证据 schema 为 1，控制协议仍为 1。当前被动状态最高只到 `external_loop_high_confidence`；100 ms 采样、原始证据/PCAP、确认环路、主动探针、限速及生产/物理接口挂载仍是后续阶段，不能把本文件中的完整产品能力理解为当前可用命令。
 
 动态基线本身仍只表达同一 generation 内的相对速率偏离，不表达“安全”或“环路”；可信 elevated 不会把观测健康降级。被动检测器在基线之上增加固定自适应路径，并用 1 秒绝对阈值路径覆盖约 69～70 秒学习盲区。相同 storm candidate 连续 3 tick 才确认，弱化/清除需要 10 tick，清除后保留最后异常并冷却 30 秒；状态最高只到 `external_loop_high_confidence`，不能确认因果。瞬时采样故障保留有界历史并在恢复时先比较后接纳；身份、generation、时钟、计数器或完整性失败清空历史；detach/shutdown 销毁历史。
 
@@ -584,9 +584,9 @@ vlan_visibility=unknown
 
 ## 15. 证据包
 
-本节的落盘、告警、权限、容量和查询细节以
-[`2026-08-06-local-alert-evidence-output-design.md`](superpowers/specs/2026-08-06-local-alert-evidence-output-design.md)
-为准。证据存储是事件的权威记录；journald 只发布精简、可检索、尽力而为的结构化摘要；CLI 通过本地控制 socket 返回脱敏视图。
+本节已实现部分的落盘、告警、权限、容量和查询细节以
+[`2026-08-12-bounded-local-incident-output-design.md`](superpowers/specs/2026-08-12-bounded-local-incident-output-design.md)
+为准；2026-08-06 版本已经被取代。结构化证据存储是事件的权威记录；journald 只发布精简、尽力而为的摘要；CLI 通过本地 root-only 控制 socket 返回脱敏视图。
 
 每个事件保存：
 
@@ -609,9 +609,11 @@ Top 指纹、重复率、首次位置
 有大小和时长上限的小型 PCAP（默认关闭，显式配置后启用）
 ```
 
-证据包采用版本化 manifest、完整性哈希和原子提交。默认总容量为 1 GiB、最多 1,000 个事件、保留 30 天；磁盘不足时先停止可选 PCAP，再淘汰最旧的已关闭事件，永不淘汰活跃事件。
+当前已实现的证据只包含 Observation schema 5 已有的聚合计数、固定速率窗口、基线摘要、指纹窗口摘要、检测报告、观测健康和 VLAN 可见性，不包含上述未来字段中的 slave/NIC/softnet/IRQ、原始 MAC/IP/指纹、拓扑、探针、限速或 PCAP。每个 transition 生成不可变 Schema 1 revision；同一 generation 最多一个活动事件。输出队列容量固定为 32，单 worker 串行执行保留、原子提交和提交后告警，失败不能影响检测、转发或精确清理。
 
-完整 payload、源 MAC、IP、指纹、原始拓扑和 PCAP 不进入 journald 或普通组可查询的 CLI 摘要。监控平台指标、Prometheus 和 Alertmanager 当前不在范围内。
+证据采用版本化 manifest、SHA-256、同父目录临时写入、fsync 和 no-replace rename。生产根固定为 `/var/lib/l2-loop/evidence/v1`，必须由安装流程预先创建为 root-owned `0700`；daemon 不创建或修复。事件/版本目录为 `0700`，文件为 `0600`。总容量最多 1 GiB、最多 1,000 个事件、每事件最多 16 个 revision、每 revision 最多 1 MiB、每事件最多 16 MiB、已关闭事件最长 30 天，并保留 `max(512 MiB, 5%)` 文件系统空闲空间。保留策略只精确删除完整、已关闭、已索引的事件，绝不选择活动、损坏、不完整或未知对象。
+
+原始 payload、源 MAC、IP、指纹、Map key/path、原始拓扑和 PCAP 不落盘、不进入 journald，也不进入 CLI。控制 socket 模式为 `0600`，没有普通组读取。生产告警先尝试 journald；失败后永久退化为 stderr 单行 JSON。`evidence_status` 明确区分 `stored` 与 `unavailable`，`status` 同时报告 store/恢复对象/队列丢弃/alert sink 健康，但不声称 journald 已完成端到端交付。监控平台指标、Prometheus、Alertmanager 和远程通知当前不在范围内。
 
 ## 16. CLI 草案
 
@@ -638,7 +640,7 @@ l2-loopctl police apply \
 l2-loopctl police disable --rule <rule-id>
 ```
 
-现有命令名由 Rust 基础实现规范固定。证据列表将在首次发布前增加有界分页和 opaque cursor；响应始终受一兆字节协议帧限制。
+现有命令名由 Rust 基础实现规范固定。证据列表已经实现默认 50、最大 200 的有界分页和与接口过滤绑定的 opaque cursor；响应始终受一兆字节协议帧限制。事件 ID 必须是 32 位小写十六进制，CLI 在传输前拒绝非规范输入。
 
 ## 17. 与现有 XDP Storm/DDoS 设计的关系
 

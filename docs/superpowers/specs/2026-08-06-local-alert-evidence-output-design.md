@@ -2,11 +2,13 @@
 
 **Date:** 2026-08-06
 
-**Status:** Approved design; implementation plan not yet written
+**Status:** Superseded on 2026-08-12; not an implementation contract
 
 **Scope:** Local alert publication, bounded evidence persistence, and local CLI queries
 
-**Supersedes:** The alert and evidence-output details in `docs/l2-loop-agent-design.md` and placeholder evidence result shapes in the Rust foundation specification where they conflict with this document
+**Superseded by:** `2026-08-12-bounded-local-incident-output-design.md`
+
+This document is retained only as design history. It describes pre-Delivery-F raw evidence, PCAP, group access, error shapes, and lifecycle assumptions that were intentionally not implemented. Operators and developers must use the bounded 2026-08-12 specification and the current README/development guide.
 
 ## 1. Decision
 
