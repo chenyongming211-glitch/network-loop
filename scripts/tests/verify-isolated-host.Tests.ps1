@@ -115,7 +115,7 @@ foreach ($Required in @(
     "'snapshot'",
     "'verify-owned'",
     "'counters'",
-    "[ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset', 'BaselineLifecycle', 'BaselineSamplingRecovery', 'BaselineGenerationReset', 'FingerprintRelationship', 'FingerprintReadFailure', 'FingerprintGenerationReset')]",
+    "[ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset', 'BaselineLifecycle', 'BaselineSamplingRecovery', 'BaselineGenerationReset', 'FingerprintRelationship', 'FingerprintReadFailure', 'FingerprintGenerationReset', 'DetectionAdaptiveLifecycle', 'DetectionAbsoluteStartup', 'DetectionRelationshipConfidence', 'DetectionFailureGenerationReset')]",
     'L2_LOOP_ACCEPTANCE_FAULT',
     'TC_ATTACH_FAILED',
     'MAP_INITIALIZE_FAILED',
@@ -140,7 +140,7 @@ foreach ($Required in @(
     'Assert-FingerprintReport',
     'Assert-FingerprintSummary',
     'OBS_FINGERPRINT_UNAVAILABLE',
-    'schema_version -ne 4',
+    'schema_version -ne 5',
     'first fingerprint generation detach did not restore prepared state',
     'second fingerprint generation detach did not restore prepared state',
     'source_mac',
@@ -152,6 +152,31 @@ foreach ($Required in @(
 }
 $FingerprintGeneration = '(?s)''FingerprintGenerationReset'' \{(?:(?!''ObservationMapFailure'').)*first fingerprint generation detach did not restore prepared state(?:(?!''ObservationMapFailure'').)*''verify-second-hooks''(?:(?!''ObservationMapFailure'').)*second fingerprint generation detach did not restore prepared state'
 Assert-True ([regex]::IsMatch($Harness, $FingerprintGeneration)) 'fingerprint generation reset is not symmetric and independently bounded'
+
+foreach ($Required in @(
+    "'DetectionAdaptiveLifecycle'",
+    "'DetectionAbsoluteStartup'",
+    "'DetectionRelationshipConfidence'",
+    "'DetectionFailureGenerationReset'",
+    'DETECTION_ANALYSIS_SECONDS=10',
+    'DETECTION_ASSERT_TICKS=3',
+    'DETECTION_CLEAR_TICKS=10',
+    'DETECTION_COOLDOWN_SECONDS=30',
+    'DETECTION_MAX_SCENARIO_FRAMES=500000',
+    'analysis-fingerprint-map-read-once',
+    'Assert-DetectionReport',
+    'Assert-DetectionSummary',
+    'external_loop_high_confidence',
+    'fingerprint_window_state',
+    'retained_anomalous_state',
+    'transition_sequence',
+    'confirmed_loop',
+    'first detection generation detach did not restore prepared state',
+    'second detection generation detach did not restore prepared state'
+)) {
+    Assert-True ($Harness.Contains($Required)) "harness is missing bounded detection marker: $Required"
+}
+Assert-True (-not [regex]::IsMatch($Harness, '(?m)^\s*(?:while\s+(?::|true)|for\s*\(\s*;\s*\))')) 'detection harness contains an unbounded loop'
 
 foreach ($Required in @(
     "'PassiveObservation'",
