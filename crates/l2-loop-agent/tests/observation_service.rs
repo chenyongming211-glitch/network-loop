@@ -14,8 +14,8 @@ use l2_loop_agent::{
 };
 use l2_loop_common::ABI_VERSION;
 use l2_loop_core::{
-    ClassObservation, HookObservation, HookRole, InterfaceName, ObservationCounters,
-    RateWindowState, TrafficClass, VlanVisibility,
+    BaselineState, ClassObservation, HookObservation, HookRole, InterfaceName, ObservationCounters,
+    ObservationHealth, RateWindowState, TrafficClass, VlanVisibility,
 };
 
 const SECOND_NS: u64 = 1_000_000_000;
@@ -275,6 +275,110 @@ fn request_read_error_never_falls_back_to_cached_cumulative_data() {
             ObservationReadPurpose::BackgroundSample,
             ObservationReadPurpose::Request,
         ]
+    );
+}
+
+#[test]
+fn baseline_advances_only_from_ready_background_endpoints() {
+    let outcomes = (0..70)
+        .map(|units| Ok(raw_observation(units)))
+        .chain([Ok(raw_observation(70)), Ok(raw_observation(70))]);
+    let (mut service, clock, purposes) = service(outcomes);
+    let active = interface();
+    let ownership = ownership();
+
+    for units in 0..70 {
+        clock.set(units * SECOND_NS, 1_000 + units * 1_000);
+        assert_eq!(
+            service.sample_tick(&ownership),
+            SamplingTickOutcome::Sampled
+        );
+    }
+    clock.set(70 * SECOND_NS, 71_000);
+    let observed = service.observe(&active, &active, &ownership).unwrap();
+    let status = service
+        .status(None, Some(&active), Some(&ownership))
+        .unwrap()
+        .remove(0);
+
+    assert_eq!(observed.baseline.state, BaselineState::WithinBaseline);
+    assert_eq!(observed.baseline.source_end_unix_ms, Some(70_000));
+    assert_eq!(
+        observed.baseline.last_successful_evaluation_at_unix_ms,
+        Some(70_000)
+    );
+    assert!(
+        observed
+            .baseline
+            .subjects
+            .iter()
+            .all(|subject| subject.sample_count == 60)
+    );
+    assert_eq!(status.baseline.state, BaselineState::WithinBaseline);
+    assert!(
+        status
+            .baseline
+            .subject_sample_counts
+            .iter()
+            .all(|subject| subject.sample_count == 60)
+    );
+    assert_eq!(
+        status.baseline.evaluated_at_unix_ms,
+        observed.baseline.evaluated_at_unix_ms
+    );
+    assert_eq!(
+        purposes
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|purpose| **purpose == ObservationReadPurpose::BackgroundSample)
+            .count(),
+        70
+    );
+}
+
+#[test]
+fn transient_background_failure_retains_baseline_and_degrades_health() {
+    let outcomes = (0..70)
+        .map(|units| Ok(raw_observation(units)))
+        .chain([
+            Err(PortError::Adapter("temporary baseline read failure".to_owned())),
+            Ok(raw_observation(70)),
+        ]);
+    let (mut service, clock, _) = service(outcomes);
+    let active = interface();
+    let ownership = ownership();
+
+    for units in 0..70 {
+        clock.set(units * SECOND_NS, 1_000 + units * 1_000);
+        service.sample_tick(&ownership);
+    }
+    clock.set(70 * SECOND_NS, 71_000);
+    assert_eq!(
+        service.sample_tick(&ownership),
+        SamplingTickOutcome::Rejected
+    );
+    let observed = service.observe(&active, &active, &ownership).unwrap();
+
+    assert_eq!(observed.health, ObservationHealth::Degraded);
+    assert_eq!(observed.baseline.state, BaselineState::Unavailable);
+    assert_eq!(
+        observed.baseline.last_error_code.as_deref(),
+        Some(OBS_MAP_UNAVAILABLE)
+    );
+    assert_eq!(observed.baseline.source_end_unix_ms, None);
+    assert_eq!(
+        observed.baseline.last_successful_evaluation_at_unix_ms,
+        Some(70_000)
+    );
+    assert!(
+        observed
+            .baseline
+            .subjects
+            .iter()
+            .all(|subject| subject.sample_count == 60
+                && subject.packets.current.is_none()
+                && subject.bytes.current.is_none())
     );
 }
 
