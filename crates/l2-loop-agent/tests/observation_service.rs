@@ -339,12 +339,12 @@ fn baseline_advances_only_from_ready_background_endpoints() {
 
 #[test]
 fn transient_background_failure_retains_baseline_and_degrades_health() {
-    let outcomes = (0..70)
-        .map(|units| Ok(raw_observation(units)))
-        .chain([
-            Err(PortError::Adapter("temporary baseline read failure".to_owned())),
-            Ok(raw_observation(70)),
-        ]);
+    let outcomes = (0..70).map(|units| Ok(raw_observation(units))).chain([
+        Err(PortError::Adapter(
+            "temporary baseline read failure".to_owned(),
+        )),
+        Ok(raw_observation(70)),
+    ]);
     let (mut service, clock, _) = service(outcomes);
     let active = interface();
     let ownership = ownership();
