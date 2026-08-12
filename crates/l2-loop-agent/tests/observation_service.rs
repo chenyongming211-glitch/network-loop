@@ -179,7 +179,7 @@ fn transient_background_error_retains_history() {
     assert_eq!(snapshot.rate_windows[0].state, RateWindowState::Ready);
     assert_eq!(
         snapshot.sampling.last_error_code.as_deref(),
-        Some(BASELINE_SOURCE_UNAVAILABLE)
+        Some(OBS_MAP_UNAVAILABLE)
     );
     assert_eq!(snapshot.sampling.consecutive_failures, 1);
 }
@@ -365,7 +365,7 @@ fn transient_background_failure_retains_baseline_and_degrades_health() {
     assert_eq!(observed.baseline.state, BaselineState::Unavailable);
     assert_eq!(
         observed.baseline.last_error_code.as_deref(),
-        Some(OBS_MAP_UNAVAILABLE)
+        Some(BASELINE_SOURCE_UNAVAILABLE)
     );
     assert_eq!(observed.baseline.source_end_unix_ms, None);
     assert_eq!(
