@@ -138,6 +138,14 @@ fn renders_observation_and_status_as_stable_text_and_json() {
     assert!(text.stdout.contains("role: external_xdp_ingress"));
     assert!(text.stdout.contains("traffic_class: l2_broadcast"));
     assert!(text.stdout.contains("packets: 21"));
+    assert!(text.stdout.contains("baseline:"));
+    assert!(text.stdout.contains("source_window_ms: 10000"));
+    assert!(text.stdout.contains("minimum_samples: 60"));
+    assert!(text.stdout.contains("packet_noise_floor_pps: 10"));
+    assert!(text.stdout.contains("byte_noise_floor_bps: 16384"));
+    assert!(text.stdout.contains("learning_subject_count: 16"));
+    assert!(text.stdout.contains("subject:"));
+    assert!(text.stdout.contains("sample_count: 0"));
     assert_eq!(json.exit_code, EXIT_SUCCESS);
     let value: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
     assert_eq!(value["schema_version"], 3);
@@ -161,6 +169,14 @@ fn renders_observation_and_status_as_stable_text_and_json() {
     let status_value: serde_json::Value = serde_json::from_str(&status_json.stdout).unwrap();
     assert_eq!(status_value["interfaces"][0]["state"], "observing");
     assert_eq!(status_value["interfaces"][0]["xdp_ingress"]["packets"], 21);
+    assert_eq!(status_value["interfaces"][0]["baseline"]["state"], "learning");
+    assert_eq!(
+        status_value["interfaces"][0]["baseline"]["subject_sample_counts"]
+            .as_array()
+            .unwrap()
+            .len(),
+        16
+    );
 
     for output in [&text.stdout, &json.stdout, &status_json.stdout] {
         for prohibited in [

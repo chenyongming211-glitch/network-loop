@@ -101,6 +101,8 @@ async fn observe_round_trips_from_the_cli_client_through_the_daemon_dispatcher()
     assert_eq!(observe_text.exit_code, EXIT_SUCCESS);
     assert!(observe_text.stdout.contains("window: 1s"));
     assert!(observe_text.stdout.contains("pps: 7"));
+    assert!(observe_text.stdout.contains("baseline:"));
+    assert!(observe_text.stdout.contains("learning_subject_count: 16"));
     let observe_value: serde_json::Value = serde_json::from_str(&observe_json.stdout).unwrap();
     assert_eq!(observe_value["schema_version"], 3);
     assert_eq!(
@@ -126,6 +128,9 @@ async fn observe_round_trips_from_the_cli_client_through_the_daemon_dispatcher()
     assert!(status_text.stdout.contains("state: warming_up"));
     assert!(status_text.stdout.contains("window: 60s"));
     assert!(status_text.stdout.contains("state: stale"));
+    assert!(status_text.stdout.contains("baseline:"));
+    assert!(status_text.stdout.contains("subject_sample_counts:"));
+    assert!(status_text.stdout.contains("elevated:"));
     assert!(!status_text.stdout.contains("traffic_class:"));
 
     assert_eq!(
