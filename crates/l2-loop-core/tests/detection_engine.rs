@@ -22,7 +22,10 @@ fn warming_requires_ready_baseline_but_absolute_evidence_can_assert_during_learn
         .unwrap();
     assert_eq!(normal.state, DetectionState::Normal);
     assert_eq!(normal.transition_sequence, 1);
-    assert_eq!(normal.transitions[0].reason, DetectionTransitionReason::EvidenceReady);
+    assert_eq!(
+        normal.transitions[0].reason,
+        DetectionTransitionReason::EvidenceReady
+    );
 
     let mut absolute = engine();
     for tick in 1..=3 {
@@ -44,7 +47,10 @@ fn warming_requires_ready_baseline_but_absolute_evidence_can_assert_during_learn
 #[test]
 fn three_equal_candidates_assert_and_candidate_kind_changes_reset_the_streak() {
     for (candidate, state) in [
-        (StormCandidate::Ingress, DetectionState::IngressStormConfirmed),
+        (
+            StormCandidate::Ingress,
+            DetectionState::IngressStormConfirmed,
+        ),
         (StormCandidate::Egress, DetectionState::EgressStormConfirmed),
         (
             StormCandidate::Bidirectional,
@@ -253,7 +259,10 @@ fn integrity_clear_and_new_generation_reset_all_bounded_state() {
     assert_eq!(unavailable.state, DetectionState::Unavailable);
     assert_eq!(unavailable.candidate_streak, 0);
     assert_eq!(unavailable.clear_streak, 0);
-    assert_eq!(unavailable.signals.fingerprint_window.state, FingerprintWindowState::Unavailable);
+    assert_eq!(
+        unavailable.signals.fingerprint_window.state,
+        FingerprintWindowState::Unavailable
+    );
 
     let reset = engine
         .clear(
@@ -272,7 +281,9 @@ fn integrity_clear_and_new_generation_reset_all_bounded_state() {
 fn transition_history_evicts_oldest_entries_but_keeps_the_global_sequence() {
     let mut engine = engine();
     for index in 0..9 {
-        engine.unavailable(2_000 + index * 2, "MAP_READ_FAILED").unwrap();
+        engine
+            .unavailable(2_000 + index * 2, "MAP_READ_FAILED")
+            .unwrap();
         engine
             .evaluate(
                 2_000_000_000 + index * 2_000_000_000,
@@ -360,8 +371,14 @@ fn set_candidates(
     adaptive_ready: bool,
     absolute: bool,
 ) {
-    let ingress = matches!(candidate, StormCandidate::Ingress | StormCandidate::Bidirectional);
-    let egress = matches!(candidate, StormCandidate::Egress | StormCandidate::Bidirectional);
+    let ingress = matches!(
+        candidate,
+        StormCandidate::Ingress | StormCandidate::Bidirectional
+    );
+    let egress = matches!(
+        candidate,
+        StormCandidate::Egress | StormCandidate::Bidirectional
+    );
     signals.ingress.adaptive_candidate = adaptive_ready.then_some(ingress);
     signals.egress.adaptive_candidate = adaptive_ready.then_some(egress);
     signals.ingress.absolute_candidate = Some(absolute && ingress);
