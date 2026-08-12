@@ -14,9 +14,11 @@ use std::{
 
 use l2_loop_core::{
     EVIDENCE_MAX_EVENT_BYTES, EVIDENCE_MAX_EVENTS, EVIDENCE_MAX_REVISION_BYTES,
-    EVIDENCE_MAX_REVISIONS_PER_EVENT, EVIDENCE_MAX_STORE_BYTES, EVIDENCE_SCHEMA_VERSION, EventId,
-    EvidenceCursor, EvidenceDetailV1, EvidenceIntegrity, EvidenceListQuery, EvidenceManifestV1,
-    EvidenceSummaryV1, IncidentRevisionV1,
+    EVIDENCE_MAX_REVISIONS_PER_EVENT, EVIDENCE_MAX_STORE_BYTES, EVIDENCE_SCHEMA_VERSION,
+    EVIDENCE_MAX_CLOSED_AGE_MS, EVIDENCE_MIN_FREE_RESERVE_BYTES,
+    EVIDENCE_MIN_FREE_RESERVE_PERCENT, EventId, EvidenceCursor, EvidenceDetailV1,
+    EvidenceIntegrity, EvidenceListQuery, EvidenceManifestV1, EvidenceSummaryV1,
+    IncidentRevisionV1,
 };
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -63,6 +65,13 @@ pub trait EvidenceIo {
     fn sync_directory(&self, path: &Path) -> io::Result<()>;
     fn rename_noreplace(&self, from: &Path, to: &Path) -> io::Result<()>;
     fn remove_private_directory(&self, path: &Path) -> io::Result<()>;
+    fn remove_event_directory(&self, path: &Path) -> io::Result<()> {
+        let _ = path;
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "event removal is not supported by this adapter",
+        ))
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -178,6 +187,27 @@ impl EvidenceIo for StdEvidenceIo {
         }
         fs::remove_dir_all(path)
     }
+
+    fn remove_event_directory(&self, path: &Path) -> io::Result<()> {
+        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+        let event_id = name
+            .parse::<EventId>()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid event path"))?;
+        if event_id.to_string() != name {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "non-canonical event path",
+            ));
+        }
+        let metadata = self.metadata(path)?;
+        if metadata.file_type != EvidenceFileType::Directory || metadata.mode != 0o700 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unsafe event directory",
+            ));
+        }
+        fs::remove_dir_all(path)
+    }
 }
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
@@ -196,6 +226,8 @@ pub enum EvidenceStoreError {
     NotFound,
     #[error("incident evidence I/O failed")]
     Io,
+    #[error("retention cannot satisfy the fixed evidence reserve")]
+    RetentionUnavailable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -212,6 +244,54 @@ pub struct EvidenceStoreHealth {
 pub struct EvidencePage {
     pub items: Vec<EvidenceSummaryV1>,
     pub next_cursor: Option<EvidenceCursor>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FilesystemSpace {
+    pub total_bytes: u64,
+    pub available_bytes: u64,
+}
+
+pub trait FilesystemCapacity {
+    fn capacity(&self, path: &Path) -> io::Result<FilesystemSpace>;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct StdFilesystemCapacity;
+
+impl FilesystemCapacity for StdFilesystemCapacity {
+    fn capacity(&self, path: &Path) -> io::Result<FilesystemSpace> {
+        let stats = nix::sys::statvfs::statvfs(path).map_err(io::Error::other)?;
+        let fragment_size = stats.fragment_size();
+        Ok(FilesystemSpace {
+            total_bytes: stats.blocks().saturating_mul(fragment_size),
+            available_bytes: stats.blocks_available().saturating_mul(fragment_size),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StoreUsage {
+    pub event_count: u16,
+    pub total_bytes: u64,
+    pub filesystem: FilesystemSpace,
+    pub required_free_reserve: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetentionOutcome {
+    pub deleted_event_ids: Vec<EventId>,
+    pub usage: StoreUsage,
+}
+
+pub const fn minimum_free_reserve(total_bytes: u64) -> u64 {
+    let percent = total_bytes / 100 * EVIDENCE_MIN_FREE_RESERVE_PERCENT as u64
+        + total_bytes % 100 * EVIDENCE_MIN_FREE_RESERVE_PERCENT as u64 / 100;
+    if percent > EVIDENCE_MIN_FREE_RESERVE_BYTES {
+        percent
+    } else {
+        EVIDENCE_MIN_FREE_RESERVE_BYTES
+    }
 }
 
 pub trait EvidenceStore {
@@ -487,6 +567,112 @@ impl<I: EvidenceIo> LinuxEvidenceStore<I> {
             return Err(RevisionReadError::Corrupt);
         }
         Ok(())
+    }
+
+    pub fn enforce_retention<C: FilesystemCapacity>(
+        &mut self,
+        now_unix_ms: u64,
+        incoming_bytes: u64,
+        capacity: &C,
+    ) -> Result<RetentionOutcome, EvidenceStoreError> {
+        self.validate_root()?;
+        if incoming_bytes > EVIDENCE_MAX_EVENT_BYTES {
+            return Err(EvidenceStoreError::RetentionUnavailable);
+        }
+        let filesystem = capacity
+            .capacity(&self.root)
+            .map_err(|_| EvidenceStoreError::RetentionUnavailable)?;
+        if filesystem.available_bytes > filesystem.total_bytes {
+            return Err(EvidenceStoreError::RetentionUnavailable);
+        }
+        let reserve = minimum_free_reserve(filesystem.total_bytes);
+        let mut candidates: Vec<_> = self
+            .index
+            .iter()
+            .filter_map(|(event_id, detail)| {
+                detail
+                    .summary
+                    .closed_at_unix_ms
+                    .map(|closed_at| (closed_at, *event_id, detail.summary.bundle_bytes))
+            })
+            .collect();
+        candidates.sort_by_key(|&(closed_at, event_id, _)| (closed_at, event_id));
+
+        let mut deleted_event_ids = Vec::new();
+        let mut reclaimed = 0_u64;
+        for (closed_at, event_id, bundle_bytes) in candidates {
+            let expired = now_unix_ms
+                .checked_sub(closed_at)
+                .is_some_and(|age| age > EVIDENCE_MAX_CLOSED_AGE_MS);
+            let store_fits = self
+                .health
+                .total_bytes
+                .saturating_sub(reclaimed)
+                .checked_add(incoming_bytes)
+                .is_some_and(|bytes| bytes <= EVIDENCE_MAX_STORE_BYTES);
+            let space_fits = filesystem
+                .available_bytes
+                .checked_add(reclaimed)
+                .and_then(|bytes| bytes.checked_sub(incoming_bytes))
+                .is_some_and(|bytes| bytes >= reserve);
+            let count_fits = usize::from(self.health.event_count)
+                .saturating_sub(deleted_event_ids.len())
+                < EVIDENCE_MAX_EVENTS;
+            if !expired && store_fits && space_fits && count_fits {
+                break;
+            }
+
+            let event_dir = self.root.join(event_id.to_string());
+            self.validate_private_directory(&event_dir)
+                .map_err(|_| EvidenceStoreError::RetentionUnavailable)?;
+            if self
+                .index
+                .get(&event_id)
+                .is_none_or(|detail| detail.summary.bundle_bytes != bundle_bytes)
+            {
+                return Err(EvidenceStoreError::RetentionUnavailable);
+            }
+            self.io
+                .remove_event_directory(&event_dir)
+                .map_err(|_| EvidenceStoreError::RetentionUnavailable)?;
+            self.io
+                .sync_directory(&self.root)
+                .map_err(|_| EvidenceStoreError::RetentionUnavailable)?;
+            self.index.remove(&event_id);
+            reclaimed = reclaimed
+                .checked_add(bundle_bytes)
+                .ok_or(EvidenceStoreError::RetentionUnavailable)?;
+            deleted_event_ids.push(event_id);
+        }
+
+        self.health.total_bytes = self.health.total_bytes.saturating_sub(reclaimed);
+        self.health.event_count = u16::try_from(self.index.len()).unwrap_or(u16::MAX);
+        let available_after = filesystem.available_bytes.saturating_add(reclaimed);
+        let store_fits = self
+            .health
+            .total_bytes
+            .checked_add(incoming_bytes)
+            .is_some_and(|bytes| bytes <= EVIDENCE_MAX_STORE_BYTES);
+        let space_fits = available_after
+            .checked_sub(incoming_bytes)
+            .is_some_and(|bytes| bytes >= reserve);
+        if !store_fits || !space_fits || usize::from(self.health.event_count) >= EVIDENCE_MAX_EVENTS {
+            self.health.available = false;
+            return Err(EvidenceStoreError::RetentionUnavailable);
+        }
+        self.health.available = true;
+        Ok(RetentionOutcome {
+            deleted_event_ids,
+            usage: StoreUsage {
+                event_count: self.health.event_count,
+                total_bytes: self.health.total_bytes,
+                filesystem: FilesystemSpace {
+                    total_bytes: filesystem.total_bytes,
+                    available_bytes: available_after,
+                },
+                required_free_reserve: reserve,
+            },
+        })
     }
 }
 

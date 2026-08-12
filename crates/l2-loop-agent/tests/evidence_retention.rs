@@ -134,7 +134,7 @@ fn retention_deletes_only_oldest_closed_whole_event_with_id_tie_break() {
             1,
             &FixedCapacity(FilesystemSpace {
                 total_bytes: 1_000_000_000,
-                available_bytes: reserve - low.bundle_bytes,
+                available_bytes: reserve + 1 - low.bundle_bytes,
             }),
         )
         .unwrap();
