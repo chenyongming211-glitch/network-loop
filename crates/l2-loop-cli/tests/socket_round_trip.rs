@@ -102,7 +102,7 @@ async fn observe_round_trips_from_the_cli_client_through_the_daemon_dispatcher()
     assert!(observe_text.stdout.contains("window: 1s"));
     assert!(observe_text.stdout.contains("pps: 7"));
     let observe_value: serde_json::Value = serde_json::from_str(&observe_json.stdout).unwrap();
-    assert_eq!(observe_value["schema_version"], 2);
+    assert_eq!(observe_value["schema_version"], 3);
     assert_eq!(
         observe_value["rate_windows"][0]["hooks"][0]["total"]["bytes_per_second"],
         700
@@ -268,6 +268,7 @@ fn status_from(snapshot: &ObservationSnapshot) -> InterfaceStatus {
         tc_egress: snapshot.hooks[1].total,
         sampling: snapshot.sampling.clone(),
         rate_windows: status_rate_windows(),
+        baseline: l2_loop_core::BaselineSummary::from_report(&snapshot.baseline),
     }
 }
 

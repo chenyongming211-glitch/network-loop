@@ -87,7 +87,7 @@ async fn serves_schema_two_observation_inside_bounded_protocol_one_frame() {
     assert_eq!(declared, response_frame.len() - 4);
     assert!(declared <= MAX_PAYLOAD_LEN);
     assert_eq!(json["protocol_version"], 1);
-    assert_eq!(json["result"]["snapshot"]["schema_version"], 2);
+    assert_eq!(json["result"]["snapshot"]["schema_version"], 3);
     assert_eq!(decode_response(&response_frame).unwrap(), expected);
     server.stop().await;
 }

@@ -464,5 +464,6 @@ fn fixture_status(snapshot: &ObservationSnapshot) -> InterfaceStatus {
         tc_egress: snapshot.hooks[1].total,
         sampling: snapshot.sampling.clone(),
         rate_windows: warming_status_rate_windows(),
+        baseline: l2_loop_core::BaselineSummary::from_report(&snapshot.baseline),
     }
 }

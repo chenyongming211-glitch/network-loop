@@ -100,6 +100,10 @@ fn status_supports_zero_or_one_bounded_session_summary() {
         },
         sampling: SamplingStatus::default(),
         rate_windows: warming_status_rate_windows(),
+        baseline: l2_loop_core::BaselineSummary::learning(
+            l2_loop_core::RateIdentity::new(7, 7).unwrap(),
+            1_786_300_000_000,
+        ),
     };
     let value = serde_json::to_value(AgentResult::Status {
         interfaces: vec![status],

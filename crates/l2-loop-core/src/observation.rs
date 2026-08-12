@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    DetailedRateWindow, DomainError, HookRole, InterfaceName, RATE_WINDOW_COUNT, SamplingStatus,
-    TrafficClass, VlanVisibility, rate::validate_detailed_rate_windows,
+    BaselineReport, DetailedRateWindow, DomainError, HookRole, InterfaceName, RATE_WINDOW_COUNT,
+    RateIdentity, SamplingStatus, TrafficClass, VlanVisibility,
+    rate::validate_detailed_rate_windows,
 };
 
-pub const OBSERVATION_SCHEMA_VERSION: u16 = 2;
+pub const OBSERVATION_SCHEMA_VERSION: u16 = 3;
 pub const OBSERVED_HOOK_COUNT: usize = 2;
 pub const OBSERVED_CLASS_COUNT: usize = 6;
 
@@ -71,10 +72,11 @@ pub struct ObservationSnapshot {
     pub hooks: [HookObservation; OBSERVED_HOOK_COUNT],
     pub sampling: SamplingStatus,
     pub rate_windows: [DetailedRateWindow; RATE_WINDOW_COUNT],
+    pub baseline: BaselineReport,
 }
 
 impl ObservationSnapshot {
-    // Keep identity, cumulative evidence, and schema-2 rate evidence explicit at the boundary.
+    // Keep identity, cumulative evidence, and schema-3 observation evidence explicit.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         interface: InterfaceName,
@@ -112,6 +114,10 @@ impl ObservationSnapshot {
             ));
         }
         validate_detailed_rate_windows(&rate_windows)?;
+        let baseline = BaselineReport::learning(
+            RateIdentity::new(ifindex, generation)?,
+            captured_at_unix_ms,
+        );
 
         Ok(Self {
             schema_version: OBSERVATION_SCHEMA_VERSION,
@@ -124,6 +130,7 @@ impl ObservationSnapshot {
             hooks,
             sampling,
             rate_windows,
+            baseline,
         })
     }
 }

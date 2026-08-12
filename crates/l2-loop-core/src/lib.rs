@@ -1,5 +1,6 @@
 //! Pure domain contracts for L2 Loop Detection Agent.
 
+mod baseline;
 mod command;
 mod error;
 mod interface;
@@ -10,6 +11,7 @@ mod probe;
 mod rate;
 mod value;
 
+pub use baseline::*;
 pub use command::*;
 pub use error::*;
 pub use interface::*;

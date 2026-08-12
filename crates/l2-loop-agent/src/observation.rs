@@ -1,10 +1,10 @@
 use std::time::UNIX_EPOCH;
 
 use l2_loop_core::{
-    InterfaceName, InterfaceState, InterfaceStatus, OBSERVED_HOOK_COUNT, ObservationHealth,
-    ObservationSnapshot, RATE_WINDOW_COUNT, RateHistory, RateHistoryError, RateIdentity,
-    RateSample, RateWindowState, SamplingStatus, StatusRateWindow, warming_detailed_rate_windows,
-    warming_status_rate_windows,
+    BaselineSummary, InterfaceName, InterfaceState, InterfaceStatus, OBSERVED_HOOK_COUNT,
+    ObservationHealth, ObservationSnapshot, RATE_WINDOW_COUNT, RateHistory, RateHistoryError,
+    RateIdentity, RateSample, RateWindowState, SamplingStatus, StatusRateWindow,
+    warming_detailed_rate_windows, warming_status_rate_windows,
 };
 
 use crate::{
@@ -155,6 +155,7 @@ where
             self.current_snapshot(requested, active_interface, ownership)?;
         let xdp_ingress = snapshot.hooks[0].total;
         let tc_egress = snapshot.hooks[OBSERVED_HOOK_COUNT - 1].total;
+        let baseline = BaselineSummary::from_report(&snapshot.baseline);
 
         Ok(vec![InterfaceStatus {
             interface: snapshot.interface,
@@ -167,6 +168,7 @@ where
             tc_egress,
             sampling: snapshot.sampling,
             rate_windows,
+            baseline,
         }])
     }
 
@@ -423,6 +425,7 @@ where
         let snapshot = self.observe(requested, active_interface, ownership)?;
         let xdp_ingress = snapshot.hooks[0].total;
         let tc_egress = snapshot.hooks[OBSERVED_HOOK_COUNT - 1].total;
+        let baseline = BaselineSummary::from_report(&snapshot.baseline);
 
         Ok(vec![InterfaceStatus {
             interface: snapshot.interface,
@@ -435,6 +438,7 @@ where
             tc_egress,
             sampling: snapshot.sampling,
             rate_windows: warming_status_rate_windows(),
+            baseline,
         }])
     }
 }

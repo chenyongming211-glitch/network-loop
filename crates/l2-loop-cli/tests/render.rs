@@ -111,6 +111,7 @@ fn renders_observation_and_status_as_stable_text_and_json() {
         tc_egress: snapshot.hooks[1].total,
         sampling: snapshot.sampling.clone(),
         rate_windows: status_rate_windows(),
+        baseline: l2_loop_core::BaselineSummary::from_report(&snapshot.baseline),
     };
 
     let text = render_response(
@@ -139,7 +140,7 @@ fn renders_observation_and_status_as_stable_text_and_json() {
     assert!(text.stdout.contains("packets: 21"));
     assert_eq!(json.exit_code, EXIT_SUCCESS);
     let value: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
-    assert_eq!(value["schema_version"], 2);
+    assert_eq!(value["schema_version"], 3);
     assert_eq!(value["hooks"][1]["role"], "physical_tc_egress");
     assert_eq!(value["rate_windows"][0]["elapsed_ns"], 1_000_000_000_u64);
     assert_eq!(
@@ -342,6 +343,7 @@ fn status_from(snapshot: &ObservationSnapshot) -> InterfaceStatus {
         tc_egress: snapshot.hooks[1].total,
         sampling: snapshot.sampling.clone(),
         rate_windows: status_rate_windows(),
+        baseline: l2_loop_core::BaselineSummary::from_report(&snapshot.baseline),
     }
 }
 
