@@ -11,9 +11,7 @@ use crate::{
     },
 };
 #[cfg(target_os = "linux")]
-use l2_loop_core::{
-    FingerprintEvidence, HookObservation, OBSERVED_HOOK_COUNT, VlanVisibility,
-};
+use l2_loop_core::{FingerprintEvidence, HookObservation, OBSERVED_HOOK_COUNT, VlanVisibility};
 
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone, PartialEq, Eq)]
