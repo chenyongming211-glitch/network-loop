@@ -50,10 +50,34 @@ fn accepts_only_the_authorized_fault_stages() {
         AcceptanceFault::parse(Some("baseline-sampling-map-read-recovery")).unwrap(),
         AcceptanceFault::BaselineSamplingMapReadRecovery
     );
+    assert_eq!(
+        AcceptanceFault::parse(Some("fingerprint-map-read-once")).unwrap(),
+        AcceptanceFault::FingerprintMapReadOnce
+    );
 
     for invalid in ["", "xdp-attach", "tc-detach", "map-publish", "foreign"] {
         assert!(AcceptanceFault::parse(Some(invalid)).is_err());
     }
+}
+
+#[test]
+fn fingerprint_map_fault_is_one_shot_and_request_local() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut observation = FaultInjectingObservation::new(
+        FakeObservation(calls.clone()),
+        AcceptanceFault::FingerprintMapReadOnce,
+    );
+    let pin = OwnedMapPin::new(
+        "FINGERPRINTS",
+        PathBuf::from("/sys/fs/bpf/l2-loop/test/0123456789abcdef0123456789abcdef/FINGERPRINTS"),
+        303,
+    )
+    .unwrap();
+
+    let first = observation.read_fingerprints(&pin).unwrap_err();
+    assert_eq!(first.stable_code(), Some("OBS_FINGERPRINT_UNAVAILABLE"));
+    assert!(observation.read_fingerprints(&pin).unwrap().is_empty());
+    assert_eq!(calls.lock().unwrap().as_slice(), ["read-fingerprints"]);
 }
 
 #[test]

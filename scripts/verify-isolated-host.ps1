@@ -10,7 +10,7 @@ param(
     [ValidateRange(30, 600)]
     [int] $TimeoutSeconds = 180,
 
-    [ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset', 'BaselineLifecycle', 'BaselineSamplingRecovery', 'BaselineGenerationReset')]
+    [ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset', 'BaselineLifecycle', 'BaselineSamplingRecovery', 'BaselineGenerationReset', 'FingerprintRelationship', 'FingerprintReadFailure', 'FingerprintGenerationReset')]
     [string] $Scenario = 'Success'
 )
 
@@ -21,6 +21,8 @@ $BASELINE_LEARNING_SECONDS = 70
 $BASELINE_ELEVATED_FRAMES = 128
 $BASELINE_SUBJECT_COUNT = 16
 $BASELINE_METRIC_COUNT = 32
+$FINGERPRINT_SAMPLE_SHIFT = 4
+$FINGERPRINT_CAPACITY = 8192
 
 $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Import-Module (Join-Path $PSScriptRoot 'lib/IsolatedNames.psm1') -Force
@@ -185,6 +187,8 @@ BASELINE_LEARNING_SECONDS=70
 BASELINE_ELEVATED_FRAMES=128
 BASELINE_SUBJECT_COUNT=16
 BASELINE_METRIC_COUNT=32
+FINGERPRINT_SAMPLE_SHIFT=4
+FINGERPRINT_CAPACITY=8192
 journal="/run/l2-loop/tests/$run.json"
 pins="/sys/fs/bpf/l2-loop/test/$run"
 second_journal="/run/l2-loop/tests/$second_run.json"
@@ -205,7 +209,7 @@ case "$second_run" in *[!0-9a-f]*|'') fail "second run ID is not generated" ;; e
 test "${#second_run}" -eq 32 || fail "second run ID length is invalid"
 test "$second_run" != "$run" || fail "second run ID did not change"
 case "$scenario" in
-    Success|TcAttachFailure|MapInitializeFailure|DaemonTermination|IdentityChange|TrafficInterruption|PassiveObservation|ObservationMapFailure|ObservationIdentityChange|RateWindows|RateSamplingFailure|RateGenerationReset|BaselineLifecycle|BaselineSamplingRecovery|BaselineGenerationReset) ;;
+    Success|TcAttachFailure|MapInitializeFailure|DaemonTermination|IdentityChange|TrafficInterruption|PassiveObservation|ObservationMapFailure|ObservationIdentityChange|RateWindows|RateSamplingFailure|RateGenerationReset|BaselineLifecycle|BaselineSamplingRecovery|BaselineGenerationReset|FingerprintRelationship|FingerprintReadFailure|FingerprintGenerationReset) ;;
     *) fail "unknown isolated acceptance scenario" ;;
 esac
 
@@ -372,6 +376,9 @@ case "$phase" in
             BaselineSamplingRecovery)
                 env L2_LOOP_ACCEPTANCE_FAULT=baseline-sampling-map-read-recovery ./l2-loopd >daemon.log 2>&1 &
                 ;;
+            FingerprintReadFailure)
+                env L2_LOOP_ACCEPTANCE_FAULT=fingerprint-map-read-once ./l2-loopd >daemon.log 2>&1 &
+                ;;
             *)
                 ./l2-loopd >daemon.log 2>&1 &
                 ;;
@@ -419,6 +426,95 @@ with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
     channel.bind((interface, 0))
     for _ in range(count):
         channel.send(frame)
+PY
+        ;;
+    fingerprint-traffic)
+        python3 - "$host" "$ns" "$peer" "$count" <<'PY'
+import json, select, socket, subprocess, sys, time
+
+host, namespace, peer, raw_count = sys.argv[1:]
+frame_count = int(raw_count)
+
+def fingerprint_hash(frame):
+    value = 0xcbf29ce484222325
+    for byte in len(frame).to_bytes(2, "big") + frame[:64]:
+        value = ((value ^ byte) * 0x100000001b3) & 0xffffffffffffffff
+    return value
+
+def candidate(suffix):
+    return bytes.fromhex("02000000000202000000000188b5") + bytes(45) + bytes([suffix])
+
+selected = next(frame for frame in map(candidate, range(256)) if fingerprint_hash(frame) & 15 == 0)
+unselected = next(frame for frame in map(candidate, range(256)) if fingerprint_hash(frame) & 15 != 0)
+frames = [selected, unselected]
+if any(len(frame) != 60 for frame in frames):
+    raise SystemExit("invalid fingerprint acceptance frame")
+
+def receive_exact(channel, expected, timeout_seconds):
+    remaining = {frame: frame_count for frame in expected}
+    deadline = time.monotonic() + timeout_seconds
+    while any(remaining.values()):
+        channel.settimeout(max(0.01, deadline - time.monotonic()))
+        frame = channel.recv(65535)
+        if frame in remaining and remaining[frame] > 0:
+            remaining[frame] -= 1
+
+sender = """
+import json, socket, sys
+interface, raw_frames, raw_count = sys.argv[1:]
+frames = [bytes.fromhex(value) for value in json.loads(raw_frames)]
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
+    channel.bind((interface, 0))
+    for frame in frames:
+        for _ in range(int(raw_count)):
+            channel.send(frame)
+"""
+raw_frames = json.dumps([frame.hex() for frame in frames], separators=(",", ":"))
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003)) as receiver:
+    receiver.bind((host, 0))
+    subprocess.run(
+        ["ip", "netns", "exec", namespace, "python3", "-c", sender, peer, raw_frames, str(frame_count)],
+        check=True,
+        timeout=12,
+    )
+    receive_exact(receiver, frames, 10.0)
+
+receiver_program = """
+import json, socket, sys, time
+interface, raw_frames, raw_count = sys.argv[1:]
+remaining = {bytes.fromhex(value): int(raw_count) for value in json.loads(raw_frames)}
+with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003)) as channel:
+    channel.bind((interface, 0))
+    print("ready", flush=True)
+    deadline = time.monotonic() + 10.0
+    while any(remaining.values()):
+        channel.settimeout(max(0.01, deadline - time.monotonic()))
+        frame = channel.recv(65535)
+        if frame in remaining and remaining[frame] > 0:
+            remaining[frame] -= 1
+"""
+child = subprocess.Popen(
+    ["ip", "netns", "exec", namespace, "python3", "-c", receiver_program, peer, raw_frames, str(frame_count)],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    universal_newlines=True,
+)
+try:
+    ready, _, _ = select.select([child.stdout], [], [], 5.0)
+    if not ready or child.stdout.readline().strip() != "ready":
+        raise RuntimeError("fingerprint peer receiver was not ready")
+    with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
+        channel.bind((host, 0))
+        for frame in frames:
+            for _ in range(frame_count):
+                channel.send(frame)
+    child.communicate(timeout=12)
+    if child.returncode != 0:
+        raise RuntimeError("fingerprint peer receiver failed")
+finally:
+    if child.poll() is None:
+        child.kill()
+        child.wait()
 PY
         ;;
     vlan-probe)
@@ -892,7 +988,7 @@ function Assert-ObservationIdentity {
         [ValidateSet('healthy', 'degraded')] [string] $ExpectedHealth = 'healthy'
     )
 
-    if ($Snapshot.schema_version -ne 3 -or
+    if ($Snapshot.schema_version -ne 4 -or
         $Snapshot.interface -cne $Names.HostVeth -or
         [uint64]$Snapshot.generation -eq 0 -or
         [uint64]$Snapshot.captured_at_unix_ms -eq 0 -or
@@ -902,6 +998,68 @@ function Assert-ObservationIdentity {
     }
     $null = Get-ObservationHook -Snapshot $Snapshot -Role 'external_xdp_ingress'
     $null = Get-ObservationHook -Snapshot $Snapshot -Role 'physical_tc_egress'
+}
+
+function Assert-FingerprintReport {
+    param(
+        [Parameter(Mandatory)] [psobject] $Snapshot,
+        [ValidateSet('empty', 'observed', 'unavailable')] [string] $ExpectedState,
+        [uint64] $MinimumPacketsPerDirection = 0
+    )
+
+    $Report = $Snapshot.fingerprints
+    if ($null -eq $Report -or
+        $Report.state -cne $ExpectedState -or
+        [uint64]$Report.capacity -ne [uint64]$FINGERPRINT_CAPACITY -or
+        [uint64]$Report.sample_shift -ne [uint64]$FINGERPRINT_SAMPLE_SHIFT -or
+        [uint64]$Report.captured_entry_count -gt [uint64]$FINGERPRINT_CAPACITY) {
+        throw 'fingerprint observation report header is invalid'
+    }
+    if ($ExpectedState -ceq 'observed' -and
+        ([uint64]$Report.captured_entry_count -ne 2 -or
+         [uint64]$Report.relation_count -ne 1 -or
+         [uint64]$Report.correlated_relation_count -ne 1 -or
+         [uint64]$Report.repeated_relation_count -ne 1 -or
+         [uint64]$Report.ingress.packets -lt $MinimumPacketsPerDirection -or
+         [uint64]$Report.egress.packets -lt $MinimumPacketsPerDirection -or
+         $null -ne $Report.last_error_code)) {
+        throw 'fingerprint relationship evidence is invalid'
+    }
+    if ($ExpectedState -ceq 'empty' -and
+        ([uint64]$Report.captured_entry_count -ne 0 -or [uint64]$Report.relation_count -ne 0)) {
+        throw 'empty fingerprint generation retained evidence'
+    }
+    if ($ExpectedState -ceq 'unavailable' -and
+        $Report.last_error_code -cne 'OBS_FINGERPRINT_UNAVAILABLE') {
+        throw 'fingerprint read failure did not expose the stable code'
+    }
+}
+
+function Assert-FingerprintSummary {
+    param(
+        [Parameter(Mandatory)] [psobject] $Status,
+        [Parameter(Mandatory)] [psobject] $Snapshot
+    )
+
+    $Interfaces = @($Status.interfaces)
+    if ($Interfaces.Count -ne 1) { throw 'fingerprint status did not contain one interface' }
+    $Summary = $Interfaces[0].fingerprints
+    $Report = $Snapshot.fingerprints
+    foreach ($Field in @('state', 'captured_entry_count', 'relation_count', 'correlated_relation_count', 'repeated_relation_count', 'maximum_packet_ratio_milli', 'maximum_byte_ratio_milli', 'last_error_code')) {
+        if ([string]$Summary.$Field -cne [string]$Report.$Field) {
+            throw "fingerprint status summary mismatch: $Field"
+        }
+    }
+}
+
+function Assert-FingerprintOutputPrivacy {
+    param([Parameter(Mandatory)] [psobject] $Result)
+
+    foreach ($Forbidden in @('source_mac', 'destination_mac', 'first_seen_ns', 'last_seen_ns', 'packet_bytes', '"fingerprint"')) {
+        if ($Result.Stdout.Contains($Forbidden) -or $Result.Stderr.Contains($Forbidden)) {
+            throw "fingerprint output exposed prohibited evidence: $Forbidden"
+        }
+    }
 }
 
 function Assert-CountersMonotonic {
@@ -1069,7 +1227,7 @@ function Assert-BaselineReport {
 
     $Baseline = $Snapshot.baseline
     $Subjects = @($Baseline.subjects)
-    if ($Snapshot.schema_version -ne 3 -or
+    if ($Snapshot.schema_version -ne 4 -or
         [uint64]$Baseline.source_window_ms -ne 10000 -or
         [uint64]$Baseline.capacity -ne 300 -or
         [uint64]$Baseline.minimum_samples -ne 60 -or
@@ -1793,6 +1951,85 @@ try {
             }
             catch {
                 throw "second baseline generation detach did not restore prepared state: $($_.Exception.Message)"
+            }
+            $Detached = $true
+        }
+        'FingerprintRelationship' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedMutation -Phase 'fingerprint-traffic' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $FingerprintObservationResult = Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json
+            Assert-FingerprintOutputPrivacy -Result $FingerprintObservationResult
+            $FingerprintObservation = Convert-ObservationJson -Result $FingerprintObservationResult
+            Assert-ObservationIdentity -Snapshot $FingerprintObservation -Names $Names
+            Assert-FingerprintReport -Snapshot $FingerprintObservation -ExpectedState 'observed' -MinimumPacketsPerDirection ([uint64]$FrameCount)
+            $FingerprintStatusResult = Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json
+            Assert-FingerprintOutputPrivacy -Result $FingerprintStatusResult
+            $FingerprintStatus = Convert-ObservationJson -Result $FingerprintStatusResult
+            Assert-FingerprintSummary -Status $FingerprintStatus -Snapshot $FingerprintObservation
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+        }
+        'FingerprintReadFailure' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedMutation -Phase 'fingerprint-traffic' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $UnavailableResult = Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json
+            Assert-FingerprintOutputPrivacy -Result $UnavailableResult
+            $UnavailableFingerprint = Convert-ObservationJson -Result $UnavailableResult
+            Assert-ObservationIdentity -Snapshot $UnavailableFingerprint -Names $Names -ExpectedHealth 'degraded'
+            Assert-FingerprintReport -Snapshot $UnavailableFingerprint -ExpectedState 'unavailable'
+            $RecoveredResult = Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json
+            Assert-FingerprintOutputPrivacy -Result $RecoveredResult
+            $RecoveredFingerprint = Convert-ObservationJson -Result $RecoveredResult
+            Assert-ObservationIdentity -Snapshot $RecoveredFingerprint -Names $Names
+            Assert-FingerprintReport -Snapshot $RecoveredFingerprint -ExpectedState 'observed' -MinimumPacketsPerDirection ([uint64]$FrameCount)
+            Assert-CumulativeObservationMonotonic -Before $UnavailableFingerprint -After $RecoveredFingerprint
+            $RecoveredStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-FingerprintSummary -Status $RecoveredStatus -Snapshot $RecoveredFingerprint
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+        }
+        'FingerprintGenerationReset' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedMutation -Phase 'fingerprint-traffic' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $FirstFingerprintGeneration = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-FingerprintReport -Snapshot $FirstFingerprintGeneration -ExpectedState 'observed' -MinimumPacketsPerDirection ([uint64]$FrameCount)
+            $FirstFingerprintGenerationValue = [uint64]$FirstFingerprintGeneration.generation
+
+            $FirstFingerprintDetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+                "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-detach', '--run-id', $RunId
+            )
+            $FirstFingerprintDetach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $FirstFingerprintDetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+            if ($FirstFingerprintDetach.Stdout.Trim() -cne 'accepted') { throw 'first fingerprint generation detach was not acknowledged' }
+            $null = Invoke-IsolatedMutation -Phase 'links-down' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            try {
+                Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            }
+            catch {
+                throw "first fingerprint generation detach did not restore prepared state: $($_.Exception.Message)"
+            }
+
+            $SecondFingerprintAttachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+                "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-attach', '--interface', $Names.HostVeth, '--run-id', $SecondRunId
+            )
+            $SecondFingerprintAttach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $SecondFingerprintAttachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+            if ($SecondFingerprintAttach.Stdout.Trim() -cne 'accepted') { throw 'second fingerprint generation attach was not acknowledged' }
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-second-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $SecondFingerprintGeneration = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-FingerprintReport -Snapshot $SecondFingerprintGeneration -ExpectedState 'empty'
+            if ([uint64]$SecondFingerprintGeneration.generation -eq $FirstFingerprintGenerationValue) {
+                throw 'fingerprint generation identity did not change after exact reattach'
+            }
+
+            $SecondFingerprintDetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+                "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-detach', '--run-id', $SecondRunId
+            )
+            $SecondFingerprintDetach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $SecondFingerprintDetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+            if ($SecondFingerprintDetach.Stdout.Trim() -cne 'accepted') { throw 'second fingerprint generation detach was not acknowledged' }
+            $null = Invoke-IsolatedMutation -Phase 'links-down' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            try {
+                Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            }
+            catch {
+                throw "second fingerprint generation detach did not restore prepared state: $($_.Exception.Message)"
             }
             $Detached = $true
         }

@@ -22,6 +22,7 @@ pub enum AcceptanceFault {
     ObservationMapRead,
     RateSamplingMapRead,
     BaselineSamplingMapReadRecovery,
+    FingerprintMapReadOnce,
 }
 
 impl AcceptanceFault {
@@ -35,6 +36,7 @@ impl AcceptanceFault {
             Some("baseline-sampling-map-read-recovery") => {
                 Ok(Self::BaselineSamplingMapReadRecovery)
             }
+            Some("fingerprint-map-read-once") => Ok(Self::FingerprintMapReadOnce),
             Some(_) => Err(AcceptanceFaultError),
         }
     }
@@ -94,11 +96,16 @@ where
 pub struct FaultInjectingObservation<I> {
     inner: I,
     fault: AcceptanceFault,
+    fingerprint_reads: u64,
 }
 
 impl<I> FaultInjectingObservation<I> {
     pub const fn new(inner: I, fault: AcceptanceFault) -> Self {
-        Self { inner, fault }
+        Self {
+            inner,
+            fault,
+            fingerprint_reads: 0,
+        }
     }
 }
 
@@ -143,6 +150,13 @@ where
         &mut self,
         pin: &OwnedMapPin,
     ) -> Result<Vec<FingerprintEvidence>, PortError> {
+        self.fingerprint_reads = self.fingerprint_reads.saturating_add(1);
+        if self.fault == AcceptanceFault::FingerprintMapReadOnce && self.fingerprint_reads == 1 {
+            return Err(PortError::coded_adapter(
+                "OBS_FINGERPRINT_UNAVAILABLE",
+                "authorized one-shot fingerprint map read failure",
+            ));
+        }
         self.inner.read_fingerprints(pin)
     }
 }
