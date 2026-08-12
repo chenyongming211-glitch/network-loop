@@ -1,10 +1,9 @@
 use std::time::UNIX_EPOCH;
 
 use l2_loop_core::{
-    BaselineEngine, BaselineState, BaselineSummary, InterfaceName, InterfaceState,
-    InterfaceStatus, OBSERVED_HOOK_COUNT, ObservationHealth, ObservationSnapshot,
-    RATE_WINDOW_COUNT, RateHistory, RateHistoryError, RateIdentity, RateSample, RateWindowState,
-    SamplingStatus, StatusRateWindow,
+    BaselineEngine, BaselineState, BaselineSummary, InterfaceName, InterfaceState, InterfaceStatus,
+    OBSERVED_HOOK_COUNT, ObservationHealth, ObservationSnapshot, RATE_WINDOW_COUNT, RateHistory,
+    RateHistoryError, RateIdentity, RateSample, RateWindowState, SamplingStatus, StatusRateWindow,
     warming_detailed_rate_windows, warming_status_rate_windows,
 };
 
@@ -117,10 +116,7 @@ where
                 } else {
                     history.record_transient_failure(code);
                     if let Some(baseline) = self.baseline.as_mut() {
-                        baseline.unavailable(
-                            evaluated_at_unix_ms,
-                            BASELINE_SOURCE_UNAVAILABLE,
-                        );
+                        baseline.unavailable(evaluated_at_unix_ms, BASELINE_SOURCE_UNAVAILABLE);
                     }
                 }
                 return SamplingTickOutcome::Rejected;
@@ -179,14 +175,11 @@ where
                     }
                 };
                 if windows[1].state == RateWindowState::Ready
-                    && self
-                        .baseline
-                        .as_mut()
-                        .is_none_or(|baseline| {
-                            baseline
-                                .evaluate_ready_window(&windows[1], captured_at_unix_ms)
-                                .is_err()
-                        })
+                    && self.baseline.as_mut().is_none_or(|baseline| {
+                        baseline
+                            .evaluate_ready_window(&windows[1], captured_at_unix_ms)
+                            .is_err()
+                    })
                 {
                     return SamplingTickOutcome::Rejected;
                 }
