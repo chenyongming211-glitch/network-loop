@@ -223,6 +223,7 @@ foreach ($Required in @(
     "-ExpectedState 'elevated'",
     "-ExpectedState 'unavailable'",
     'for ($BaselineIteration = 1; $BaselineIteration -le $BASELINE_LEARNING_SECONDS; $BaselineIteration++)',
+    'for ($RecoveryIteration = 1; $RecoveryIteration -le 25; $RecoveryIteration++)',
     '[uint64]$BASELINE_ELEVATED_FRAMES',
     'first baseline generation detach did not restore prepared state',
     'second baseline generation detach did not restore prepared state'

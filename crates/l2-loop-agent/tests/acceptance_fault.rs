@@ -70,7 +70,7 @@ fn baseline_sampling_recovery_fault_is_bounded_and_request_transparent() {
             .unwrap_err();
         assert!(error.to_string().contains("delegated request read"));
     }
-    for _ in 0..4 {
+    for _ in 0..8 {
         let error = observation
             .read_exact(&ownership, ObservationReadPurpose::BackgroundSample)
             .unwrap_err();

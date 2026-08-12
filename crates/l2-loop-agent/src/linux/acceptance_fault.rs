@@ -11,7 +11,7 @@ use crate::{
 pub const ACCEPTANCE_FAULT_ENV: &str = "L2_LOOP_ACCEPTANCE_FAULT";
 pub const ACCEPTANCE_DIAGNOSTICS_ENV: &str = "L2_LOOP_ACCEPTANCE_DIAGNOSTICS";
 const BASELINE_RECOVERY_GOOD_READS: u64 = 75;
-const BASELINE_RECOVERY_FAILED_READS: u64 = 4;
+const BASELINE_RECOVERY_FAILED_READS: u64 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AcceptanceFault {

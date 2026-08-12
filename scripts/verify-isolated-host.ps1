@@ -1686,7 +1686,7 @@ try {
             $UnavailableBaseline = $null
             $RetainedUnavailableBaseline = $null
             $CompareBeforeAccept = $null
-            for ($RecoveryIteration = 1; $RecoveryIteration -le 15; $RecoveryIteration++) {
+            for ($RecoveryIteration = 1; $RecoveryIteration -le 25; $RecoveryIteration++) {
                 $null = Invoke-IsolatedMutation -Phase 'traffic-matrix' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount ([uint64]$BASELINE_ELEVATED_FRAMES) -TimeoutSeconds $TimeoutSeconds
                 Start-Sleep -Seconds 1
                 $CurrentRecovery = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
