@@ -349,9 +349,12 @@ async fn process_job<B>(
     B: IncidentOutputBackend,
 {
     let result = tokio::task::spawn_blocking(move || {
-        let mut backend = backend
-            .lock()
-            .map_err(|_| IncidentOutputError::StoreUnavailable)?;
+        let Ok(mut backend) = backend.lock() else {
+            return (
+                Err(IncidentOutputError::StoreUnavailable),
+                AlertSinkMode::StderrJson,
+            );
+        };
         let persisted = backend.persist(&job);
         let status = if persisted.is_ok() {
             EvidenceStatus::Stored
