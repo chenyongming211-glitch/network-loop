@@ -15,9 +15,9 @@ use l2_loop_agent::{
 };
 use l2_loop_common::{ABI_VERSION, FingerprintKey, FingerprintValue, direction};
 use l2_loop_core::{
-    BaselineState, ClassObservation, FingerprintEvidence, FingerprintState, HookObservation,
-    HookRole, InterfaceName, ObservationCounters, ObservationHealth, RateWindowState, TrafficClass,
-    VlanVisibility,
+    BaselineState, ClassObservation, DetectionState, FingerprintEvidence, FingerprintState,
+    HookObservation, HookRole, InterfaceName, ObservationCounters, ObservationHealth,
+    RateWindowState, TrafficClass, VlanVisibility,
 };
 
 const SECOND_NS: u64 = 1_000_000_000;
@@ -363,6 +363,8 @@ fn current_counter_regression_clears_before_response_rates() {
         snapshot.sampling.last_error_code.as_deref(),
         Some(OBS_RATE_COUNTER_REGRESSION)
     );
+    assert_eq!(snapshot.baseline.state, BaselineState::Unavailable);
+    assert_eq!(snapshot.detection.state, DetectionState::Unavailable);
 }
 
 #[test]
