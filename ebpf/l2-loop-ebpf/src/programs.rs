@@ -196,11 +196,7 @@ fn packet_fingerprint_hash(
 }
 
 #[inline(always)]
-fn ipv4_subtype_untagged(
-    data: usize,
-    data_end: usize,
-    prefix_len: usize,
-) -> u8 {
+fn ipv4_subtype_untagged(data: usize, data_end: usize, prefix_len: usize) -> u8 {
     let ihl = packet_byte_at::<14>(data, data_end, prefix_len).unwrap_or_default() & 0x0f;
     match ihl {
         5 => packet_byte_at::<34>(data, data_end, prefix_len),
@@ -344,24 +340,23 @@ fn packet_fingerprint_metadata(
     let destination_mac = packet_mac_at::<0>(data, data_end, prefix_len)?;
     let source_mac = packet_mac_at::<6>(data, data_end, prefix_len)?;
     let outer_ether_type = packet_u16_at::<12>(data, data_end, prefix_len)?;
-    let (ether_type, outer_vlan_id, vlan_depth) =
-        if matches!(outer_ether_type, 0x8100 | 0x88a8) {
-            if prefix_len < 18 {
-                return None;
-            }
-            let inner_ether_type = packet_u16_at::<16>(data, data_end, prefix_len)?;
-            (
-                inner_ether_type,
-                packet_u16_at::<14>(data, data_end, prefix_len)? & 0x0fff,
-                if matches!(inner_ether_type, 0x8100 | 0x88a8) {
-                    2
-                } else {
-                    1
-                },
-            )
-        } else {
-            (outer_ether_type, NO_VLAN, 0)
-        };
+    let (ether_type, outer_vlan_id, vlan_depth) = if matches!(outer_ether_type, 0x8100 | 0x88a8) {
+        if prefix_len < 18 {
+            return None;
+        }
+        let inner_ether_type = packet_u16_at::<16>(data, data_end, prefix_len)?;
+        (
+            inner_ether_type,
+            packet_u16_at::<14>(data, data_end, prefix_len)? & 0x0fff,
+            if matches!(inner_ether_type, 0x8100 | 0x88a8) {
+                2
+            } else {
+                1
+            },
+        )
+    } else {
+        (outer_ether_type, NO_VLAN, 0)
+    };
     let (protocol, subtype) = if vlan_depth == 2 {
         (0, 0)
     } else if vlan_depth == 1 {
