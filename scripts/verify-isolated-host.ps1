@@ -1417,7 +1417,7 @@ function Assert-BaselineReport {
 
     $Baseline = $Snapshot.baseline
     $Subjects = @($Baseline.subjects)
-    if ($Snapshot.schema_version -ne 4 -or
+    if ($Snapshot.schema_version -ne 5 -or
         [uint64]$Baseline.source_window_ms -ne 10000 -or
         [uint64]$Baseline.capacity -ne 300 -or
         [uint64]$Baseline.minimum_samples -ne 60 -or

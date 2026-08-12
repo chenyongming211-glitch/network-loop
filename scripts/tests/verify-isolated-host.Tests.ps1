@@ -152,6 +152,8 @@ foreach ($Required in @(
 }
 $FingerprintGeneration = '(?s)''FingerprintGenerationReset'' \{(?:(?!''ObservationMapFailure'').)*first fingerprint generation detach did not restore prepared state(?:(?!''ObservationMapFailure'').)*''verify-second-hooks''(?:(?!''ObservationMapFailure'').)*second fingerprint generation detach did not restore prepared state'
 Assert-True ([regex]::IsMatch($Harness, $FingerprintGeneration)) 'fingerprint generation reset is not symmetric and independently bounded'
+Assert-True (-not $Harness.Contains('schema_version -ne 4')) 'a stale observation schema assertion remains'
+Assert-True (([regex]::Matches($Harness, 'schema_version -ne 5')).Count -eq 2) 'every observation schema assertion must require Schema 5'
 
 foreach ($Required in @(
     "'DetectionAdaptiveLifecycle'",
