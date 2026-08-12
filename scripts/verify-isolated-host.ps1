@@ -548,9 +548,9 @@ interface = sys.argv[1]
 frame = bytes.fromhex("ffffffffffff02000000000b88b5") + bytes(46)
 with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
     channel.bind((interface, 0))
-    for _ in range(5):
+    for _ in range(4):
         started = time.monotonic()
-        for _ in range(100000):
+        for _ in range(125000):
             channel.send(frame)
         remaining = 1.0 - (time.monotonic() - started)
         if remaining > 0:
@@ -2235,7 +2235,7 @@ try {
         'DetectionAbsoluteStartup' {
             $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $null = Invoke-IsolatedMutation -Phase 'detection-absolute-ingress' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
-            if ((5 * 100000) -gt $DETECTION_MAX_SCENARIO_FRAMES) { throw 'absolute detection frame bound is invalid' }
+            if ((4 * 125000) -gt $DETECTION_MAX_SCENARIO_FRAMES) { throw 'absolute detection frame bound is invalid' }
             $Absolute = Wait-DetectionState -ExpectedState 'ingress_storm_confirmed' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
             Assert-DetectionReport -Snapshot $Absolute -ExpectedState 'ingress_storm_confirmed'
             $AbsoluteStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
