@@ -440,14 +440,20 @@ fn baseline_advances_only_from_ready_background_endpoints() {
         status.baseline.evaluated_at_unix_ms,
         observed.baseline.evaluated_at_unix_ms
     );
+    let purposes = purposes.lock().unwrap();
     assert_eq!(
         purposes
-            .lock()
-            .unwrap()
             .iter()
             .filter(|purpose| **purpose == ObservationReadPurpose::BackgroundSample)
             .count(),
-        70
+        64
+    );
+    assert_eq!(
+        purposes
+            .iter()
+            .filter(|purpose| **purpose == ObservationReadPurpose::BackgroundAnalysis)
+            .count(),
+        6
     );
 }
 
