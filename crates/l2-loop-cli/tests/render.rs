@@ -1,12 +1,12 @@
 use l2_loop_agent::protocol::{ControlResponse, ERROR_INTERNAL};
 use l2_loop_cli::{EXIT_BLOCKED, EXIT_FAILURE, EXIT_SUCCESS, OutputFormat, render_response};
 use l2_loop_core::{
-    AgentResult, AttachmentState, BpfInspection, ClassObservation, HookObservation, HookRole,
-    InterfaceInspection, InterfaceKind, InterfaceName, InterfaceRef, InterfaceState,
-    InterfaceStatus, KernelInspection, MemlockInspection, OBSERVED_CLASS_COUNT,
-    ObservationCounters, ObservationSnapshot, PF_LIVE_INTERFACE, PinRootState, PreflightFinding,
-    PreflightReport, SamplingStatus, TrafficClass, VlanVisibility, warming_detailed_rate_windows,
-    warming_status_rate_windows,
+    AgentResult, AttachmentState, BpfInspection, ClassObservation, ClassRate, DetailedRateWindow,
+    HookObservation, HookRate, HookRole, InterfaceInspection, InterfaceKind, InterfaceName,
+    InterfaceRef, InterfaceState, InterfaceStatus, KernelInspection, MemlockInspection,
+    OBSERVED_CLASS_COUNT, ObservationCounters, ObservationSnapshot, PF_LIVE_INTERFACE,
+    PinRootState, PreflightFinding, PreflightReport, RateCounters, RateWindowState, SamplingStatus,
+    StatusRateWindow, TrafficClass, VlanVisibility,
 };
 
 #[test]
@@ -110,7 +110,7 @@ fn renders_observation_and_status_as_stable_text_and_json() {
         xdp_ingress: snapshot.hooks[0].total,
         tc_egress: snapshot.hooks[1].total,
         sampling: snapshot.sampling.clone(),
-        rate_windows: warming_status_rate_windows(),
+        rate_windows: status_rate_windows(),
     };
 
     let text = render_response(
@@ -141,6 +141,22 @@ fn renders_observation_and_status_as_stable_text_and_json() {
     let value: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
     assert_eq!(value["schema_version"], 2);
     assert_eq!(value["hooks"][1]["role"], "physical_tc_egress");
+    assert_eq!(value["rate_windows"][0]["elapsed_ns"], 1_000_000_000_u64);
+    assert_eq!(
+        value["rate_windows"][0]["hooks"][0]["total"]["packet_delta"],
+        7
+    );
+    assert_eq!(
+        value["rate_windows"][0]["hooks"][0]["total"]["packets_per_second"],
+        7
+    );
+    assert_eq!(
+        value["rate_windows"][0]["hooks"][0]["total"]["bytes_per_second"],
+        700
+    );
+    assert!(value["rate_windows"][1]["elapsed_ns"].is_null());
+    assert!(value["rate_windows"][1]["hooks"].is_null());
+    assert!(value["rate_windows"][2]["hooks"].is_null());
     let status_value: serde_json::Value = serde_json::from_str(&status_json.stdout).unwrap();
     assert_eq!(status_value["interfaces"][0]["state"], "observing");
     assert_eq!(status_value["interfaces"][0]["xdp_ingress"]["packets"], 21);
@@ -161,6 +177,50 @@ fn renders_observation_and_status_as_stable_text_and_json() {
             assert!(!output.contains(prohibited));
         }
     }
+}
+
+#[test]
+fn renders_fixed_rate_labels_without_inventing_non_ready_rates() {
+    let snapshot = observation();
+    let status = status_from(&snapshot);
+
+    let observe_text = render_response(
+        ControlResponse::success(AgentResult::Observation { snapshot }),
+        OutputFormat::Text,
+    );
+    let status_text = render_response(
+        ControlResponse::success(AgentResult::Status {
+            interfaces: vec![status],
+        }),
+        OutputFormat::Text,
+    );
+
+    for rendered in [&observe_text, &status_text] {
+        assert_eq!(rendered.exit_code, EXIT_SUCCESS);
+        assert!(rendered.stderr.is_empty());
+        for expected in [
+            "window: 1s",
+            "state: ready",
+            "pps: 7",
+            "B/s: 700",
+            "window: 10s",
+            "state: warming_up",
+            "window: 60s",
+            "state: stale",
+        ] {
+            assert!(
+                rendered.stdout.contains(expected),
+                "missing `{expected}` in:\n{}",
+                rendered.stdout
+            );
+        }
+        assert!(!rendered.stdout.contains("pps: 0"));
+        assert!(!rendered.stdout.contains("B/s: 0"));
+        assert!(!rendered.stdout.contains("packets_per_second:"));
+        assert!(!rendered.stdout.contains("bytes_per_second:"));
+    }
+    assert!(observe_text.stdout.contains("traffic_class: l2_broadcast"));
+    assert!(!status_text.stdout.contains("traffic_class:"));
 }
 
 #[test]
@@ -259,10 +319,121 @@ fn observation() -> ObservationSnapshot {
             observation_hook(HookRole::ExternalXdpIngress, 21, 1_260),
             observation_hook(HookRole::PhysicalTcEgress, 18, 1_080),
         ],
-        SamplingStatus::default(),
-        warming_detailed_rate_windows(),
+        SamplingStatus {
+            latest_success_at_unix_ms: Some(1_786_300_000_000),
+            last_error_code: Some("OBS_RATE_SAMPLE_FAILED".into()),
+            consecutive_failures: 2,
+            sampling_paused: false,
+        },
+        detailed_rate_windows(),
     )
     .unwrap()
+}
+
+fn status_from(snapshot: &ObservationSnapshot) -> InterfaceStatus {
+    InterfaceStatus {
+        interface: snapshot.interface.clone(),
+        state: InterfaceState::Observing,
+        generation: snapshot.generation,
+        captured_at_unix_ms: snapshot.captured_at_unix_ms,
+        health: snapshot.health,
+        vlan_visibility: snapshot.vlan_visibility,
+        xdp_ingress: snapshot.hooks[0].total,
+        tc_egress: snapshot.hooks[1].total,
+        sampling: snapshot.sampling.clone(),
+        rate_windows: status_rate_windows(),
+    }
+}
+
+fn detailed_rate_windows() -> [DetailedRateWindow; 3] {
+    [
+        DetailedRateWindow {
+            window_ms: 1_000,
+            state: RateWindowState::Ready,
+            coverage_ms: 1_000,
+            elapsed_ns: Some(1_000_000_000),
+            start_unix_ms: Some(1_786_299_999_000),
+            end_unix_ms: Some(1_786_300_000_000),
+            hooks: Some([
+                hook_rate(HookRole::ExternalXdpIngress, rate_counters(7, 700)),
+                hook_rate(HookRole::PhysicalTcEgress, rate_counters(5, 500)),
+            ]),
+        },
+        DetailedRateWindow {
+            window_ms: 10_000,
+            state: RateWindowState::WarmingUp,
+            coverage_ms: 1_000,
+            elapsed_ns: None,
+            start_unix_ms: None,
+            end_unix_ms: None,
+            hooks: None,
+        },
+        DetailedRateWindow {
+            window_ms: 60_000,
+            state: RateWindowState::Stale,
+            coverage_ms: 12_000,
+            elapsed_ns: None,
+            start_unix_ms: None,
+            end_unix_ms: None,
+            hooks: None,
+        },
+    ]
+}
+
+fn status_rate_windows() -> [StatusRateWindow; 3] {
+    [
+        StatusRateWindow {
+            window_ms: 1_000,
+            state: RateWindowState::Ready,
+            coverage_ms: 1_000,
+            elapsed_ns: Some(1_000_000_000),
+            start_unix_ms: Some(1_786_299_999_000),
+            end_unix_ms: Some(1_786_300_000_000),
+            xdp_ingress: Some(rate_counters(7, 700)),
+            tc_egress: Some(rate_counters(5, 500)),
+        },
+        StatusRateWindow {
+            window_ms: 10_000,
+            state: RateWindowState::WarmingUp,
+            coverage_ms: 1_000,
+            elapsed_ns: None,
+            start_unix_ms: None,
+            end_unix_ms: None,
+            xdp_ingress: None,
+            tc_egress: None,
+        },
+        StatusRateWindow {
+            window_ms: 60_000,
+            state: RateWindowState::Stale,
+            coverage_ms: 12_000,
+            elapsed_ns: None,
+            start_unix_ms: None,
+            end_unix_ms: None,
+            xdp_ingress: None,
+            tc_egress: None,
+        },
+    ]
+}
+
+fn hook_rate(role: HookRole, total: RateCounters) -> HookRate {
+    HookRate {
+        role,
+        total,
+        classes: CLASS_ORDER.map(|traffic_class| ClassRate {
+            traffic_class,
+            counters: rate_counters(1, 100),
+        }),
+        parse_errors: rate_counters(1, 100),
+    }
+}
+
+fn rate_counters(packets: u64, bytes: u64) -> RateCounters {
+    RateCounters {
+        packet_delta: packets,
+        byte_delta: bytes,
+        packets_per_second: packets,
+        bytes_per_second: bytes,
+    }
 }
 
 fn observation_hook(role: HookRole, packets: u64, bytes: u64) -> HookObservation {

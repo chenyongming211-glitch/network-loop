@@ -19,11 +19,15 @@ use l2_loop_agent::{
     protocol::{ControlRequest, ControlResponse, decode_request, encode_response},
     transport::{read_frame, write_frame},
 };
-use l2_loop_cli::{ClientError, EXIT_FAILURE, RenderedOutput, UnixControlClient};
+use l2_loop_cli::{
+    ClientError, EXIT_FAILURE, EXIT_SUCCESS, OutputFormat, RenderedOutput, UnixControlClient,
+    render_response,
+};
 use l2_loop_core::{
-    AgentCommand, AgentResult, ClassObservation, HookObservation, HookRole, InterfaceName,
-    InterfaceStatus, OBSERVED_CLASS_COUNT, ObservationCounters, ObservationSnapshot,
-    PreflightReport, SamplingStatus, TrafficClass, VlanVisibility, warming_detailed_rate_windows,
+    AgentCommand, AgentResult, ClassObservation, ClassRate, DetailedRateWindow, HookObservation,
+    HookRate, HookRole, InterfaceName, InterfaceState, InterfaceStatus, OBSERVED_CLASS_COUNT,
+    ObservationCounters, ObservationSnapshot, PreflightReport, RateCounters, RateWindowState,
+    SamplingStatus, StatusRateWindow, TrafficClass, VlanVisibility,
 };
 use tokio::{io::AsyncReadExt, net::UnixListener, sync::oneshot};
 
@@ -88,9 +92,46 @@ async fn observe_round_trips_from_the_cli_client_through_the_daemon_dispatcher()
 
     assert_eq!(
         response,
-        ControlResponse::success(AgentResult::Observation { snapshot })
+        ControlResponse::success(AgentResult::Observation {
+            snapshot: snapshot.clone(),
+        })
     );
-    assert_eq!(calls.lock().unwrap().as_slice(), ["observe:l2h0123456789"]);
+    let observe_text = render_response(response.clone(), OutputFormat::Text);
+    let observe_json = render_response(response, OutputFormat::Json);
+    assert_eq!(observe_text.exit_code, EXIT_SUCCESS);
+    assert!(observe_text.stdout.contains("window: 1s"));
+    assert!(observe_text.stdout.contains("pps: 7"));
+    let observe_value: serde_json::Value = serde_json::from_str(&observe_json.stdout).unwrap();
+    assert_eq!(observe_value["schema_version"], 2);
+    assert_eq!(
+        observe_value["rate_windows"][0]["hooks"][0]["total"]["bytes_per_second"],
+        700
+    );
+
+    let status_response = UnixControlClient::new(&socket.path)
+        .execute(AgentCommand::Status {
+            interface: Some(InterfaceName::new("l2h0123456789").unwrap()),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        status_response,
+        ControlResponse::success(AgentResult::Status {
+            interfaces: vec![status_from(&snapshot)],
+        })
+    );
+    let status_text = render_response(status_response, OutputFormat::Text);
+    assert_eq!(status_text.exit_code, EXIT_SUCCESS);
+    assert!(status_text.stdout.contains("window: 10s"));
+    assert!(status_text.stdout.contains("state: warming_up"));
+    assert!(status_text.stdout.contains("window: 60s"));
+    assert!(status_text.stdout.contains("state: stale"));
+    assert!(!status_text.stdout.contains("traffic_class:"));
+
+    assert_eq!(
+        calls.lock().unwrap().as_slice(),
+        ["observe:l2h0123456789", "status:l2h0123456789"]
+    );
     let _ = shutdown.send(());
     task.await.unwrap().unwrap();
 }
@@ -151,9 +192,13 @@ impl IsolatedControl for ObserveControl {
 
     fn status(
         &mut self,
-        _: Option<&InterfaceName>,
+        interface: Option<&InterfaceName>,
     ) -> Result<Vec<InterfaceStatus>, IsolatedControlError> {
-        Ok(Vec::new())
+        self.calls.lock().unwrap().push(format!(
+            "status:{}",
+            interface.map_or("all", InterfaceName::as_str)
+        ));
+        Ok(vec![status_from(&self.snapshot)])
     }
 
     fn shutdown(&mut self) -> Result<(), IsolatedControlError> {
@@ -206,9 +251,114 @@ fn observation() -> ObservationSnapshot {
             observation_hook(HookRole::PhysicalTcEgress),
         ],
         SamplingStatus::default(),
-        warming_detailed_rate_windows(),
+        detailed_rate_windows(),
     )
     .unwrap()
+}
+
+fn status_from(snapshot: &ObservationSnapshot) -> InterfaceStatus {
+    InterfaceStatus {
+        interface: snapshot.interface.clone(),
+        state: InterfaceState::Observing,
+        generation: snapshot.generation,
+        captured_at_unix_ms: snapshot.captured_at_unix_ms,
+        health: snapshot.health,
+        vlan_visibility: snapshot.vlan_visibility,
+        xdp_ingress: snapshot.hooks[0].total,
+        tc_egress: snapshot.hooks[1].total,
+        sampling: snapshot.sampling.clone(),
+        rate_windows: status_rate_windows(),
+    }
+}
+
+fn detailed_rate_windows() -> [DetailedRateWindow; 3] {
+    [
+        DetailedRateWindow {
+            window_ms: 1_000,
+            state: RateWindowState::Ready,
+            coverage_ms: 1_000,
+            elapsed_ns: Some(1_000_000_000),
+            start_unix_ms: Some(1_786_299_999_000),
+            end_unix_ms: Some(1_786_300_000_000),
+            hooks: Some([
+                hook_rate(HookRole::ExternalXdpIngress, rate_counters(7, 700)),
+                hook_rate(HookRole::PhysicalTcEgress, rate_counters(5, 500)),
+            ]),
+        },
+        non_ready_detailed(10_000, RateWindowState::WarmingUp, 1_000),
+        non_ready_detailed(60_000, RateWindowState::Stale, 12_000),
+    ]
+}
+
+fn non_ready_detailed(
+    window_ms: u64,
+    state: RateWindowState,
+    coverage_ms: u64,
+) -> DetailedRateWindow {
+    DetailedRateWindow {
+        window_ms,
+        state,
+        coverage_ms,
+        elapsed_ns: None,
+        start_unix_ms: None,
+        end_unix_ms: None,
+        hooks: None,
+    }
+}
+
+fn status_rate_windows() -> [StatusRateWindow; 3] {
+    [
+        StatusRateWindow {
+            window_ms: 1_000,
+            state: RateWindowState::Ready,
+            coverage_ms: 1_000,
+            elapsed_ns: Some(1_000_000_000),
+            start_unix_ms: Some(1_786_299_999_000),
+            end_unix_ms: Some(1_786_300_000_000),
+            xdp_ingress: Some(rate_counters(7, 700)),
+            tc_egress: Some(rate_counters(5, 500)),
+        },
+        non_ready_status(10_000, RateWindowState::WarmingUp, 1_000),
+        non_ready_status(60_000, RateWindowState::Stale, 12_000),
+    ]
+}
+
+fn non_ready_status(
+    window_ms: u64,
+    state: RateWindowState,
+    coverage_ms: u64,
+) -> StatusRateWindow {
+    StatusRateWindow {
+        window_ms,
+        state,
+        coverage_ms,
+        elapsed_ns: None,
+        start_unix_ms: None,
+        end_unix_ms: None,
+        xdp_ingress: None,
+        tc_egress: None,
+    }
+}
+
+fn hook_rate(role: HookRole, total: RateCounters) -> HookRate {
+    HookRate {
+        role,
+        total,
+        classes: CLASS_ORDER.map(|traffic_class| ClassRate {
+            traffic_class,
+            counters: rate_counters(1, 100),
+        }),
+        parse_errors: rate_counters(1, 100),
+    }
+}
+
+fn rate_counters(packets: u64, bytes: u64) -> RateCounters {
+    RateCounters {
+        packet_delta: packets,
+        byte_delta: bytes,
+        packets_per_second: packets,
+        bytes_per_second: bytes,
+    }
 }
 
 fn observation_hook(role: HookRole) -> HookObservation {

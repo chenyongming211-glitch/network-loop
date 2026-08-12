@@ -20,7 +20,11 @@ use l2_loop_agent::{
     },
     transport::{TransportError, read_frame, write_frame},
 };
-use l2_loop_core::{AgentCommand, AgentResult};
+use l2_loop_core::{
+    AgentCommand, AgentResult, ClassObservation, HookObservation, HookRole, InterfaceName,
+    OBSERVED_CLASS_COUNT, ObservationCounters, ObservationSnapshot, SamplingStatus, TrafficClass,
+    VlanVisibility, warming_detailed_rate_windows,
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
@@ -58,6 +62,33 @@ async fn serves_exactly_one_request_and_response_per_connection() {
     assert_eq!(response, ControlResponse::success(AgentResult::Accepted));
     assert!(connection_closed);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn serves_schema_two_observation_inside_bounded_protocol_one_frame() {
+    let socket = SocketFixture::new();
+    let expected = ControlResponse::success(AgentResult::Observation {
+        snapshot: transport_observation(),
+    });
+    let server_response = expected.clone();
+    let server = RunningServer::start(&socket.path, move |_request| {
+        let response = server_response.clone();
+        async move { response }
+    })
+    .await;
+    let mut stream = UnixStream::connect(&socket.path).await.unwrap();
+
+    write_frame(&mut stream, &request_frame()).await.unwrap();
+    let response_frame = read_frame(&mut stream).await.unwrap();
+    let declared = u32::from_be_bytes(response_frame[..4].try_into().unwrap()) as usize;
+    let json: serde_json::Value = serde_json::from_slice(&response_frame[4..]).unwrap();
+
+    assert_eq!(declared, response_frame.len() - 4);
+    assert!(declared <= MAX_PAYLOAD_LEN);
+    assert_eq!(json["protocol_version"], 1);
+    assert_eq!(json["result"]["snapshot"]["schema_version"], 2);
+    assert_eq!(decode_response(&response_frame).unwrap(), expected);
     server.stop().await;
 }
 
@@ -301,5 +332,52 @@ fn error_code(response: &ControlResponse) -> &str {
     match &response.body {
         ResponseBody::Error { code, .. } => code,
         ResponseBody::Success { .. } => panic!("expected error response, got {response:?}"),
+    }
+}
+
+const CLASS_ORDER: [TrafficClass; OBSERVED_CLASS_COUNT] = [
+    TrafficClass::L2Broadcast,
+    TrafficClass::Ipv4Multicast,
+    TrafficClass::Ipv6Multicast,
+    TrafficClass::OtherL2Multicast,
+    TrafficClass::LinkLocalControl,
+    TrafficClass::UnicastOrUnclassified,
+];
+
+fn transport_observation() -> ObservationSnapshot {
+    ObservationSnapshot::new(
+        InterfaceName::new("l2h0123456789").unwrap(),
+        41,
+        7,
+        1_786_300_000_000,
+        VlanVisibility::VerifiedVisible,
+        [
+            transport_hook(HookRole::ExternalXdpIngress),
+            transport_hook(HookRole::PhysicalTcEgress),
+        ],
+        SamplingStatus::default(),
+        warming_detailed_rate_windows(),
+    )
+    .unwrap()
+}
+
+fn transport_hook(role: HookRole) -> HookObservation {
+    HookObservation {
+        role,
+        total: ObservationCounters {
+            packets: 21,
+            bytes: 1_260,
+        },
+        classes: CLASS_ORDER.map(|traffic_class| ClassObservation {
+            traffic_class,
+            counters: ObservationCounters {
+                packets: 1,
+                bytes: 60,
+            },
+        }),
+        parse_errors: ObservationCounters {
+            packets: 0,
+            bytes: 0,
+        },
     }
 }
