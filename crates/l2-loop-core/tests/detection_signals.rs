@@ -1,10 +1,10 @@
 use l2_loop_core::{
     BASELINE_BYTE_NOISE_FLOOR_BPS, BASELINE_CAPACITY, BASELINE_MINIMUM_SAMPLES,
-    BASELINE_PACKET_NOISE_FLOOR_PPS, BASELINE_SOURCE_WINDOW_MS,
-    BaselineMetricReport, BaselineReport, BaselineState, BaselineSubject, BaselineSubjectReport,
-    ClassRate, DetailedRateWindow, DetectionSignals, FingerprintCounters,
-    FingerprintWindowReport, FingerprintWindowState, HookRate, HookRole, OBSERVED_CLASS_COUNT,
-    RateCounters, RateIdentity, RateWindowState, StormCandidate, TrafficClass,
+    BASELINE_PACKET_NOISE_FLOOR_PPS, BASELINE_SOURCE_WINDOW_MS, BaselineMetricReport,
+    BaselineReport, BaselineState, BaselineSubject, BaselineSubjectReport, ClassRate,
+    DetailedRateWindow, DetectionSignals, FingerprintCounters, FingerprintWindowReport,
+    FingerprintWindowState, HookRate, HookRole, OBSERVED_CLASS_COUNT, RateCounters, RateIdentity,
+    RateWindowState, StormCandidate, TrafficClass,
 };
 
 const END_MS: u64 = 80_000;
@@ -338,11 +338,7 @@ fn windows(
     ]
 }
 
-fn ready_window(
-    window_ms: u64,
-    ingress: HookFixture,
-    egress: HookFixture,
-) -> DetailedRateWindow {
+fn ready_window(window_ms: u64, ingress: HookFixture, egress: HookFixture) -> DetailedRateWindow {
     DetailedRateWindow {
         window_ms,
         state: RateWindowState::Ready,
@@ -401,8 +397,7 @@ fn baseline(ingress_elevated: bool, egress_elevated: bool) -> BaselineReport {
             _ => BaselineSubject::ParseErrors,
         };
         let elevated = subject_index == 1
-            && ((hook_index == 0 && ingress_elevated)
-                || (hook_index == 1 && egress_elevated));
+            && ((hook_index == 0 && ingress_elevated) || (hook_index == 1 && egress_elevated));
         BaselineSubjectReport {
             hook,
             subject,
