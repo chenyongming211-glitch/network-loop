@@ -2262,7 +2262,7 @@ try {
         'DetectionFailureGenerationReset' {
             $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
             $UnavailableDetection = Wait-DetectionState -ExpectedState 'unavailable' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -MaxAttempts 15
-            Assert-DetectionReport -Snapshot $UnavailableDetection -ExpectedState 'unavailable' -ExpectedErrorCode 'DETECTION_FINGERPRINT_UNAVAILABLE'
+            Assert-DetectionReport -Snapshot $UnavailableDetection -ExpectedState 'unavailable' -ExpectedErrorCode 'OBS_FINGERPRINT_UNAVAILABLE'
             $FirstDetectionGenerationValue = [uint64]$UnavailableDetection.generation
 
             $FirstDetectionDetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
