@@ -590,7 +590,8 @@ impl DetectionEngine {
                 self.clear_streak = 0;
             } else if desired_anomaly.is_some_and(|desired| {
                 anomaly_rank(desired) > anomaly_rank(current_state)
-                    && (is_relationship_state(desired)
+                    && ((is_relationship_state(desired)
+                        && state_supports_relationship(current_state))
                         || self.candidate_streak >= DETECTION_ASSERT_TICKS)
             }) {
                 next_state = desired_anomaly.unwrap_or(current_state);
@@ -877,6 +878,16 @@ const fn is_relationship_state(state: DetectionState) -> bool {
     matches!(
         state,
         DetectionState::ExternalLoopSuspected | DetectionState::ExternalLoopHighConfidence
+    )
+}
+
+const fn state_supports_relationship(state: DetectionState) -> bool {
+    matches!(
+        state,
+        DetectionState::IngressStormConfirmed
+            | DetectionState::BidirectionalStormConfirmed
+            | DetectionState::ExternalLoopSuspected
+            | DetectionState::ExternalLoopHighConfidence
     )
 }
 
