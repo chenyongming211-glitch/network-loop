@@ -23,6 +23,7 @@ pub enum AcceptanceFault {
     RateSamplingMapRead,
     BaselineSamplingMapReadRecovery,
     FingerprintMapReadOnce,
+    AnalysisFingerprintMapReadOnce,
 }
 
 impl AcceptanceFault {
@@ -37,6 +38,9 @@ impl AcceptanceFault {
                 Ok(Self::BaselineSamplingMapReadRecovery)
             }
             Some("fingerprint-map-read-once") => Ok(Self::FingerprintMapReadOnce),
+            Some("analysis-fingerprint-map-read-once") => {
+                Ok(Self::AnalysisFingerprintMapReadOnce)
+            }
             Some(_) => Err(AcceptanceFaultError),
         }
     }
@@ -98,7 +102,8 @@ where
 pub struct FaultInjectingObservation<I> {
     inner: I,
     fault: AcceptanceFault,
-    fingerprint_reads: u64,
+    request_fingerprint_reads: u64,
+    analysis_fingerprint_reads: u64,
 }
 
 impl<I> FaultInjectingObservation<I> {
@@ -106,7 +111,8 @@ impl<I> FaultInjectingObservation<I> {
         Self {
             inner,
             fault,
-            fingerprint_reads: 0,
+            request_fingerprint_reads: 0,
+            analysis_fingerprint_reads: 0,
         }
     }
 }
@@ -151,15 +157,29 @@ where
     fn read_fingerprints(
         &mut self,
         pin: &OwnedMapPin,
+        purpose: ObservationReadPurpose,
     ) -> Result<Vec<FingerprintEvidence>, PortError> {
-        self.fingerprint_reads = self.fingerprint_reads.saturating_add(1);
-        if self.fault == AcceptanceFault::FingerprintMapReadOnce && self.fingerprint_reads == 1 {
+        let fail = match purpose {
+            ObservationReadPurpose::Request => {
+                self.request_fingerprint_reads = self.request_fingerprint_reads.saturating_add(1);
+                self.fault == AcceptanceFault::FingerprintMapReadOnce
+                    && self.request_fingerprint_reads == 1
+            }
+            ObservationReadPurpose::BackgroundAnalysis => {
+                self.analysis_fingerprint_reads =
+                    self.analysis_fingerprint_reads.saturating_add(1);
+                self.fault == AcceptanceFault::AnalysisFingerprintMapReadOnce
+                    && self.analysis_fingerprint_reads == 1
+            }
+            ObservationReadPurpose::BackgroundSample => false,
+        };
+        if fail {
             return Err(PortError::coded_adapter(
                 "OBS_FINGERPRINT_UNAVAILABLE",
                 "authorized one-shot fingerprint map read failure",
             ));
         }
-        self.inner.read_fingerprints(pin)
+        self.inner.read_fingerprints(pin, purpose)
     }
 }
 

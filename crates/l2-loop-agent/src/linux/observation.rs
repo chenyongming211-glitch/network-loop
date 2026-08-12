@@ -29,6 +29,7 @@ const IFACE_CONFIG: &str = "IFACE_CONFIG";
 const HOOK_STATS: &str = "HOOK_STATS";
 const FINGERPRINTS: &str = "FINGERPRINTS";
 const OBS_FINGERPRINT_UNAVAILABLE: &str = "OBS_FINGERPRINT_UNAVAILABLE";
+const FINGERPRINT_CAPACITY: usize = 8_192;
 
 pub trait ObservationIo: Send {
     fn verify_hooks(&mut self, ownership: &OwnershipRecord) -> Result<(), PortError>;
@@ -47,6 +48,7 @@ pub trait ObservationIo: Send {
     fn read_fingerprints(
         &mut self,
         pin: &OwnedMapPin,
+        purpose: ObservationReadPurpose,
     ) -> Result<Vec<FingerprintEvidence>, PortError>;
 }
 
@@ -105,8 +107,13 @@ impl<I: ObservationIo> ObservationReader for LinuxObservationReader<I> {
 
         let fingerprints = match fingerprint_pin {
             None => RawFingerprints::NotRequested,
-            Some(fingerprint_pin) => match self.io.read_fingerprints(fingerprint_pin) {
-                Ok(evidence) => RawFingerprints::Available(evidence),
+            Some(fingerprint_pin) => match self.io.read_fingerprints(fingerprint_pin, purpose) {
+                Ok(evidence) if evidence.len() <= FINGERPRINT_CAPACITY => {
+                    RawFingerprints::Available(evidence)
+                }
+                Ok(_) => RawFingerprints::Unavailable {
+                    code: OBS_FINGERPRINT_UNAVAILABLE,
+                },
                 Err(_) => RawFingerprints::Unavailable {
                     code: OBS_FINGERPRINT_UNAVAILABLE,
                 },
@@ -437,12 +444,14 @@ impl ObservationIo for AyaObservationIo {
     fn read_fingerprints(
         &mut self,
         pin: &OwnedMapPin,
+        _purpose: ObservationReadPurpose,
     ) -> Result<Vec<FingerprintEvidence>, PortError> {
         let map = open_map(pin)?;
         let fingerprints = HashMap::<MapData, FingerprintKey, FingerprintValue>::try_from(map)
             .map_err(|_| coded(OBS_FINGERPRINT_UNAVAILABLE, "fingerprint map is invalid"))?;
         fingerprints
             .iter()
+            .take(FINGERPRINT_CAPACITY)
             .map(|entry| {
                 entry
                     .map(|(key, value)| FingerprintEvidence { key, value })
