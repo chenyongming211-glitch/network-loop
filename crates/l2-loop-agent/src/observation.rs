@@ -284,6 +284,7 @@ where
             generation,
             vlan_visibility,
             hooks,
+            fingerprints: _,
         } = self
             .reader
             .read_exact(ownership, ObservationReadPurpose::Request)
@@ -482,6 +483,7 @@ where
             generation,
             vlan_visibility,
             hooks,
+            fingerprints: _,
         } = self
             .reader
             .read_exact(ownership, ObservationReadPurpose::Request)

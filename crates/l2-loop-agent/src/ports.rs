@@ -11,7 +11,17 @@ use crate::{
     },
 };
 #[cfg(target_os = "linux")]
-use l2_loop_core::{HookObservation, OBSERVED_HOOK_COUNT, VlanVisibility};
+use l2_loop_core::{
+    FingerprintEvidence, HookObservation, OBSERVED_HOOK_COUNT, VlanVisibility,
+};
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RawFingerprints {
+    NotRequested,
+    Available(Vec<FingerprintEvidence>),
+    Unavailable { code: &'static str },
+}
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum PortError {
@@ -149,6 +159,7 @@ pub struct RawObservation {
     pub generation: u64,
     pub vlan_visibility: VlanVisibility,
     pub hooks: [HookObservation; OBSERVED_HOOK_COUNT],
+    pub fingerprints: RawFingerprints,
 }
 
 #[cfg(target_os = "linux")]

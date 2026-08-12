@@ -1,4 +1,5 @@
 use l2_loop_common::{CounterValue, InterfaceConfig, StatsKey};
+use l2_loop_core::FingerprintEvidence;
 use thiserror::Error;
 
 use crate::{
@@ -136,6 +137,13 @@ where
 
     fn current_keys(&mut self, pin: &OwnedMapPin) -> Result<Vec<StatsKey>, PortError> {
         self.inner.current_keys(pin)
+    }
+
+    fn read_fingerprints(
+        &mut self,
+        pin: &OwnedMapPin,
+    ) -> Result<Vec<FingerprintEvidence>, PortError> {
+        self.inner.read_fingerprints(pin)
     }
 }
 

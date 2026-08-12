@@ -1,13 +1,15 @@
 use aya::maps::{HashMap, Map, MapData, MapError, MapInfo, PerCpuHashMap};
 use l2_loop_common::{
-    ABI_VERSION, CounterValue, InterfaceConfig, StatsKey, agent_mode, hook_role, vlan_visibility,
+    ABI_VERSION, CounterValue, FingerprintKey, FingerprintValue, InterfaceConfig, StatsKey,
+    agent_mode, hook_role, vlan_visibility,
 };
 use l2_loop_core::{
-    ClassObservation, HookObservation, HookRole, ObservationCounters, TrafficClass, VlanVisibility,
+    ClassObservation, FingerprintEvidence, HookObservation, HookRole, ObservationCounters,
+    TrafficClass, VlanVisibility,
 };
 
 use crate::{
-    ObservationReadPurpose, ObservationReader, PortError, RawObservation,
+    ObservationReadPurpose, ObservationReader, PortError, RawFingerprints, RawObservation,
     ownership::{
         OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnershipRecord, RunId, TcHook, TestPinRoot,
     },
@@ -25,6 +27,8 @@ const OBS_SNAPSHOT_FAILED: &str = "OBS_SNAPSHOT_FAILED";
 
 const IFACE_CONFIG: &str = "IFACE_CONFIG";
 const HOOK_STATS: &str = "HOOK_STATS";
+const FINGERPRINTS: &str = "FINGERPRINTS";
+const OBS_FINGERPRINT_UNAVAILABLE: &str = "OBS_FINGERPRINT_UNAVAILABLE";
 
 pub trait ObservationIo: Send {
     fn verify_hooks(&mut self, ownership: &OwnershipRecord) -> Result<(), PortError>;
@@ -40,6 +44,10 @@ pub trait ObservationIo: Send {
         key: &StatsKey,
     ) -> Result<Option<Vec<CounterValue>>, PortError>;
     fn current_keys(&mut self, pin: &OwnedMapPin) -> Result<Vec<StatsKey>, PortError>;
+    fn read_fingerprints(
+        &mut self,
+        pin: &OwnedMapPin,
+    ) -> Result<Vec<FingerprintEvidence>, PortError>;
 }
 
 pub struct LinuxObservationReader<I> {
@@ -56,7 +64,7 @@ impl<I: ObservationIo> ObservationReader for LinuxObservationReader<I> {
     fn read_exact(
         &mut self,
         ownership: &OwnershipRecord,
-        _purpose: ObservationReadPurpose,
+        purpose: ObservationReadPurpose,
     ) -> Result<RawObservation, PortError> {
         self.io.verify_hooks(ownership)?;
         validate_journal_identity(ownership)?;
@@ -70,11 +78,40 @@ impl<I: ObservationIo> ObservationReader for LinuxObservationReader<I> {
                 "owned map identity changed",
             ));
         }
+        let fingerprint_pin = match purpose {
+            ObservationReadPurpose::Request => {
+                let pin = select_pin(ownership, FINGERPRINTS)?;
+                let map_id = self.io.fresh_map_id(pin).map_err(|_| {
+                    coded(
+                        OBS_MAP_IDENTITY_MISMATCH,
+                        "owned fingerprint map identity is unavailable",
+                    )
+                })?;
+                if map_id != pin.map_id {
+                    return Err(coded(
+                        OBS_MAP_IDENTITY_MISMATCH,
+                        "owned fingerprint map identity changed",
+                    ));
+                }
+                Some(pin)
+            }
+            ObservationReadPurpose::BackgroundSample => None,
+        };
 
         let config = self.io.read_config(config_pin, ownership.ifindex)?;
         let vlan_visibility = validate_config(config, ownership)?;
         let current_keys = self.io.current_keys(stats_pin)?;
         validate_current_keys(&current_keys, ownership)?;
+
+        let fingerprints = match fingerprint_pin {
+            None => RawFingerprints::NotRequested,
+            Some(fingerprint_pin) => match self.io.read_fingerprints(fingerprint_pin) {
+                Ok(evidence) => RawFingerprints::Available(evidence),
+                Err(_) => RawFingerprints::Unavailable {
+                    code: OBS_FINGERPRINT_UNAVAILABLE,
+                },
+            },
+        };
 
         Ok(RawObservation {
             ifindex: ownership.ifindex,
@@ -94,6 +131,7 @@ impl<I: ObservationIo> ObservationReader for LinuxObservationReader<I> {
                     HookRole::PhysicalTcEgress,
                 )?,
             ],
+            fingerprints,
         })
     }
 }
@@ -394,6 +432,28 @@ impl ObservationIo for AyaObservationIo {
             .keys()
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| coded(OBS_MAP_UNAVAILABLE, "statistics keys are unavailable"))
+    }
+
+    fn read_fingerprints(
+        &mut self,
+        pin: &OwnedMapPin,
+    ) -> Result<Vec<FingerprintEvidence>, PortError> {
+        let map = open_map(pin)?;
+        let fingerprints = HashMap::<MapData, FingerprintKey, FingerprintValue>::try_from(map)
+            .map_err(|_| coded(OBS_FINGERPRINT_UNAVAILABLE, "fingerprint map is invalid"))?;
+        fingerprints
+            .iter()
+            .map(|entry| {
+                entry
+                    .map(|(key, value)| FingerprintEvidence { key, value })
+                    .map_err(|_| {
+                        coded(
+                            OBS_FINGERPRINT_UNAVAILABLE,
+                            "fingerprint evidence is unavailable",
+                        )
+                    })
+            })
+            .collect()
     }
 }
 

@@ -481,6 +481,7 @@ fn raw_observation(units: u64) -> RawObservation {
             hook(HookRole::ExternalXdpIngress, units, 7, 700),
             hook(HookRole::PhysicalTcEgress, units, 11, 1_100),
         ],
+        fingerprints: l2_loop_agent::RawFingerprints::NotRequested,
     }
 }
 

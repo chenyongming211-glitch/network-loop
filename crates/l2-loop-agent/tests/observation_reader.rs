@@ -526,6 +526,8 @@ fn fingerprint_evidence(direction: u8, packets: u64, bytes: u64) -> FingerprintE
             last_seen_ns: 200,
             packets,
             bytes,
+            source_mac: [1; 6],
+            destination_mac: [2; 6],
             reserved: [0; 4],
         },
     }

@@ -25,6 +25,7 @@ use l2_loop_agent::{
 use l2_loop_common::{
     CounterValue, InterfaceConfig, StatsKey, agent_mode, hook_role, vlan_visibility,
 };
+use l2_loop_core::FingerprintEvidence;
 
 #[test]
 fn accepts_only_the_authorized_fault_stages() {
@@ -320,6 +321,14 @@ impl ObservationIo for FakeObservation {
 
     fn current_keys(&mut self, _pin: &OwnedMapPin) -> Result<Vec<StatsKey>, PortError> {
         self.0.lock().unwrap().push("current-keys");
+        Ok(Vec::new())
+    }
+
+    fn read_fingerprints(
+        &mut self,
+        _pin: &OwnedMapPin,
+    ) -> Result<Vec<FingerprintEvidence>, PortError> {
+        self.0.lock().unwrap().push("read-fingerprints");
         Ok(Vec::new())
     }
 }

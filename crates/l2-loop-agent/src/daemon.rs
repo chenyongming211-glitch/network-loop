@@ -1313,6 +1313,7 @@ mod tests {
                 lifecycle_hook(HookRole::ExternalXdpIngress),
                 lifecycle_hook(HookRole::PhysicalTcEgress),
             ],
+            fingerprints: crate::RawFingerprints::NotRequested,
         }
     }
 
