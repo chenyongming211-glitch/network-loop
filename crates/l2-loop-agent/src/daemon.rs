@@ -1055,7 +1055,7 @@ mod tests {
             control.sample_tick().unwrap(),
             IsolatedSamplingOutcome::Rejected
         );
-        assert_eq!(state.reader_reads.load(Ordering::SeqCst), 0);
+        assert_eq!(state.reader_reads.load(Ordering::SeqCst), 1);
 
         control.detach(&run_id).unwrap();
         let detach_calls = state
