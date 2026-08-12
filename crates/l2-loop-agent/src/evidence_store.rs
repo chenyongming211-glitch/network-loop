@@ -159,7 +159,10 @@ impl EvidenceIo for StdEvidenceIo {
     }
 
     fn remove_private_directory(&self, path: &Path) -> io::Result<()> {
-        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
         if !name.starts_with(".tmp-") || name.len() > 80 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -231,11 +234,7 @@ pub struct LinuxEvidenceStore<I> {
 }
 
 impl<I: EvidenceIo> LinuxEvidenceStore<I> {
-    pub fn open(
-        io: I,
-        root: &Path,
-        package_version: &str,
-    ) -> Result<Self, EvidenceStoreError> {
+    pub fn open(io: I, root: &Path, package_version: &str) -> Result<Self, EvidenceStoreError> {
         if package_version.is_empty()
             || package_version.len() > 64
             || !package_version.is_ascii()
@@ -385,7 +384,10 @@ impl<I: EvidenceIo> LinuxEvidenceStore<I> {
             .read_directory(event_dir)
             .map_err(|_| EvidenceStoreError::Io)?
         {
-            let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
             if name.starts_with(".tmp-") {
                 increment(&mut health.incomplete_object_count);
                 continue;
@@ -397,12 +399,9 @@ impl<I: EvidenceIo> LinuxEvidenceStore<I> {
             match self.read_revision(event_id, revision_number, &path) {
                 Ok((revision, manifest)) => {
                     event_bytes = event_bytes.saturating_add(manifest.total_bytes);
-                    if latest
-                        .as_ref()
-                        .is_none_or(|current: &IncidentRevisionV1| {
-                            revision.revision > current.revision
-                        })
-                    {
+                    if latest.as_ref().is_none_or(|current: &IncidentRevisionV1| {
+                        revision.revision > current.revision
+                    }) {
                         latest = Some(revision);
                     }
                 }
@@ -442,8 +441,8 @@ impl<I: EvidenceIo> LinuxEvidenceStore<I> {
             .io
             .read_file(&manifest_path)
             .map_err(|_| RevisionReadError::Corrupt)?;
-        let manifest: EvidenceManifestV1 = serde_json::from_slice(&manifest_bytes)
-            .map_err(|_| RevisionReadError::Corrupt)?;
+        let manifest: EvidenceManifestV1 =
+            serde_json::from_slice(&manifest_bytes).map_err(|_| RevisionReadError::Corrupt)?;
         manifest
             .validate()
             .map_err(|_| RevisionReadError::Corrupt)?;
@@ -522,18 +521,15 @@ impl<I: EvidenceIo> EvidenceStore for LinuxEvidenceStore<I> {
             }
         }
 
-        let evidence = serde_json::to_vec_pretty(revision)
-            .map_err(|_| EvidenceStoreError::InvalidRevision)?;
+        let evidence =
+            serde_json::to_vec_pretty(revision).map_err(|_| EvidenceStoreError::InvalidRevision)?;
         if evidence.is_empty()
             || u64::try_from(evidence.len()).unwrap_or(u64::MAX) > EVIDENCE_MAX_REVISION_BYTES
         {
             return Err(EvidenceStoreError::RevisionTooLarge);
         }
-        let (manifest, manifest_bytes) = build_manifest(
-            revision,
-            &evidence,
-            &self.package_version,
-        )?;
+        let (manifest, manifest_bytes) =
+            build_manifest(revision, &evidence, &self.package_version)?;
         let previous_event_bytes = self
             .index
             .get(&revision.event_id)
@@ -550,19 +546,12 @@ impl<I: EvidenceIo> EvidenceStore for LinuxEvidenceStore<I> {
         {
             return Err(EvidenceStoreError::RevisionTooLarge);
         }
-        if !self.index.contains_key(&revision.event_id)
-            && self.index.len() >= EVIDENCE_MAX_EVENTS
-        {
+        if !self.index.contains_key(&revision.event_id) && self.index.len() >= EVIDENCE_MAX_EVENTS {
             return Err(EvidenceStoreError::RevisionTooLarge);
         }
 
         let event_dir = self.ensure_event_directory(revision.event_id)?;
-        self.commit_revision(
-            &event_dir,
-            revision.revision,
-            &evidence,
-            &manifest_bytes,
-        )?;
+        self.commit_revision(&event_dir, revision.revision, &evidence, &manifest_bytes)?;
         let detail = detail_from_revision(revision.clone(), event_bytes);
         let summary = detail.summary.clone();
         let is_new = !self.index.contains_key(&revision.event_id);
@@ -612,7 +601,9 @@ impl<I: EvidenceIo> EvidenceStore for LinuxEvidenceStore<I> {
         let has_more = items.len() > limit;
         items.truncate(limit);
         let next_cursor = has_more.then(|| {
-            let last = items.last().expect("a page with more items cannot be empty");
+            let last = items
+                .last()
+                .expect("a page with more items cannot be empty");
             EvidenceCursor::new(
                 query.interface.as_ref(),
                 last.last_transition_at_unix_ms,
@@ -639,7 +630,10 @@ impl<I: EvidenceIo> EvidenceStore for LinuxEvidenceStore<I> {
             .read_directory(&self.root)
             .map_err(|_| EvidenceStoreError::UnsafeRoot)?
         {
-            let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
             let Ok(event_id) = name.parse::<EventId>() else {
                 increment(&mut health.unknown_object_count);
                 continue;
