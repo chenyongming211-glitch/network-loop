@@ -107,7 +107,7 @@ fn passive_fingerprints_are_fixed_bounded_and_fail_open() {
         "FINGERPRINT_SAMPLE_SHIFT",
         "fingerprint_hash",
         "fingerprint_selected",
-        "parse_fingerprint_metadata",
+        "packet_fingerprint_metadata",
         "direction::INGRESS",
         "direction::EGRESS",
         "bpf_ktime_get_ns",

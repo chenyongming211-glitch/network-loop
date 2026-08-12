@@ -35,14 +35,20 @@ pub fn fingerprint_hash_with_length(frame_len: u16, prefix: &[u8]) -> Option<u64
     if prefix.len() != expected_prefix_len {
         return None;
     }
-    let mut hash = FNV_OFFSET_BASIS;
-    for byte in frame_len.to_be_bytes() {
-        hash = fnv_step(hash, byte);
-    }
+    let mut hash = fingerprint_hash_init(frame_len);
     for byte in prefix {
-        hash = fnv_step(hash, *byte);
+        hash = fingerprint_hash_step(hash, *byte);
     }
     Some(hash)
+}
+
+pub const fn fingerprint_hash_init(frame_len: u16) -> u64 {
+    let bytes = frame_len.to_be_bytes();
+    fingerprint_hash_step(fingerprint_hash_step(FNV_OFFSET_BASIS, bytes[0]), bytes[1])
+}
+
+pub const fn fingerprint_hash_step(hash: u64, byte: u8) -> u64 {
+    (hash ^ byte as u64).wrapping_mul(FNV_PRIME)
 }
 
 pub const fn fingerprint_selected(fingerprint: u64) -> bool {
@@ -86,10 +92,6 @@ pub fn parse_fingerprint_metadata(frame: &[u8]) -> Option<FingerprintMetadata> {
         protocol,
         subtype,
     })
-}
-
-const fn fnv_step(hash: u64, byte: u8) -> u64 {
-    (hash ^ byte as u64).wrapping_mul(FNV_PRIME)
 }
 
 fn protocol_and_subtype(frame: &[u8], offset: usize, ether_type: u16) -> (u8, u8) {

@@ -6,8 +6,9 @@ use aya_ebpf::{
 };
 use l2_loop_common::{
     CounterValue, FINGERPRINT_PREFIX_LEN, FINGERPRINT_SAMPLE_SHIFT, FingerprintKey,
-    FingerprintValue, ParsedL2Word, StatsKey, direction, fingerprint_hash_with_length,
-    fingerprint_selected, hook_role, parse_fingerprint_metadata, parse_l2_word, vlan_visibility,
+    FingerprintMetadata, FingerprintValue, NO_VLAN, ParsedL2Word, StatsKey, direction,
+    fingerprint_hash_init, fingerprint_hash_step, fingerprint_selected, hook_role, parse_l2_word,
+    vlan_visibility,
 };
 
 use crate::maps::{FINGERPRINTS, HOOK_STATS, IFACE_CONFIG};
@@ -57,6 +58,177 @@ fn parse_packet(data: usize, data_end: usize) -> ParsedL2Word {
 }
 
 #[inline(always)]
+fn packet_byte(data: usize, data_end: usize, prefix_len: usize, offset: usize) -> Option<u8> {
+    if offset >= prefix_len || offset >= FINGERPRINT_PREFIX_LEN || data + offset + 1 > data_end {
+        None
+    } else {
+        Some(unsafe { *((data + offset) as *const u8) })
+    }
+}
+
+#[inline(always)]
+fn packet_u16(data: usize, data_end: usize, prefix_len: usize, offset: usize) -> Option<u16> {
+    Some(u16::from_be_bytes([
+        packet_byte(data, data_end, prefix_len, offset)?,
+        packet_byte(data, data_end, prefix_len, offset + 1)?,
+    ]))
+}
+
+#[inline(always)]
+fn packet_mac(
+    data: usize,
+    data_end: usize,
+    prefix_len: usize,
+    offset: usize,
+) -> Option<[u8; 6]> {
+    Some([
+        packet_byte(data, data_end, prefix_len, offset)?,
+        packet_byte(data, data_end, prefix_len, offset + 1)?,
+        packet_byte(data, data_end, prefix_len, offset + 2)?,
+        packet_byte(data, data_end, prefix_len, offset + 3)?,
+        packet_byte(data, data_end, prefix_len, offset + 4)?,
+        packet_byte(data, data_end, prefix_len, offset + 5)?,
+    ])
+}
+
+#[inline(always)]
+fn packet_fingerprint_hash(
+    frame_len: u16,
+    data: usize,
+    data_end: usize,
+    prefix_len: usize,
+) -> Option<u64> {
+    let mut hash = fingerprint_hash_init(frame_len);
+    let mut index = 0;
+    while index < FINGERPRINT_PREFIX_LEN {
+        if index >= prefix_len {
+            break;
+        }
+        hash = fingerprint_hash_step(hash, packet_byte(data, data_end, prefix_len, index)?);
+        index += 1;
+    }
+    if index == prefix_len {
+        Some(hash)
+    } else {
+        None
+    }
+}
+
+#[inline(always)]
+fn packet_protocol_subtype(
+    data: usize,
+    data_end: usize,
+    prefix_len: usize,
+    network_offset: usize,
+    ether_type: u16,
+) -> (u8, u8) {
+    match ether_type {
+        0x0800 => {
+            let Some(first) = packet_byte(data, data_end, prefix_len, network_offset) else {
+                return (0, 0);
+            };
+            let header_len = usize::from(first & 0x0f) * 4;
+            if first >> 4 != 4
+                || header_len < 20
+                || network_offset + header_len > prefix_len
+                || network_offset + header_len > FINGERPRINT_PREFIX_LEN
+            {
+                return (0, 0);
+            }
+            let Some(protocol) = packet_byte(data, data_end, prefix_len, network_offset + 9)
+            else {
+                return (0, 0);
+            };
+            let subtype = if protocol == 1 {
+                packet_byte(data, data_end, prefix_len, network_offset + header_len)
+                    .unwrap_or_default()
+            } else {
+                0
+            };
+            (protocol, subtype)
+        }
+        0x86dd => {
+            if packet_byte(data, data_end, prefix_len, network_offset)
+                .unwrap_or_default()
+                >> 4
+                != 6
+                || network_offset + 40 > prefix_len
+            {
+                return (0, 0);
+            }
+            let protocol = packet_byte(data, data_end, prefix_len, network_offset + 6)
+                .unwrap_or_default();
+            let subtype = if protocol == 58 {
+                packet_byte(data, data_end, prefix_len, network_offset + 40).unwrap_or_default()
+            } else {
+                0
+            };
+            (protocol, subtype)
+        }
+        0x0806 => (
+            0,
+            packet_u16(data, data_end, prefix_len, network_offset + 6)
+                .filter(|opcode| *opcode <= u16::from(u8::MAX))
+                .unwrap_or_default() as u8,
+        ),
+        _ => (0, 0),
+    }
+}
+
+#[inline(always)]
+fn packet_fingerprint_metadata(
+    data: usize,
+    data_end: usize,
+    prefix_len: usize,
+) -> Option<FingerprintMetadata> {
+    if prefix_len < 14 {
+        return None;
+    }
+    let destination_mac = packet_mac(data, data_end, prefix_len, 0)?;
+    let source_mac = packet_mac(data, data_end, prefix_len, 6)?;
+    let outer_ether_type = packet_u16(data, data_end, prefix_len, 12)?;
+    let (ether_type, outer_vlan_id, vlan_depth, network_offset) =
+        if matches!(outer_ether_type, 0x8100 | 0x88a8) {
+            if prefix_len < 18 {
+                return None;
+            }
+            let inner_ether_type = packet_u16(data, data_end, prefix_len, 16)?;
+            (
+                inner_ether_type,
+                packet_u16(data, data_end, prefix_len, 14)? & 0x0fff,
+                if matches!(inner_ether_type, 0x8100 | 0x88a8) {
+                    2
+                } else {
+                    1
+                },
+                18,
+            )
+        } else {
+            (outer_ether_type, NO_VLAN, 0, 14)
+        };
+    let (protocol, subtype) = if vlan_depth == 2 {
+        (0, 0)
+    } else {
+        packet_protocol_subtype(
+            data,
+            data_end,
+            prefix_len,
+            network_offset,
+            ether_type,
+        )
+    };
+    Some(FingerprintMetadata {
+        source_mac,
+        destination_mac,
+        outer_vlan_id,
+        ether_type,
+        vlan_depth,
+        protocol,
+        subtype,
+    })
+}
+
+#[inline(always)]
 fn account_fingerprint(
     interface_generation: u64,
     ifindex: u32,
@@ -73,26 +245,13 @@ fn account_fingerprint(
     } else {
         FINGERPRINT_PREFIX_LEN
     };
-    let mut prefix = [0_u8; FINGERPRINT_PREFIX_LEN];
-    let mut index = 0;
-    while index < FINGERPRINT_PREFIX_LEN {
-        if index >= prefix_len || data + index + 1 > data_end {
-            break;
-        }
-        prefix[index] = unsafe { *((data + index) as *const u8) };
-        index += 1;
-    }
-    if index != prefix_len {
-        return;
-    }
-    let bounded = &prefix[..prefix_len];
-    let Some(fingerprint) = fingerprint_hash_with_length(frame_len, bounded) else {
+    let Some(fingerprint) = packet_fingerprint_hash(frame_len, data, data_end, prefix_len) else {
         return;
     };
     if !fingerprint_selected(fingerprint) {
         return;
     }
-    let Some(metadata) = parse_fingerprint_metadata(bounded) else {
+    let Some(metadata) = packet_fingerprint_metadata(data, data_end, prefix_len) else {
         return;
     };
     let key = FingerprintKey {
