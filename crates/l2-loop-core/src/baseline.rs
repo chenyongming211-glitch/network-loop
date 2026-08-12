@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -68,6 +70,17 @@ impl BaselineMetricReport {
         }
     }
 
+    const fn learning(current: u64) -> Self {
+        Self {
+            current: Some(current),
+            median: None,
+            mad: None,
+            threshold: None,
+            ratio_milli: None,
+            elevated: None,
+        }
+    }
+
     fn validate_for(self, state: BaselineState) -> Result<(), DomainError> {
         let all_absent = self.current.is_none()
             && self.median.is_none()
@@ -115,6 +128,153 @@ impl BaselineMetricReport {
                 }
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BaselineSeriesEvaluation {
+    pub state: BaselineState,
+    pub packets: BaselineMetricReport,
+    pub bytes: BaselineMetricReport,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BaselineSamplePair {
+    packets_per_second: u64,
+    bytes_per_second: u64,
+    accepted_at_unix_ms: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BaselineSeries {
+    samples: VecDeque<BaselineSamplePair>,
+}
+
+impl BaselineSeries {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn sample_count(&self) -> usize {
+        self.samples.len()
+    }
+
+    pub fn latest_accepted_at_unix_ms(&self) -> Option<u64> {
+        self.samples
+            .back()
+            .map(|sample| sample.accepted_at_unix_ms)
+    }
+
+    pub fn accept(
+        &mut self,
+        packets_per_second: u64,
+        bytes_per_second: u64,
+        accepted_at_unix_ms: u64,
+    ) {
+        if self.samples.len() == BASELINE_CAPACITY {
+            self.samples.pop_front();
+        }
+        self.samples.push_back(BaselineSamplePair {
+            packets_per_second,
+            bytes_per_second,
+            accepted_at_unix_ms,
+        });
+    }
+
+    pub fn evaluate(
+        &self,
+        packets_per_second: u64,
+        bytes_per_second: u64,
+    ) -> BaselineSeriesEvaluation {
+        if self.samples.len() < BASELINE_MINIMUM_SAMPLES {
+            return BaselineSeriesEvaluation {
+                state: BaselineState::Learning,
+                packets: BaselineMetricReport::learning(packets_per_second),
+                bytes: BaselineMetricReport::learning(bytes_per_second),
+            };
+        }
+
+        let packet_samples = self
+            .samples
+            .iter()
+            .map(|sample| sample.packets_per_second)
+            .collect::<Vec<_>>();
+        let byte_samples = self
+            .samples
+            .iter()
+            .map(|sample| sample.bytes_per_second)
+            .collect::<Vec<_>>();
+        let packet_median = upper_median(&packet_samples).unwrap_or_default();
+        let byte_median = upper_median(&byte_samples).unwrap_or_default();
+        let packets = evaluate_metric(
+            packets_per_second,
+            packet_median,
+            median_absolute_deviation(&packet_samples).unwrap_or_default(),
+            BASELINE_PACKET_NOISE_FLOOR_PPS,
+        );
+        let bytes = evaluate_metric(
+            bytes_per_second,
+            byte_median,
+            median_absolute_deviation(&byte_samples).unwrap_or_default(),
+            BASELINE_BYTE_NOISE_FLOOR_BPS,
+        );
+        let state = if packets.elevated == Some(true) || bytes.elevated == Some(true) {
+            BaselineState::Elevated
+        } else {
+            BaselineState::WithinBaseline
+        };
+
+        BaselineSeriesEvaluation {
+            state,
+            packets,
+            bytes,
+        }
+    }
+}
+
+pub fn upper_median(values: &[u64]) -> Option<u64> {
+    if values.is_empty() {
+        return None;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    Some(sorted[sorted.len() / 2])
+}
+
+pub fn median_absolute_deviation(values: &[u64]) -> Option<u64> {
+    let median = upper_median(values)?;
+    let deviations = values
+        .iter()
+        .map(|value| value.abs_diff(median))
+        .collect::<Vec<_>>();
+    upper_median(&deviations)
+}
+
+pub fn evaluate_metric(
+    current: u64,
+    median: u64,
+    mad: u64,
+    noise_floor: u64,
+) -> BaselineMetricReport {
+    let threshold = ((u128::from(median) + 6 * u128::from(mad))
+        .max(4 * u128::from(median))
+        .max(u128::from(noise_floor)))
+    .min(u128::from(u64::MAX)) as u64;
+    let ratio_milli = if median == 0 {
+        None
+    } else {
+        Some(
+            ((u128::from(current) * 1_000) / u128::from(median)).min(u128::from(u64::MAX)) as u64,
+        )
+    };
+
+    BaselineMetricReport {
+        current: Some(current),
+        median: Some(median),
+        mad: Some(mad),
+        threshold: Some(threshold),
+        ratio_milli,
+        elevated: Some(current > threshold),
     }
 }
 
