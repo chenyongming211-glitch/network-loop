@@ -10,12 +10,17 @@ param(
     [ValidateRange(30, 600)]
     [int] $TimeoutSeconds = 180,
 
-    [ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset')]
+    [ValidateSet('Success', 'TcAttachFailure', 'MapInitializeFailure', 'DaemonTermination', 'IdentityChange', 'TrafficInterruption', 'PassiveObservation', 'ObservationMapFailure', 'ObservationIdentityChange', 'RateWindows', 'RateSamplingFailure', 'RateGenerationReset', 'BaselineLifecycle', 'BaselineSamplingRecovery', 'BaselineGenerationReset')]
     [string] $Scenario = 'Success'
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+$BASELINE_LEARNING_SECONDS = 70
+$BASELINE_ELEVATED_FRAMES = 128
+$BASELINE_SUBJECT_COUNT = 16
+$BASELINE_METRIC_COUNT = 32
 
 $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Import-Module (Join-Path $PSScriptRoot 'lib/IsolatedNames.psm1') -Force
@@ -176,6 +181,10 @@ scenario=$8
 second_run=$9
 RATE_SAMPLE_ITERATIONS=65
 RATE_FRAMES_PER_DIRECTION=9
+BASELINE_LEARNING_SECONDS=70
+BASELINE_ELEVATED_FRAMES=128
+BASELINE_SUBJECT_COUNT=16
+BASELINE_METRIC_COUNT=32
 journal="/run/l2-loop/tests/$run.json"
 pins="/sys/fs/bpf/l2-loop/test/$run"
 second_journal="/run/l2-loop/tests/$second_run.json"
@@ -196,7 +205,7 @@ case "$second_run" in *[!0-9a-f]*|'') fail "second run ID is not generated" ;; e
 test "${#second_run}" -eq 32 || fail "second run ID length is invalid"
 test "$second_run" != "$run" || fail "second run ID did not change"
 case "$scenario" in
-    Success|TcAttachFailure|MapInitializeFailure|DaemonTermination|IdentityChange|TrafficInterruption|PassiveObservation|ObservationMapFailure|ObservationIdentityChange|RateWindows|RateSamplingFailure|RateGenerationReset) ;;
+    Success|TcAttachFailure|MapInitializeFailure|DaemonTermination|IdentityChange|TrafficInterruption|PassiveObservation|ObservationMapFailure|ObservationIdentityChange|RateWindows|RateSamplingFailure|RateGenerationReset|BaselineLifecycle|BaselineSamplingRecovery|BaselineGenerationReset) ;;
     *) fail "unknown isolated acceptance scenario" ;;
 esac
 
@@ -359,6 +368,9 @@ case "$phase" in
                 ;;
             RateSamplingFailure)
                 env L2_LOOP_ACCEPTANCE_FAULT=rate-sampling-map-read ./l2-loopd >daemon.log 2>&1 &
+                ;;
+            BaselineSamplingRecovery)
+                env L2_LOOP_ACCEPTANCE_FAULT=baseline-sampling-map-read-recovery ./l2-loopd >daemon.log 2>&1 &
                 ;;
             *)
                 ./l2-loopd >daemon.log 2>&1 &
@@ -880,7 +892,7 @@ function Assert-ObservationIdentity {
         [ValidateSet('healthy', 'degraded')] [string] $ExpectedHealth = 'healthy'
     )
 
-    if ($Snapshot.schema_version -ne 2 -or
+    if ($Snapshot.schema_version -ne 3 -or
         $Snapshot.interface -cne $Names.HostVeth -or
         [uint64]$Snapshot.generation -eq 0 -or
         [uint64]$Snapshot.captured_at_unix_ms -eq 0 -or
@@ -1033,6 +1045,170 @@ function Assert-StatusRateWindows {
         if ($ElapsedNs -lt ([uint64]$Window.window_ms * [uint64]1000000)) { throw 'status window endpoint is shorter than its duration' }
         Assert-RateCounterEvidence -Counters $Window.xdp_ingress -ElapsedNs $ElapsedNs -Evidence 'status XDP ingress' -RequireTraffic:$RequireTraffic -RequireNonZeroRate:$RequireTraffic
         Assert-RateCounterEvidence -Counters $Window.tc_egress -ElapsedNs $ElapsedNs -Evidence 'status TC egress' -RequireTraffic:$RequireTraffic -RequireNonZeroRate:$RequireTraffic
+    }
+}
+
+function Get-BaselineSubjectKey {
+    param([Parameter(Mandatory)] [psobject] $Subject)
+
+    switch ([string]$Subject.kind) {
+        'total' { 'total' }
+        'traffic_class' { "class/$([string]$Subject.traffic_class)" }
+        'parse_errors' { 'parse_errors' }
+        default { throw "unknown baseline subject kind $($Subject.kind)" }
+    }
+}
+
+function Assert-BaselineReport {
+    param(
+        [Parameter(Mandatory)] [psobject] $Snapshot,
+        [Parameter(Mandatory)]
+        [ValidateSet('learning', 'within_baseline', 'elevated', 'unavailable')]
+        [string] $ExpectedState
+    )
+
+    $Baseline = $Snapshot.baseline
+    $Subjects = @($Baseline.subjects)
+    if ($Snapshot.schema_version -ne 3 -or
+        [uint64]$Baseline.source_window_ms -ne 10000 -or
+        [uint64]$Baseline.capacity -ne 300 -or
+        [uint64]$Baseline.minimum_samples -ne 60 -or
+        [uint64]$Baseline.packet_noise_floor_pps -ne 10 -or
+        [uint64]$Baseline.byte_noise_floor_bps -ne 16384 -or
+        $Baseline.state -cne $ExpectedState -or
+        $Subjects.Count -ne $BASELINE_SUBJECT_COUNT -or
+        [uint64]$Baseline.elevated_metric_count -gt [uint64]$BASELINE_METRIC_COUNT) {
+        throw "baseline report contract changed for expected state $ExpectedState"
+    }
+    $ExpectedRoles = @('external_xdp_ingress', 'physical_tc_egress')
+    $ExpectedSubjects = @(
+        'total', 'class/l2_broadcast', 'class/ipv4_multicast', 'class/ipv6_multicast',
+        'class/other_l2_multicast', 'class/link_local_control',
+        'class/unicast_or_unclassified', 'parse_errors'
+    )
+    for ($Index = 0; $Index -lt $BASELINE_SUBJECT_COUNT; $Index++) {
+        $Subject = $Subjects[$Index]
+        $RoleIndex = [int][Math]::Floor($Index / 8)
+        $SubjectIndex = $Index % 8
+        if ($Subject.hook -cne $ExpectedRoles[$RoleIndex] -or
+            (Get-BaselineSubjectKey -Subject $Subject.subject) -cne $ExpectedSubjects[$SubjectIndex] -or
+            [uint64]$Subject.sample_count -gt 300) {
+            throw "baseline subject order or bound changed at index $Index"
+        }
+        foreach ($MetricName in @('packets', 'bytes')) {
+            $Metric = $Subject.$MetricName
+            if ($ExpectedState -ceq 'unavailable' -and
+                ($null -ne $Metric.current -or $null -ne $Metric.median -or
+                 $null -ne $Metric.mad -or $null -ne $Metric.threshold -or
+                 $null -ne $Metric.ratio_milli -or $null -ne $Metric.elevated)) {
+                throw "unavailable baseline exposed $MetricName evidence"
+            }
+            if ($Subject.state -cin @('within_baseline', 'elevated') -and
+                ($null -eq $Metric.current -or $null -eq $Metric.median -or
+                 $null -eq $Metric.mad -or $null -eq $Metric.threshold -or
+                 $null -eq $Metric.elevated)) {
+                throw "evaluated baseline omitted $MetricName evidence"
+            }
+        }
+    }
+}
+
+function Assert-BaselineSummary {
+    param(
+        [Parameter(Mandatory)] [psobject] $Status,
+        [Parameter(Mandatory)]
+        [ValidateSet('learning', 'within_baseline', 'elevated', 'unavailable')]
+        [string] $ExpectedState
+    )
+
+    $Interface = Get-OnlyStatusInterface -Status $Status
+    $Baseline = $Interface.baseline
+    if ($Baseline.state -cne $ExpectedState -or
+        @($Baseline.subject_sample_counts).Count -ne $BASELINE_SUBJECT_COUNT -or
+        @($Baseline.elevated).Count -ne [uint64]$Baseline.elevated_metric_count -or
+        @($Baseline.elevated).Count -gt $BASELINE_METRIC_COUNT) {
+        throw "baseline status summary contract changed for expected state $ExpectedState"
+    }
+}
+
+function Get-BaselineCounts {
+    param([Parameter(Mandatory)] [psobject] $Baseline)
+
+    $Rows = if ($null -ne $Baseline.PSObject.Properties['subjects']) {
+        @($Baseline.subjects)
+    }
+    else {
+        @($Baseline.subject_sample_counts)
+    }
+    $Counts = [ordered]@{}
+    foreach ($Row in $Rows) {
+        $Key = "$([string]$Row.hook)/$(Get-BaselineSubjectKey -Subject $Row.subject)"
+        $Counts[$Key] = [uint64]$Row.sample_count
+    }
+    $Counts
+}
+
+function Assert-BaselineCountsRetained {
+    param(
+        [Parameter(Mandatory)] [psobject] $Before,
+        [Parameter(Mandatory)] [psobject] $After
+    )
+
+    $BeforeCounts = Get-BaselineCounts -Baseline $Before
+    $AfterCounts = Get-BaselineCounts -Baseline $After
+    if ($BeforeCounts.Count -ne $BASELINE_SUBJECT_COUNT -or $AfterCounts.Count -ne $BASELINE_SUBJECT_COUNT) {
+        throw 'baseline retained-count cardinality changed'
+    }
+    foreach ($Key in $BeforeCounts.Keys) {
+        if (-not $AfterCounts.Contains($Key) -or $AfterCounts[$Key] -ne $BeforeCounts[$Key]) {
+            throw "baseline sample count was not retained for $Key"
+        }
+    }
+}
+
+function Assert-SubjectAtomicRejection {
+    param(
+        [Parameter(Mandatory)] [psobject] $Before,
+        [Parameter(Mandatory)] [psobject] $Elevated
+    )
+
+    $BeforeCounts = Get-BaselineCounts -Baseline $Before
+    $ElevatedSubjects = @($Elevated.subjects | Where-Object { $_.state -ceq 'elevated' })
+    $SiblingSubjects = @($Elevated.subjects | Where-Object { $_.state -cne 'elevated' })
+    if ($ElevatedSubjects.Count -eq 0 -or $SiblingSubjects.Count -eq 0) {
+        throw 'bounded elevated matrix did not separate affected subjects from siblings'
+    }
+    foreach ($Subject in $ElevatedSubjects) {
+        $Key = "$([string]$Subject.hook)/$(Get-BaselineSubjectKey -Subject $Subject.subject)"
+        if ([uint64]$Subject.sample_count -gt ([uint64]$BeforeCounts[$Key] + 1)) {
+            throw "elevated subject contaminated its baseline for $Key"
+        }
+    }
+    $SiblingAdvanced = $false
+    foreach ($Subject in $SiblingSubjects) {
+        $Key = "$([string]$Subject.hook)/$(Get-BaselineSubjectKey -Subject $Subject.subject)"
+        if ([uint64]$Subject.sample_count -gt [uint64]$BeforeCounts[$Key]) {
+            $SiblingAdvanced = $true
+        }
+    }
+    if (-not $SiblingAdvanced) { throw 'unaffected baseline siblings did not continue learning' }
+}
+
+function Assert-CompareBeforeAcceptRecovery {
+    param(
+        [Parameter(Mandatory)] [psobject] $Unavailable,
+        [Parameter(Mandatory)] [psobject] $Recovered
+    )
+
+    if ($Unavailable.state -cne 'unavailable' -or $Recovered.state -cne 'elevated') {
+        throw 'sampling recovery did not compare the recovered endpoint against retained history'
+    }
+    $UnavailableCounts = Get-BaselineCounts -Baseline $Unavailable
+    foreach ($Subject in @($Recovered.subjects | Where-Object { $_.state -ceq 'elevated' })) {
+        $Key = "$([string]$Subject.hook)/$(Get-BaselineSubjectKey -Subject $Subject.subject)"
+        if ([uint64]$Subject.sample_count -ne [uint64]$UnavailableCounts[$Key]) {
+            throw "recovery accepted an elevated endpoint before comparison for $Key"
+        }
     }
 }
 
@@ -1445,6 +1621,173 @@ try {
             }
             catch {
                 throw "second generation detach did not restore prepared state: $($_.Exception.Message)"
+            }
+            $Detached = $true
+        }
+        'BaselineLifecycle' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $InitialBaseline = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-BaselineReport -Snapshot $InitialBaseline -ExpectedState 'learning'
+
+            for ($BaselineIteration = 1; $BaselineIteration -le $BASELINE_LEARNING_SECONDS; $BaselineIteration++) {
+                Start-Sleep -Seconds 1
+            }
+            $ReadyBaseline = $null
+            for ($Attempt = 1; $Attempt -le 5; $Attempt++) {
+                $ReadyBaseline = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+                if ($ReadyBaseline.baseline.state -ceq 'within_baseline') { break }
+                Start-Sleep -Seconds 1
+            }
+            Assert-BaselineReport -Snapshot $ReadyBaseline -ExpectedState 'within_baseline'
+            $ReadyStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-BaselineSummary -Status $ReadyStatus -ExpectedState 'within_baseline'
+
+            $null = Invoke-IsolatedMutation -Phase 'traffic-matrix' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount ([uint64]$BASELINE_ELEVATED_FRAMES) -TimeoutSeconds $TimeoutSeconds
+            $ElevatedBaseline = $null
+            for ($Attempt = 1; $Attempt -le 5; $Attempt++) {
+                Start-Sleep -Seconds 1
+                $ElevatedBaseline = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+                if ($ElevatedBaseline.baseline.state -ceq 'elevated') { break }
+            }
+            Assert-BaselineReport -Snapshot $ElevatedBaseline -ExpectedState 'elevated'
+            Assert-SubjectAtomicRejection -Before $ReadyBaseline.baseline -Elevated $ElevatedBaseline.baseline
+            $ElevatedStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-BaselineSummary -Status $ElevatedStatus -ExpectedState 'elevated'
+
+            Start-Sleep -Seconds 11
+            $RecoveredBaseline = $null
+            for ($Attempt = 1; $Attempt -le 5; $Attempt++) {
+                $RecoveredBaseline = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+                if ($RecoveredBaseline.baseline.state -ceq 'within_baseline') { break }
+                Start-Sleep -Seconds 1
+            }
+            Assert-BaselineReport -Snapshot $RecoveredBaseline -ExpectedState 'within_baseline'
+            $ElevatedCounts = Get-BaselineCounts -Baseline $ElevatedBaseline.baseline
+            $RecoveredCounts = Get-BaselineCounts -Baseline $RecoveredBaseline.baseline
+            foreach ($Key in $ElevatedCounts.Keys) {
+                if ($RecoveredCounts[$Key] -le $ElevatedCounts[$Key]) {
+                    throw "baseline subject did not resume bounded learning for $Key"
+                }
+            }
+        }
+        'BaselineSamplingRecovery' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            for ($BaselineIteration = 1; $BaselineIteration -le $BASELINE_LEARNING_SECONDS; $BaselineIteration++) {
+                Start-Sleep -Seconds 1
+            }
+            $RecoveryReady = $null
+            for ($Attempt = 1; $Attempt -le 5; $Attempt++) {
+                $RecoveryReady = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+                if ($RecoveryReady.baseline.state -ceq 'within_baseline') { break }
+                Start-Sleep -Seconds 1
+            }
+            Assert-BaselineReport -Snapshot $RecoveryReady -ExpectedState 'within_baseline'
+
+            $UnavailableBaseline = $null
+            $RetainedUnavailableBaseline = $null
+            $CompareBeforeAccept = $null
+            for ($RecoveryIteration = 1; $RecoveryIteration -le 15; $RecoveryIteration++) {
+                $null = Invoke-IsolatedMutation -Phase 'traffic-matrix' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount ([uint64]$BASELINE_ELEVATED_FRAMES) -TimeoutSeconds $TimeoutSeconds
+                Start-Sleep -Seconds 1
+                $CurrentRecovery = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+                if ($CurrentRecovery.baseline.state -ceq 'unavailable') {
+                    Assert-BaselineReport -Snapshot $CurrentRecovery -ExpectedState 'unavailable'
+                    if ($null -eq $UnavailableBaseline) {
+                        $UnavailableBaseline = $CurrentRecovery
+                    }
+                    else {
+                        $RetainedUnavailableBaseline = $CurrentRecovery
+                        Assert-BaselineCountsRetained -Before $UnavailableBaseline.baseline -After $RetainedUnavailableBaseline.baseline
+                    }
+                    $UnavailableStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+                    Assert-BaselineSummary -Status $UnavailableStatus -ExpectedState 'unavailable'
+                    continue
+                }
+                if ($null -ne $UnavailableBaseline -and $CurrentRecovery.baseline.state -ceq 'elevated') {
+                    $CompareBeforeAccept = $CurrentRecovery
+                    break
+                }
+            }
+            if ($null -eq $UnavailableBaseline -or $null -eq $RetainedUnavailableBaseline -or $null -eq $CompareBeforeAccept) {
+                throw 'bounded sampling recovery phases were not all observed'
+            }
+            Assert-BaselineReport -Snapshot $CompareBeforeAccept -ExpectedState 'elevated'
+            Assert-CompareBeforeAcceptRecovery -Unavailable $RetainedUnavailableBaseline.baseline -Recovered $CompareBeforeAccept.baseline
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+
+            Start-Sleep -Seconds 11
+            $RecoveryWithin = $null
+            for ($Attempt = 1; $Attempt -le 5; $Attempt++) {
+                $RecoveryWithin = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+                if ($RecoveryWithin.baseline.state -ceq 'within_baseline') { break }
+                Start-Sleep -Seconds 1
+            }
+            Assert-BaselineReport -Snapshot $RecoveryWithin -ExpectedState 'within_baseline'
+        }
+        'BaselineGenerationReset' {
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            for ($BaselineIteration = 1; $BaselineIteration -le $BASELINE_LEARNING_SECONDS; $BaselineIteration++) {
+                Start-Sleep -Seconds 1
+            }
+            $FirstBaselineGeneration = $null
+            for ($Attempt = 1; $Attempt -le 5; $Attempt++) {
+                $FirstBaselineGeneration = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+                if ($FirstBaselineGeneration.baseline.state -ceq 'within_baseline') { break }
+                Start-Sleep -Seconds 1
+            }
+            Assert-BaselineReport -Snapshot $FirstBaselineGeneration -ExpectedState 'within_baseline'
+            $FirstBaselineGenerationValue = [uint64]$FirstBaselineGeneration.generation
+
+            $FirstBaselineDetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+                "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-detach', '--run-id', $RunId
+            )
+            $FirstBaselineDetach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $FirstBaselineDetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+            if ($FirstBaselineDetach.Stdout.Trim() -cne 'accepted') { throw 'first baseline generation detach was not acknowledged' }
+            $null = Invoke-IsolatedMutation -Phase 'links-down' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            try {
+                Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            }
+            catch {
+                throw "first baseline generation detach did not restore prepared state: $($_.Exception.Message)"
+            }
+
+            $SecondBaselineAttachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+                "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-attach', '--interface', $Names.HostVeth, '--run-id', $SecondRunId
+            )
+            $SecondBaselineAttach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $SecondBaselineAttachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+            if ($SecondBaselineAttach.Stdout.Trim() -cne 'accepted') { throw 'second baseline generation attach was not acknowledged' }
+            $null = Invoke-IsolatedRemotePhase -Phase 'verify-second-hooks' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            $null = Invoke-IsolatedMutation -Phase 'links-up' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+
+            $SecondBaselineInitial = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-BaselineReport -Snapshot $SecondBaselineInitial -ExpectedState 'learning'
+            if ([uint64]$SecondBaselineInitial.generation -eq $FirstBaselineGenerationValue) {
+                throw 'baseline generation identity did not change after exact reattach'
+            }
+            foreach ($Count in (Get-BaselineCounts -Baseline $SecondBaselineInitial.baseline).Values) {
+                if ([uint64]$Count -ne 0) { throw 'new baseline generation inherited prior samples' }
+            }
+
+            for ($SecondBaselineIteration = 1; $SecondBaselineIteration -le 12; $SecondBaselineIteration++) {
+                Start-Sleep -Seconds 1
+            }
+            $SecondBaselineAdvanced = Convert-ObservationJson -Result (Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
+            Assert-BaselineReport -Snapshot $SecondBaselineAdvanced -ExpectedState 'learning'
+            foreach ($Count in (Get-BaselineCounts -Baseline $SecondBaselineAdvanced.baseline).Values) {
+                if ([uint64]$Count -eq 0) { throw 'new baseline generation did not advance independently' }
+            }
+
+            $SecondBaselineDetachArguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @(
+                "$($Names.RemoteRunRoot)/l2-loopctl", 'isolated-detach', '--run-id', $SecondRunId
+            )
+            $SecondBaselineDetach = Invoke-ExactProcess -FilePath 'ssh' -ArgumentList $SecondBaselineDetachArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
+            if ($SecondBaselineDetach.Stdout.Trim() -cne 'accepted') { throw 'second baseline generation detach was not acknowledged' }
+            $null = Invoke-IsolatedMutation -Phase 'links-down' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+            try {
+                Wait-IsolatedRemoteState -Phase 'snapshot-prepared' -Expected $PreparedState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+            }
+            catch {
+                throw "second baseline generation detach did not restore prepared state: $($_.Exception.Message)"
             }
             $Detached = $true
         }

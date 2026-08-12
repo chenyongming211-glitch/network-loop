@@ -10,6 +10,8 @@ use crate::{
 
 pub const ACCEPTANCE_FAULT_ENV: &str = "L2_LOOP_ACCEPTANCE_FAULT";
 pub const ACCEPTANCE_DIAGNOSTICS_ENV: &str = "L2_LOOP_ACCEPTANCE_DIAGNOSTICS";
+const BASELINE_RECOVERY_GOOD_READS: u64 = 75;
+const BASELINE_RECOVERY_FAILED_READS: u64 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AcceptanceFault {
@@ -18,6 +20,7 @@ pub enum AcceptanceFault {
     MapInitialize,
     ObservationMapRead,
     RateSamplingMapRead,
+    BaselineSamplingMapReadRecovery,
 }
 
 impl AcceptanceFault {
@@ -28,6 +31,9 @@ impl AcceptanceFault {
             Some("map-initialize") => Ok(Self::MapInitialize),
             Some("observation-map-read") => Ok(Self::ObservationMapRead),
             Some("rate-sampling-map-read") => Ok(Self::RateSamplingMapRead),
+            Some("baseline-sampling-map-read-recovery") => {
+                Ok(Self::BaselineSamplingMapReadRecovery)
+            }
             Some(_) => Err(AcceptanceFaultError),
         }
     }
@@ -36,11 +42,16 @@ impl AcceptanceFault {
 pub struct FaultInjectingObservationReader<R> {
     inner: R,
     fault: AcceptanceFault,
+    background_reads: u64,
 }
 
 impl<R> FaultInjectingObservationReader<R> {
     pub const fn new(inner: R, fault: AcceptanceFault) -> Self {
-        Self { inner, fault }
+        Self {
+            inner,
+            fault,
+            background_reads: 0,
+        }
     }
 }
 
@@ -53,12 +64,26 @@ where
         ownership: &OwnershipRecord,
         purpose: ObservationReadPurpose,
     ) -> Result<RawObservation, PortError> {
+        if purpose == ObservationReadPurpose::BackgroundSample {
+            self.background_reads = self.background_reads.saturating_add(1);
+        }
         if self.fault == AcceptanceFault::RateSamplingMapRead
             && purpose == ObservationReadPurpose::BackgroundSample
         {
             return Err(PortError::coded_adapter(
                 "OBS_MAP_UNAVAILABLE",
                 "authorized isolated rate sampling map read failure",
+            ));
+        }
+        if self.fault == AcceptanceFault::BaselineSamplingMapReadRecovery
+            && purpose == ObservationReadPurpose::BackgroundSample
+            && self.background_reads > BASELINE_RECOVERY_GOOD_READS
+            && self.background_reads
+                <= BASELINE_RECOVERY_GOOD_READS + BASELINE_RECOVERY_FAILED_READS
+        {
+            return Err(PortError::coded_adapter(
+                "OBS_MAP_UNAVAILABLE",
+                "authorized bounded baseline sampling recovery failure",
             ));
         }
         self.inner.read_exact(ownership, purpose)

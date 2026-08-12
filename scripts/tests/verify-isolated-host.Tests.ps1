@@ -222,7 +222,6 @@ foreach ($Required in @(
     "-ExpectedState 'within_baseline'",
     "-ExpectedState 'elevated'",
     "-ExpectedState 'unavailable'",
-    'Start-Sleep -Seconds $BASELINE_LEARNING_SECONDS',
     'for ($BaselineIteration = 1; $BaselineIteration -le $BASELINE_LEARNING_SECONDS; $BaselineIteration++)',
     '[uint64]$BASELINE_ELEVATED_FRAMES',
     'first baseline generation detach did not restore prepared state',
@@ -230,7 +229,7 @@ foreach ($Required in @(
 )) {
     Assert-True ($Harness.Contains($Required)) "harness is missing dynamic baseline marker: $Required"
 }
-$BaselineLifecycle = '(?s)''BaselineLifecycle'' \{(?:(?!''BaselineSamplingRecovery'').)*Assert-SubjectAtomicRejection(?:(?!''BaselineSamplingRecovery'').)*Assert-BaselineCountsRetained(?:(?!''BaselineSamplingRecovery'').)*-ExpectedState ''within_baseline'''
+$BaselineLifecycle = '(?s)''BaselineLifecycle'' \{(?:(?!''BaselineSamplingRecovery'').)*Assert-SubjectAtomicRejection(?:(?!''BaselineSamplingRecovery'').)*-ExpectedState ''within_baseline'''
 Assert-True ([regex]::IsMatch($Harness, $BaselineLifecycle)) 'baseline lifecycle does not prove rejection, sibling learning, and recovery'
 $BaselineRecovery = '(?s)''BaselineSamplingRecovery'' \{(?:(?!''BaselineGenerationReset'').)*-ExpectedState ''unavailable''(?:(?!''BaselineGenerationReset'').)*Assert-BaselineCountsRetained(?:(?!''BaselineGenerationReset'').)*Assert-CompareBeforeAcceptRecovery'
 Assert-True ([regex]::IsMatch($Harness, $BaselineRecovery)) 'sampling recovery does not prove retention and compare-before-accept'

@@ -45,10 +45,45 @@ fn accepts_only_the_authorized_fault_stages() {
         AcceptanceFault::parse(Some("rate-sampling-map-read")).unwrap(),
         AcceptanceFault::RateSamplingMapRead
     );
+    assert_eq!(
+        AcceptanceFault::parse(Some("baseline-sampling-map-read-recovery")).unwrap(),
+        AcceptanceFault::BaselineSamplingMapReadRecovery
+    );
 
     for invalid in ["", "xdp-attach", "tc-detach", "map-publish", "foreign"] {
         assert!(AcceptanceFault::parse(Some(invalid)).is_err());
     }
+}
+
+#[test]
+fn baseline_sampling_recovery_fault_is_bounded_and_request_transparent() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut observation = FaultInjectingObservationReader::new(
+        FakePurposeReader(calls.clone()),
+        AcceptanceFault::BaselineSamplingMapReadRecovery,
+    );
+    let ownership = ownership();
+
+    for _ in 0..75 {
+        let error = observation
+            .read_exact(&ownership, ObservationReadPurpose::BackgroundSample)
+            .unwrap_err();
+        assert!(error.to_string().contains("delegated request read"));
+    }
+    for _ in 0..4 {
+        let error = observation
+            .read_exact(&ownership, ObservationReadPurpose::BackgroundSample)
+            .unwrap_err();
+        assert!(error.to_string().contains("OBS_MAP_UNAVAILABLE"));
+    }
+    let recovered = observation
+        .read_exact(&ownership, ObservationReadPurpose::BackgroundSample)
+        .unwrap_err();
+    assert!(recovered.to_string().contains("delegated request read"));
+    let request = observation
+        .read_exact(&ownership, ObservationReadPurpose::Request)
+        .unwrap_err();
+    assert!(request.to_string().contains("delegated request read"));
 }
 
 #[test]
