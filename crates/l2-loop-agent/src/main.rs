@@ -1,8 +1,9 @@
 use std::{path::Path, process::ExitCode, time::Duration};
 
 use l2_loop_agent::{
-    AttachmentTransaction, IncidentOutputBackend, IncidentOutputWorker, LinuxEvidenceStore,
-    PreflightService, StdEvidenceIo, UnavailableIncidentOutputBackend,
+    AttachmentTransaction, IncidentOutputBackend, IncidentOutputWorker, LinuxAlertSink,
+    LinuxEvidenceStore, PreflightService, StdEvidenceIo, StoredIncidentOutputBackend,
+    SystemAlertIo,
     daemon::{
         BoundedUnixServer, DEFAULT_SOCKET_PATH, DaemonDispatcher, DaemonError,
         TransactionIsolatedControl, coordinate_daemon, run_sampling_loop,
@@ -76,8 +77,15 @@ async fn run() -> Result<(), DaemonError> {
         Path::new("/var/lib/l2-loop/evidence/v1"),
         env!("CARGO_PKG_VERSION"),
     )
-    .map(|store| Box::new(store) as Box<dyn IncidentOutputBackend>)
-    .unwrap_or_else(|_| Box::new(UnavailableIncidentOutputBackend));
+    .map(|store| {
+        Box::new(StoredIncidentOutputBackend::new(
+            store,
+            LinuxAlertSink::new(SystemAlertIo),
+        )) as Box<dyn IncidentOutputBackend>
+    })
+    .unwrap_or_else(|_| {
+        Box::new(LinuxAlertSink::new(SystemAlertIo)) as Box<dyn IncidentOutputBackend>
+    });
     let (incident_output, incident_worker) = IncidentOutputWorker::start(backend);
     let isolated = TransactionIsolatedControl::new(
         transaction,

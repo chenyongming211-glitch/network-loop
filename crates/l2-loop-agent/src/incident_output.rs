@@ -10,7 +10,8 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::{
-    EvidenceIo, EvidenceStore, IncidentWriteJob, LinuxEvidenceStore, StdFilesystemCapacity,
+    AlertSink, EvidenceIo, EvidenceStore, IncidentWriteJob, LinuxAlertSink, LinuxEvidenceStore,
+    SanitizedAlertV1, StdFilesystemCapacity,
 };
 
 const OUTPUT_STORE_UNAVAILABLE: &str = "OUTPUT_STORE_UNAVAILABLE";
@@ -23,6 +24,13 @@ pub trait IncidentOutputBackend: Send + 'static {
     fn alert(&mut self, job: &IncidentWriteJob, evidence_status: EvidenceStatus);
 }
 
+pub trait IncidentEvidenceSink: Send + 'static {
+    fn persist_revision(
+        &mut self,
+        revision: &l2_loop_core::IncidentRevisionV1,
+    ) -> Result<(), IncidentOutputError>;
+}
+
 impl<T: IncidentOutputBackend + ?Sized> IncidentOutputBackend for Box<T> {
     fn persist(&mut self, job: &IncidentWriteJob) -> Result<(), IncidentOutputError> {
         (**self).persist(job)
@@ -33,11 +41,14 @@ impl<T: IncidentOutputBackend + ?Sized> IncidentOutputBackend for Box<T> {
     }
 }
 
-impl<I> IncidentOutputBackend for LinuxEvidenceStore<I>
+impl<I> IncidentEvidenceSink for LinuxEvidenceStore<I>
 where
     I: EvidenceIo + Send + 'static,
 {
-    fn persist(&mut self, job: &IncidentWriteJob) -> Result<(), IncidentOutputError> {
+    fn persist_revision(
+        &mut self,
+        revision: &l2_loop_core::IncidentRevisionV1,
+    ) -> Result<(), IncidentOutputError> {
         let now_unix_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .ok()
@@ -49,12 +60,107 @@ where
             &StdFilesystemCapacity,
         )
         .map_err(|_| IncidentOutputError::StoreUnavailable)?;
-        self.put(&job.revision)
+        self.put(revision)
             .map(|_| ())
             .map_err(|_| IncidentOutputError::StoreUnavailable)
     }
+}
+
+impl<I> IncidentOutputBackend for LinuxEvidenceStore<I>
+where
+    I: EvidenceIo + Send + 'static,
+{
+    fn persist(&mut self, job: &IncidentWriteJob) -> Result<(), IncidentOutputError> {
+        self.persist_revision(&job.revision)
+    }
 
     fn alert(&mut self, _job: &IncidentWriteJob, _evidence_status: EvidenceStatus) {}
+}
+
+pub struct StoredIncidentOutputBackend<S, A> {
+    store: S,
+    alerts: A,
+}
+
+impl<S, A> StoredIncidentOutputBackend<S, A> {
+    pub const fn new(store: S, alerts: A) -> Self {
+        Self { store, alerts }
+    }
+}
+
+impl<S, A> IncidentOutputBackend for StoredIncidentOutputBackend<S, A>
+where
+    S: IncidentEvidenceSink,
+    A: AlertSink + Send + 'static,
+{
+    fn persist(&mut self, job: &IncidentWriteJob) -> Result<(), IncidentOutputError> {
+        self.store.persist_revision(&job.revision)
+    }
+
+    fn alert(&mut self, job: &IncidentWriteJob, evidence_status: EvidenceStatus) {
+        let revision = &job.revision;
+        let alert = SanitizedAlertV1 {
+            event_id: revision.event_id,
+            evidence_status,
+            revision: revision.revision,
+            transition_sequence: revision.transition_sequence,
+            code: revision.alert_code,
+            severity: revision.severity,
+            previous_state: revision.previous_state,
+            current_state: revision.current_state,
+            transition_reason: revision.transition_reason,
+            interface: revision.interface.clone(),
+            ifindex: revision.ifindex,
+            generation: revision.interface_generation,
+            message: alert_message(revision.alert_code).to_owned(),
+        };
+        let _ = self.alerts.publish(&alert);
+    }
+}
+
+impl<I: crate::AlertIo> IncidentOutputBackend for LinuxAlertSink<I>
+where
+    I: Send + 'static,
+{
+    fn persist(&mut self, _job: &IncidentWriteJob) -> Result<(), IncidentOutputError> {
+        Err(IncidentOutputError::StoreUnavailable)
+    }
+
+    fn alert(&mut self, job: &IncidentWriteJob, evidence_status: EvidenceStatus) {
+        let revision = &job.revision;
+        let alert = SanitizedAlertV1 {
+            event_id: revision.event_id,
+            evidence_status,
+            revision: revision.revision,
+            transition_sequence: revision.transition_sequence,
+            code: revision.alert_code,
+            severity: revision.severity,
+            previous_state: revision.previous_state,
+            current_state: revision.current_state,
+            transition_reason: revision.transition_reason,
+            interface: revision.interface.clone(),
+            ifindex: revision.ifindex,
+            generation: revision.interface_generation,
+            message: alert_message(revision.alert_code).to_owned(),
+        };
+        let _ = self.publish(&alert);
+    }
+}
+
+const fn alert_message(code: l2_loop_core::AlertCode) -> &'static str {
+    match code {
+        l2_loop_core::AlertCode::StormConfirmed => "passive L2 storm confirmed",
+        l2_loop_core::AlertCode::ExternalLoopSuspected => {
+            "passive L2 loop relationship suspected"
+        }
+        l2_loop_core::AlertCode::ExternalLoopHighConfidence => {
+            "passive L2 loop relationship high confidence"
+        }
+        l2_loop_core::AlertCode::IncidentCooldown => "passive L2 incident cooling down",
+        l2_loop_core::AlertCode::IncidentClosed => "passive L2 incident closed",
+        l2_loop_core::AlertCode::GenerationEnded => "passive L2 observation generation ended",
+        l2_loop_core::AlertCode::OutputDegraded => "passive L2 incident output degraded",
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
