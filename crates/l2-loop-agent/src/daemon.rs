@@ -980,6 +980,10 @@ mod tests {
             snapshot.baseline.state,
             l2_loop_core::BaselineState::Learning
         );
+        assert_eq!(
+            snapshot.detection.state,
+            l2_loop_core::DetectionState::WarmingUp
+        );
         assert!(
             snapshot
                 .baseline
@@ -1042,6 +1046,11 @@ mod tests {
         control.attach(&lifecycle_interface(), &run_id).unwrap();
 
         assert!(control.detach(&run_id).is_err());
+        let snapshot = control.observe(&lifecycle_interface()).unwrap();
+        assert_eq!(
+            snapshot.detection.state,
+            l2_loop_core::DetectionState::Unavailable
+        );
         assert_eq!(
             control.sample_tick().unwrap(),
             IsolatedSamplingOutcome::Rejected

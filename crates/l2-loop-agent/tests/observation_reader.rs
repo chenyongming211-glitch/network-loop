@@ -95,6 +95,35 @@ fn request_reads_journal_confirmed_fingerprint_evidence() {
 }
 
 #[test]
+fn background_analysis_reads_journal_confirmed_fingerprint_evidence() {
+    let evidence = fingerprint_evidence(direction::EGRESS, 3, 192);
+    let io = FakeIo::complete().fingerprints(vec![evidence]);
+
+    let raw = LinuxObservationReader::new(io)
+        .read_exact(&ownership(), ObservationReadPurpose::BackgroundAnalysis)
+        .unwrap();
+
+    assert_eq!(raw.fingerprints, RawFingerprints::Available(vec![evidence]));
+}
+
+#[test]
+fn background_analysis_rejects_fingerprint_evidence_above_the_fixed_capacity() {
+    let evidence = fingerprint_evidence(direction::INGRESS, 1, 64);
+    let io = FakeIo::complete().fingerprints(vec![evidence; 8_193]);
+
+    let raw = LinuxObservationReader::new(io)
+        .read_exact(&ownership(), ObservationReadPurpose::BackgroundAnalysis)
+        .unwrap();
+
+    assert_eq!(
+        raw.fingerprints,
+        RawFingerprints::Unavailable {
+            code: "OBS_FINGERPRINT_UNAVAILABLE"
+        }
+    );
+}
+
+#[test]
 fn changed_fingerprint_pin_identity_is_a_hard_refusal() {
     let io = FakeIo::complete().map_id(FINGERPRINTS, 999);
     let events = io.events();
@@ -436,6 +465,7 @@ impl ObservationIo for FakeIo {
     fn read_fingerprints(
         &mut self,
         pin: &OwnedMapPin,
+        _purpose: ObservationReadPurpose,
     ) -> Result<Vec<FingerprintEvidence>, PortError> {
         self.record(format!("read_fingerprints:{}", pin.name));
         self.fingerprints.clone()

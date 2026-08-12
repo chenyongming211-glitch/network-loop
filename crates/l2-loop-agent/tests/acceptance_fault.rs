@@ -54,6 +54,10 @@ fn accepts_only_the_authorized_fault_stages() {
         AcceptanceFault::parse(Some("fingerprint-map-read-once")).unwrap(),
         AcceptanceFault::FingerprintMapReadOnce
     );
+    assert_eq!(
+        AcceptanceFault::parse(Some("analysis-fingerprint-map-read-once")).unwrap(),
+        AcceptanceFault::AnalysisFingerprintMapReadOnce
+    );
 
     for invalid in ["", "xdp-attach", "tc-detach", "map-publish", "foreign"] {
         assert!(AcceptanceFault::parse(Some(invalid)).is_err());
@@ -61,7 +65,7 @@ fn accepts_only_the_authorized_fault_stages() {
 }
 
 #[test]
-fn fingerprint_map_fault_is_one_shot_and_request_local() {
+fn fingerprint_map_faults_are_one_shot_and_purpose_local() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let mut observation = FaultInjectingObservation::new(
         FakeObservation(calls.clone()),
@@ -74,10 +78,44 @@ fn fingerprint_map_fault_is_one_shot_and_request_local() {
     )
     .unwrap();
 
-    let first = observation.read_fingerprints(&pin).unwrap_err();
+    assert!(
+        observation
+            .read_fingerprints(&pin, ObservationReadPurpose::BackgroundAnalysis)
+            .unwrap()
+            .is_empty()
+    );
+    let first = observation
+        .read_fingerprints(&pin, ObservationReadPurpose::Request)
+        .unwrap_err();
     assert_eq!(first.stable_code(), Some("OBS_FINGERPRINT_UNAVAILABLE"));
-    assert!(observation.read_fingerprints(&pin).unwrap().is_empty());
-    assert_eq!(calls.lock().unwrap().as_slice(), ["read-fingerprints"]);
+    assert!(
+        observation
+            .read_fingerprints(&pin, ObservationReadPurpose::Request)
+            .unwrap()
+            .is_empty()
+    );
+
+    let mut analysis = FaultInjectingObservation::new(
+        FakeObservation(calls.clone()),
+        AcceptanceFault::AnalysisFingerprintMapReadOnce,
+    );
+    assert!(
+        analysis
+            .read_fingerprints(&pin, ObservationReadPurpose::Request)
+            .unwrap()
+            .is_empty()
+    );
+    let first = analysis
+        .read_fingerprints(&pin, ObservationReadPurpose::BackgroundAnalysis)
+        .unwrap_err();
+    assert_eq!(first.stable_code(), Some("OBS_FINGERPRINT_UNAVAILABLE"));
+    assert!(
+        analysis
+            .read_fingerprints(&pin, ObservationReadPurpose::BackgroundAnalysis)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(calls.lock().unwrap().len(), 4);
 }
 
 #[test]
@@ -351,6 +389,7 @@ impl ObservationIo for FakeObservation {
     fn read_fingerprints(
         &mut self,
         _pin: &OwnedMapPin,
+        _purpose: ObservationReadPurpose,
     ) -> Result<Vec<FingerprintEvidence>, PortError> {
         self.0.lock().unwrap().push("read-fingerprints");
         Ok(Vec::new())
