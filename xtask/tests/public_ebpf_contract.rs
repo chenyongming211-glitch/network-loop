@@ -1,5 +1,6 @@
 const MAP_SOURCE: &str = include_str!("../../ebpf/l2-loop-ebpf/src/maps.rs");
 const PROGRAM_SOURCE: &str = include_str!("../../ebpf/l2-loop-ebpf/src/programs.rs");
+const MAP_PUBLISHER_SOURCE: &str = include_str!("../../crates/l2-loop-agent/src/linux/maps.rs");
 
 #[test]
 fn declares_every_public_map_name() {
@@ -96,4 +97,38 @@ fn passive_programs_exclude_policy_probe_and_drop_paths() {
             "passive program contains prohibited marker: {prohibited}"
         );
     }
+}
+
+#[test]
+fn passive_fingerprints_are_fixed_bounded_and_fail_open() {
+    for required in [
+        "FINGERPRINTS",
+        "FINGERPRINT_PREFIX_LEN",
+        "FINGERPRINT_SAMPLE_SHIFT",
+        "fingerprint_hash",
+        "fingerprint_selected",
+        "parse_fingerprint_metadata",
+        "direction::INGRESS",
+        "direction::EGRESS",
+        "bpf_ktime_get_ns",
+        "saturating_add",
+    ] {
+        assert!(
+            PROGRAM_SOURCE.contains(required),
+            "missing bounded fingerprint marker: {required}"
+        );
+    }
+    assert!(PROGRAM_SOURCE.contains("FINGERPRINTS.get_ptr_mut"));
+    assert!(PROGRAM_SOURCE.contains("FINGERPRINTS.insert"));
+    assert!(PROGRAM_SOURCE.contains("xdp_action::XDP_PASS"));
+    assert!(PROGRAM_SOURCE.contains("TC_ACT_OK"));
+    assert!(!PROGRAM_SOURCE.contains("PROBE_REGISTRY"));
+    assert!(!PROGRAM_SOURCE.contains("RATE_POLICY"));
+}
+
+#[test]
+fn userspace_publishes_only_the_fixed_fingerprint_sample_shift() {
+    assert!(MAP_PUBLISHER_SOURCE.contains("FINGERPRINT_SAMPLE_SHIFT"));
+    assert!(MAP_PUBLISHER_SOURCE.contains("agent_mode::OBSERVE"));
+    assert!(!MAP_PUBLISHER_SOURCE.contains("sample_shift:"));
 }
