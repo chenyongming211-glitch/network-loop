@@ -107,6 +107,12 @@ fn status_supports_zero_or_one_bounded_session_summary() {
         fingerprints: l2_loop_core::FingerprintSummary::from(
             &l2_loop_core::FingerprintReport::empty(),
         ),
+        detection: l2_loop_core::DetectionSummary::from(
+            &l2_loop_core::DetectionReport::warming(
+                l2_loop_core::RateIdentity::new(7, 7).unwrap(),
+                1_786_300_000_000,
+            ),
+        ),
     };
     let value = serde_json::to_value(AgentResult::Status {
         interfaces: vec![status],

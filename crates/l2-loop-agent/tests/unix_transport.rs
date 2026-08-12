@@ -66,7 +66,7 @@ async fn serves_exactly_one_request_and_response_per_connection() {
 }
 
 #[tokio::test]
-async fn serves_schema_four_observation_inside_bounded_protocol_one_frame() {
+async fn serves_schema_five_observation_inside_bounded_protocol_one_frame() {
     let socket = SocketFixture::new();
     let expected = ControlResponse::success(AgentResult::Observation {
         snapshot: transport_observation(),
@@ -87,7 +87,7 @@ async fn serves_schema_four_observation_inside_bounded_protocol_one_frame() {
     assert_eq!(declared, response_frame.len() - 4);
     assert!(declared <= MAX_PAYLOAD_LEN);
     assert_eq!(json["protocol_version"], 1);
-    assert_eq!(json["result"]["snapshot"]["schema_version"], 4);
+    assert_eq!(json["result"]["snapshot"]["schema_version"], 5);
     assert_eq!(decode_response(&response_frame).unwrap(), expected);
     server.stop().await;
 }

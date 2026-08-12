@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BaselineReport, DetailedRateWindow, DomainError, FingerprintReport, HookRole, InterfaceName,
-    RATE_WINDOW_COUNT, RateIdentity, SamplingStatus, TrafficClass, VlanVisibility,
+    BaselineReport, DetailedRateWindow, DetectionReport, DomainError, FingerprintReport, HookRole,
+    InterfaceName, RATE_WINDOW_COUNT, RateIdentity, SamplingStatus, TrafficClass, VlanVisibility,
     rate::validate_detailed_rate_windows,
 };
 
-pub const OBSERVATION_SCHEMA_VERSION: u16 = 4;
+pub const OBSERVATION_SCHEMA_VERSION: u16 = 5;
 pub const OBSERVED_HOOK_COUNT: usize = 2;
 pub const OBSERVED_CLASS_COUNT: usize = 6;
 
@@ -74,6 +74,7 @@ pub struct ObservationSnapshot {
     pub rate_windows: [DetailedRateWindow; RATE_WINDOW_COUNT],
     pub baseline: BaselineReport,
     pub fingerprints: FingerprintReport,
+    pub detection: DetectionReport,
 }
 
 impl ObservationSnapshot {
@@ -115,8 +116,9 @@ impl ObservationSnapshot {
             ));
         }
         validate_detailed_rate_windows(&rate_windows)?;
-        let baseline =
-            BaselineReport::learning(RateIdentity::new(ifindex, generation)?, captured_at_unix_ms);
+        let identity = RateIdentity::new(ifindex, generation)?;
+        let baseline = BaselineReport::learning(identity, captured_at_unix_ms);
+        let detection = DetectionReport::warming(identity, captured_at_unix_ms);
 
         Ok(Self {
             schema_version: OBSERVATION_SCHEMA_VERSION,
@@ -131,6 +133,7 @@ impl ObservationSnapshot {
             rate_windows,
             baseline,
             fingerprints: FingerprintReport::empty(),
+            detection,
         })
     }
 }

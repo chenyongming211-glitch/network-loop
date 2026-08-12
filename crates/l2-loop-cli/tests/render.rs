@@ -113,6 +113,7 @@ fn renders_observation_and_status_as_stable_text_and_json() {
         rate_windows: status_rate_windows(),
         baseline: l2_loop_core::BaselineSummary::from_report(&snapshot.baseline),
         fingerprints: l2_loop_core::FingerprintSummary::from(&snapshot.fingerprints),
+        detection: l2_loop_core::DetectionSummary::from(&snapshot.detection),
     };
 
     let text = render_response(
@@ -152,7 +153,7 @@ fn renders_observation_and_status_as_stable_text_and_json() {
     assert!(text.stdout.contains("correlated_relation_count: 1"));
     assert_eq!(json.exit_code, EXIT_SUCCESS);
     let value: serde_json::Value = serde_json::from_str(&json.stdout).unwrap();
-    assert_eq!(value["schema_version"], 4);
+    assert_eq!(value["schema_version"], 5);
     assert_eq!(value["fingerprints"]["state"], "observed");
     assert_eq!(value["fingerprints"]["correlated_relation_count"], 1);
     assert_eq!(value["hooks"][1]["role"], "physical_tc_egress");
@@ -392,6 +393,7 @@ fn status_from(snapshot: &ObservationSnapshot) -> InterfaceStatus {
         rate_windows: status_rate_windows(),
         baseline: l2_loop_core::BaselineSummary::from_report(&snapshot.baseline),
         fingerprints: l2_loop_core::FingerprintSummary::from(&snapshot.fingerprints),
+        detection: l2_loop_core::DetectionSummary::from(&snapshot.detection),
     }
 }
 

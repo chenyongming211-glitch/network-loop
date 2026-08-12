@@ -2,8 +2,10 @@
 
 mod baseline;
 mod command;
+mod detection;
 mod error;
 mod fingerprint;
+mod fingerprint_window;
 mod interface;
 mod observation;
 mod policy;
@@ -14,8 +16,10 @@ mod value;
 
 pub use baseline::*;
 pub use command::*;
+pub use detection::*;
 pub use error::*;
 pub use fingerprint::*;
+pub use fingerprint_window::*;
 pub use interface::*;
 pub use observation::*;
 pub use policy::*;

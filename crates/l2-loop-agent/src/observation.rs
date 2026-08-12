@@ -1,10 +1,10 @@
 use std::time::UNIX_EPOCH;
 
 use l2_loop_core::{
-    BaselineEngine, BaselineState, BaselineSummary, FingerprintReport, FingerprintState,
-    FingerprintSummary, InterfaceName, InterfaceState, InterfaceStatus, OBSERVED_HOOK_COUNT,
-    ObservationHealth, ObservationSnapshot, RATE_WINDOW_COUNT, RateHistory, RateHistoryError,
-    RateIdentity, RateSample, RateWindowState, SamplingStatus, StatusRateWindow,
+    BaselineEngine, BaselineState, BaselineSummary, DetectionSummary, FingerprintReport,
+    FingerprintState, FingerprintSummary, InterfaceName, InterfaceState, InterfaceStatus,
+    OBSERVED_HOOK_COUNT, ObservationHealth, ObservationSnapshot, RATE_WINDOW_COUNT, RateHistory,
+    RateHistoryError, RateIdentity, RateSample, RateWindowState, SamplingStatus, StatusRateWindow,
     warming_detailed_rate_windows, warming_status_rate_windows,
 };
 
@@ -245,6 +245,7 @@ where
             rate_windows,
             baseline,
             fingerprints: FingerprintSummary::from(&snapshot.fingerprints),
+            detection: DetectionSummary::from(&snapshot.detection),
         }])
     }
 
@@ -569,6 +570,7 @@ where
             rate_windows: warming_status_rate_windows(),
             baseline,
             fingerprints: FingerprintSummary::from(&snapshot.fingerprints),
+            detection: DetectionSummary::from(&snapshot.detection),
         }])
     }
 }
