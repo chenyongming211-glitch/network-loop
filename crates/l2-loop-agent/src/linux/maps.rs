@@ -1,6 +1,7 @@
 use aya::maps::{HashMap, PerCpuHashMap, PerCpuValues};
 use l2_loop_common::{
-    CounterValue, InterfaceConfig, StatsKey, agent_mode, hook_role, vlan_visibility,
+    CounterValue, FINGERPRINT_SAMPLE_SHIFT, InterfaceConfig, StatsKey, agent_mode, hook_role,
+    vlan_visibility,
 };
 
 use crate::{
@@ -108,7 +109,7 @@ impl MapPublisher for AyaMapPublisher {
             agent_mode::OBSERVE,
             hook_role::EXTERNAL_XDP_INGRESS,
             vlan_visibility::UNKNOWN,
-            0,
+            FINGERPRINT_SAMPLE_SHIFT,
         );
         let map = active
             .bpf

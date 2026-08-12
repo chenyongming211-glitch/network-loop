@@ -1,6 +1,6 @@
 use l2_loop_common::{
     FINGERPRINT_PREFIX_LEN, FINGERPRINT_SAMPLE_SHIFT, NO_VLAN, fingerprint_hash,
-    fingerprint_selected, parse_fingerprint_metadata,
+    fingerprint_hash_with_length, fingerprint_selected, parse_fingerprint_metadata,
 };
 
 #[test]
@@ -13,6 +13,11 @@ fn fixed_fnv_vectors_include_exact_length_and_bound_the_prefix() {
         .collect::<Vec<_>>();
     assert_eq!(FINGERPRINT_PREFIX_LEN, 64);
     assert_eq!(fingerprint_hash(&long), Some(0x4b9a_726a_580d_f57d));
+    assert_eq!(
+        fingerprint_hash_with_length(80, &long[..FINGERPRINT_PREFIX_LEN]),
+        fingerprint_hash(&long)
+    );
+    assert_eq!(fingerprint_hash_with_length(80, &long[..63]), None);
 
     let mut same_prefix_different_tail = long.clone();
     same_prefix_different_tail[79] ^= 0xff;

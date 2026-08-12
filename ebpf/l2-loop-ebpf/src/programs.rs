@@ -1,13 +1,18 @@
 use aya_ebpf::{
     bindings::{TC_ACT_OK, xdp_action},
+    helpers::bpf_ktime_get_ns,
     macros::{classifier, xdp},
     programs::{TcContext, XdpContext},
 };
 use l2_loop_common::{
-    CounterValue, ParsedL2Word, StatsKey, hook_role, parse_l2_word, vlan_visibility,
+    CounterValue, FINGERPRINT_PREFIX_LEN, FINGERPRINT_SAMPLE_SHIFT, FingerprintKey,
+    FingerprintValue, ParsedL2Word, StatsKey, direction, fingerprint_hash_with_length,
+    fingerprint_selected, hook_role, parse_fingerprint_metadata, parse_l2_word, vlan_visibility,
 };
 
-use crate::maps::{HOOK_STATS, IFACE_CONFIG};
+use crate::maps::{FINGERPRINTS, HOOK_STATS, IFACE_CONFIG};
+
+const BPF_NOEXIST: u64 = 1;
 
 #[inline(always)]
 fn increment_counter(counter: *mut CounterValue, bytes: u64) {
@@ -52,12 +57,91 @@ fn parse_packet(data: usize, data_end: usize) -> ParsedL2Word {
 }
 
 #[inline(always)]
+fn account_fingerprint(
+    interface_generation: u64,
+    ifindex: u32,
+    direction: u8,
+    bytes: u64,
+    data: usize,
+    data_end: usize,
+) {
+    let Ok(frame_len) = u16::try_from(bytes) else {
+        return;
+    };
+    let prefix_len = if bytes < FINGERPRINT_PREFIX_LEN as u64 {
+        bytes as usize
+    } else {
+        FINGERPRINT_PREFIX_LEN
+    };
+    let mut prefix = [0_u8; FINGERPRINT_PREFIX_LEN];
+    let mut index = 0;
+    while index < FINGERPRINT_PREFIX_LEN {
+        if index >= prefix_len || data + index + 1 > data_end {
+            break;
+        }
+        prefix[index] = unsafe { *((data + index) as *const u8) };
+        index += 1;
+    }
+    if index != prefix_len {
+        return;
+    }
+    let bounded = &prefix[..prefix_len];
+    let Some(fingerprint) = fingerprint_hash_with_length(frame_len, bounded) else {
+        return;
+    };
+    if !fingerprint_selected(fingerprint) {
+        return;
+    }
+    let Some(metadata) = parse_fingerprint_metadata(bounded) else {
+        return;
+    };
+    let key = FingerprintKey {
+        interface_generation,
+        fingerprint,
+        ifindex,
+        outer_vlan_id: metadata.outer_vlan_id,
+        ether_type: metadata.ether_type,
+        frame_len,
+        direction,
+        vlan_depth: metadata.vlan_depth,
+        protocol: metadata.protocol,
+        subtype: metadata.subtype,
+        reserved: [0; 2],
+    };
+    let now_ns = unsafe { bpf_ktime_get_ns() };
+    if let Some(value) = FINGERPRINTS.get_ptr_mut(&key) {
+        unsafe {
+            (*value).last_seen_ns = now_ns;
+            (*value).packets = (*value).packets.saturating_add(1);
+            (*value).bytes = (*value).bytes.saturating_add(bytes);
+        }
+        return;
+    }
+    let value = FingerprintValue {
+        first_seen_ns: now_ns,
+        last_seen_ns: now_ns,
+        packets: 1,
+        bytes,
+        source_mac: metadata.source_mac,
+        destination_mac: metadata.destination_mac,
+        reserved: [0; 4],
+    };
+    let _ = FINGERPRINTS.insert(&key, &value, BPF_NOEXIST);
+}
+
+#[inline(always)]
 fn account(ifindex: u32, hook_role: u8, bytes: u64, data: usize, data_end: usize) {
-    let (interface_generation, current_vlan_visibility) = {
+    let (interface_generation, current_vlan_visibility, sample_shift) = {
         let Some(config) = IFACE_CONFIG.get_ptr(&ifindex) else {
             return;
         };
-        unsafe { ((*config).interface_generation, (*config).vlan_visibility) }
+        unsafe {
+            (
+                (*config).interface_generation,
+                (*config).vlan_visibility,
+                (*config).sample_shift,
+            )
+        }
     };
     increment_existing(
         StatsKey::total(interface_generation, ifindex, hook_role),
@@ -90,6 +174,21 @@ fn account(ifindex: u32, hook_role: u8, bytes: u64, data: usize, data_end: usize
                     }
                 }
             }
+        }
+        if sample_shift == FINGERPRINT_SAMPLE_SHIFT {
+            let fingerprint_direction = match hook_role {
+                hook_role::EXTERNAL_XDP_INGRESS => direction::INGRESS,
+                hook_role::PHYSICAL_TC_EGRESS => direction::EGRESS,
+                _ => return,
+            };
+            account_fingerprint(
+                interface_generation,
+                ifindex,
+                fingerprint_direction,
+                bytes,
+                data,
+                data_end,
+            );
         }
     }
 }

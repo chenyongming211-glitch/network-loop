@@ -26,11 +26,19 @@ pub struct FingerprintMetadata {
 
 pub fn fingerprint_hash(frame: &[u8]) -> Option<u64> {
     let frame_len = u16::try_from(frame.len()).ok()?;
+    fingerprint_hash_with_length(frame_len, frame)
+}
+
+pub fn fingerprint_hash_with_length(frame_len: u16, prefix: &[u8]) -> Option<u64> {
+    let expected_prefix_len = usize::from(frame_len).min(FINGERPRINT_PREFIX_LEN);
+    if prefix.len() != expected_prefix_len {
+        return None;
+    }
     let mut hash = FNV_OFFSET_BASIS;
     for byte in frame_len.to_be_bytes() {
         hash = fnv_step(hash, byte);
     }
-    for byte in frame.iter().take(FINGERPRINT_PREFIX_LEN) {
+    for byte in prefix {
         hash = fnv_step(hash, *byte);
     }
     Some(hash)
