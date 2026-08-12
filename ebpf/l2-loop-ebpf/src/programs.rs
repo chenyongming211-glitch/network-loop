@@ -246,27 +246,24 @@ fn fixed_protocol_subtype_tagged(
 }
 
 #[inline(always)]
-fn fixed_fingerprint_metadata(
-    frame: &[u8; FINGERPRINT_PREFIX_LEN],
-) -> FingerprintMetadata {
+fn fixed_fingerprint_metadata(frame: &[u8; FINGERPRINT_PREFIX_LEN]) -> FingerprintMetadata {
     let destination_mac = [frame[0], frame[1], frame[2], frame[3], frame[4], frame[5]];
     let source_mac = [frame[6], frame[7], frame[8], frame[9], frame[10], frame[11]];
     let outer_ether_type = u16::from_be_bytes([frame[12], frame[13]]);
-    let (ether_type, outer_vlan_id, vlan_depth) =
-        if matches!(outer_ether_type, 0x8100 | 0x88a8) {
-            let inner = u16::from_be_bytes([frame[16], frame[17]]);
-            (
-                inner,
-                u16::from_be_bytes([frame[14], frame[15]]) & 0x0fff,
-                if matches!(inner, 0x8100 | 0x88a8) {
-                    2
-                } else {
-                    1
-                },
-            )
-        } else {
-            (outer_ether_type, NO_VLAN, 0)
-        };
+    let (ether_type, outer_vlan_id, vlan_depth) = if matches!(outer_ether_type, 0x8100 | 0x88a8) {
+        let inner = u16::from_be_bytes([frame[16], frame[17]]);
+        (
+            inner,
+            u16::from_be_bytes([frame[14], frame[15]]) & 0x0fff,
+            if matches!(inner, 0x8100 | 0x88a8) {
+                2
+            } else {
+                1
+            },
+        )
+    } else {
+        (outer_ether_type, NO_VLAN, 0)
+    };
     let (protocol, subtype) = if vlan_depth == 2 {
         (0, 0)
     } else if vlan_depth == 1 {
