@@ -347,7 +347,10 @@ fn validate_retained_state(
 ) -> Result<(), DomainError> {
     if retained.is_some_and(|value| !value.is_anomalous())
         || (retained.is_some()
-            && !matches!(state, DetectionState::Cooldown | DetectionState::Unavailable))
+            && !matches!(
+                state,
+                DetectionState::Cooldown | DetectionState::Unavailable
+            ))
         || (state == DetectionState::Cooldown && retained.is_none())
     {
         return Err(DomainError::InvalidObservation(

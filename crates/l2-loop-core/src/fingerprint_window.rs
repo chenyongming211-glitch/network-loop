@@ -86,9 +86,7 @@ impl FingerprintWindowReport {
             && self.ingress == FingerprintCounters::default()
             && self.egress == FingerprintCounters::default()
             && self.dominant_ingress_packet_ratio_milli.is_none()
-            && self
-                .maximum_ingress_to_egress_packet_ratio_milli
-                .is_none();
+            && self.maximum_ingress_to_egress_packet_ratio_milli.is_none();
         match self.state {
             FingerprintWindowState::WarmingUp => {
                 if self.coverage_ms != 0
@@ -113,9 +111,7 @@ impl FingerprintWindowReport {
                     || (self.ingress.packets == 0
                         && self.dominant_ingress_packet_ratio_milli.is_some())
                     || (self.egress.packets == 0
-                        && self
-                            .maximum_ingress_to_egress_packet_ratio_milli
-                            .is_some())
+                        && self.maximum_ingress_to_egress_packet_ratio_milli.is_some())
                 {
                     return Err(DomainError::InvalidObservation(
                         "ready fingerprint window evidence is invalid",
