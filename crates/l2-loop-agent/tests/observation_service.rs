@@ -8,15 +8,15 @@ use std::{
 };
 
 use l2_loop_agent::{
-    BASELINE_SOURCE_UNAVAILABLE, Clock, OBS_MAP_UNAVAILABLE, OBS_RATE_COUNTER_REGRESSION,
-    ObservationReadPurpose, ObservationReader, PortError, RawFingerprints, RawObservation,
-    SamplingService, SamplingTickOutcome,
+    BASELINE_SOURCE_UNAVAILABLE, Clock, EventIdSource, IncidentRecorderError, OBS_MAP_UNAVAILABLE,
+    OBS_RATE_COUNTER_REGRESSION, ObservationReadPurpose, ObservationReader, PortError,
+    RawFingerprints, RawObservation, SamplingService, SamplingTickOutcome,
     ownership::{OWNED_MAP_NAMES, OWNERSHIP_SCHEMA_VERSION, OwnedMapPin, OwnershipRecord},
 };
 use l2_loop_common::{ABI_VERSION, FingerprintKey, FingerprintValue, direction};
 use l2_loop_core::{
     BaselineState, ClassObservation, DetectionState, FingerprintEvidence, FingerprintState,
-    HookObservation, HookRole, InterfaceName, ObservationCounters, ObservationHealth,
+    EventId, HookObservation, HookRole, InterfaceName, ObservationCounters, ObservationHealth,
     RateWindowState, TrafficClass, VlanVisibility,
 };
 
@@ -31,6 +31,35 @@ const CLASS_ORDER: [TrafficClass; 6] = [
     TrafficClass::LinkLocalControl,
     TrafficClass::UnicastOrUnclassified,
 ];
+
+struct FixedIncidentId;
+
+impl EventIdSource for FixedIncidentId {
+    fn next_id(&mut self) -> Result<EventId, IncidentRecorderError> {
+        Ok(EventId::from_bytes([7; 16]))
+    }
+}
+
+#[test]
+fn request_reads_never_enqueue_incident_output() {
+    let (mut service, _, purposes) = service([Ok(raw_observation(0)), Ok(raw_observation(0))]);
+    let active = interface();
+    let ownership = ownership();
+    service
+        .start_incident_generation_with_source(&active, &ownership, FixedIncidentId)
+        .unwrap();
+
+    service.observe(&active, &active, &ownership).unwrap();
+    service
+        .status(None, Some(&active), Some(&ownership))
+        .unwrap();
+
+    assert!(service.take_incident_jobs().is_empty());
+    assert_eq!(
+        purposes.lock().unwrap().as_slice(),
+        [ObservationReadPurpose::Request, ObservationReadPurpose::Request]
+    );
+}
 
 #[test]
 fn background_tick_inserts_exactly_one_sample() {

@@ -1,4 +1,4 @@
-use std::time::UNIX_EPOCH;
+use std::{collections::VecDeque, time::UNIX_EPOCH};
 
 use l2_loop_core::{
     BaselineEngine, BaselineState, BaselineSummary, DetectionEngine, DetectionSignals,
@@ -10,7 +10,8 @@ use l2_loop_core::{
 };
 
 use crate::{
-    Clock, ObservationReadPurpose, ObservationReader, PortError, RawFingerprints, RawObservation,
+    Clock, EventIdSource, IncidentIdentity, IncidentRecorder, IncidentWriteJob, LinuxEventIdSource,
+    ObservationReadPurpose, ObservationReader, PortError, RawFingerprints, RawObservation,
     ownership::OwnershipRecord,
 };
 
@@ -72,6 +73,9 @@ pub struct SamplingService<R, C> {
     fingerprint_window: Option<FingerprintWindowHistory>,
     detection: Option<DetectionEngine>,
     next_analysis_at_ns: Option<u64>,
+    incident_recorder: Option<IncidentRecorder<Box<dyn EventIdSource>>>,
+    incident_jobs: VecDeque<IncidentWriteJob>,
+    latest_incident_snapshot: Option<ObservationSnapshot>,
 }
 
 impl<R, C> SamplingService<R, C>
@@ -88,6 +92,9 @@ where
             fingerprint_window: None,
             detection: None,
             next_analysis_at_ns: None,
+            incident_recorder: None,
+            incident_jobs: VecDeque::new(),
+            latest_incident_snapshot: None,
         }
     }
 
@@ -114,7 +121,40 @@ where
         Ok(())
     }
 
+    pub fn start_incident_generation(
+        &mut self,
+        interface: &InterfaceName,
+        ownership: &OwnershipRecord,
+    ) -> Result<(), ObservationError> {
+        self.start_incident_generation_with_source(interface, ownership, LinuxEventIdSource)
+    }
+
+    #[doc(hidden)]
+    pub fn start_incident_generation_with_source<S>(
+        &mut self,
+        interface: &InterfaceName,
+        ownership: &OwnershipRecord,
+        source: S,
+    ) -> Result<(), ObservationError>
+    where
+        S: EventIdSource + 'static,
+    {
+        let identity =
+            IncidentIdentity::new(interface.clone(), ownership.ifindex, ownership.generation)
+                .map_err(|_| ownership_error())?;
+        self.incident_recorder = Some(IncidentRecorder::new(identity, Box::new(source)));
+        self.incident_jobs.clear();
+        self.latest_incident_snapshot = None;
+        Ok(())
+    }
+
     pub fn sample_tick(&mut self, ownership: &OwnershipRecord) -> SamplingTickOutcome {
+        let outcome = self.sample_tick_inner(ownership);
+        self.capture_incident_transitions();
+        outcome
+    }
+
+    fn sample_tick_inner(&mut self, ownership: &OwnershipRecord) -> SamplingTickOutcome {
         if self.history.is_none()
             || self.baseline.is_none()
             || self.fingerprint_window.is_none()
@@ -205,6 +245,7 @@ where
             );
             return SamplingTickOutcome::Rejected;
         };
+        let evidence_raw = raw.clone();
         let analysis_fingerprints = raw.fingerprints.clone();
         let sample = match rate_sample(raw, now_monotonic_ns, captured_at_unix_ms) {
             Ok(sample) => sample,
@@ -273,6 +314,11 @@ where
                     return SamplingTickOutcome::Sampled;
                 }
                 self.evaluate_detection(ownership, &windows, now_monotonic_ns, captured_at_unix_ms);
+                self.cache_background_snapshot(
+                    evidence_raw,
+                    now_monotonic_ns,
+                    captured_at_unix_ms,
+                );
                 SamplingTickOutcome::Sampled
             }
             Err(error) => {
@@ -301,8 +347,11 @@ where
         active_interface: &InterfaceName,
         ownership: &OwnershipRecord,
     ) -> Result<ObservationSnapshot, ObservationError> {
-        self.current_snapshot(requested, active_interface, ownership)
-            .map(|(snapshot, _)| snapshot)
+        let result = self
+            .current_snapshot(requested, active_interface, ownership)
+            .map(|(snapshot, _)| snapshot);
+        self.acknowledge_request_transitions();
+        result
     }
 
     pub fn status(
@@ -321,8 +370,9 @@ where
         if requested != active_interface {
             return Err(session_error());
         }
-        let (snapshot, rate_windows) =
-            self.current_snapshot(requested, active_interface, ownership)?;
+        let current = self.current_snapshot(requested, active_interface, ownership);
+        self.acknowledge_request_transitions();
+        let (snapshot, rate_windows) = current?;
         let xdp_ingress = snapshot.hooks[0].total;
         let tc_egress = snapshot.hooks[OBSERVED_HOOK_COUNT - 1].total;
         let baseline = BaselineSummary::from_report(&snapshot.baseline);
@@ -360,6 +410,26 @@ where
         if let Some(detection) = self.detection.as_mut() {
             let _ = detection.pause(wall_time_ms(&self.clock).unwrap_or_default());
         }
+        self.capture_incident_transitions();
+    }
+
+    pub fn generation_ended(&mut self) {
+        let Some(snapshot) = self.latest_incident_snapshot.as_ref() else {
+            return;
+        };
+        let Some(recorder) = self.incident_recorder.as_mut() else {
+            return;
+        };
+        if let Ok(Some(job)) = recorder.generation_ended(
+            wall_time_ms(&self.clock).unwrap_or(snapshot.captured_at_unix_ms),
+            snapshot,
+        ) {
+            self.push_incident_job(job);
+        }
+    }
+
+    pub fn take_incident_jobs(&mut self) -> Vec<IncidentWriteJob> {
+        self.incident_jobs.drain(..).collect()
     }
 
     pub fn clear(&mut self) {
@@ -368,6 +438,129 @@ where
         self.fingerprint_window = None;
         self.detection = None;
         self.next_analysis_at_ns = None;
+        self.incident_recorder = None;
+        self.incident_jobs.clear();
+        self.latest_incident_snapshot = None;
+    }
+
+    fn cache_background_snapshot(
+        &mut self,
+        raw: RawObservation,
+        captured_at_monotonic_ns: u64,
+        captured_at_unix_ms: u64,
+    ) {
+        let Some(identity) = self
+            .incident_recorder
+            .as_ref()
+            .map(|recorder| recorder.identity().clone())
+        else {
+            return;
+        };
+        let Some(history) = self.history.as_ref() else {
+            return;
+        };
+        let Ok(rate_windows) = history.detailed_windows(captured_at_monotonic_ns) else {
+            return;
+        };
+        let Some(baseline) = self.baseline.as_ref() else {
+            return;
+        };
+        let Some(detection) = self.detection.as_ref() else {
+            return;
+        };
+        let Ok(fingerprints) = fingerprint_report(raw.ifindex, raw.generation, raw.fingerprints)
+        else {
+            return;
+        };
+        let sampling = history.sampling_status();
+        let health = observation_health(
+            &sampling,
+            &rate_windows,
+            baseline.cached_report().state,
+            fingerprints.state,
+            detection.cached_report().state,
+        );
+        let Ok(mut snapshot) = ObservationSnapshot::new(
+            identity.interface,
+            raw.ifindex,
+            raw.generation,
+            captured_at_unix_ms,
+            raw.vlan_visibility,
+            raw.hooks,
+            sampling,
+            rate_windows,
+        ) else {
+            return;
+        };
+        snapshot.health = health;
+        snapshot.baseline = baseline.cached_report().clone();
+        snapshot.fingerprints = fingerprints;
+        snapshot.detection = detection.cached_report().clone();
+        self.latest_incident_snapshot = Some(snapshot);
+    }
+
+    fn capture_incident_transitions(&mut self) {
+        let Some(report) = self
+            .detection
+            .as_ref()
+            .map(|detection| detection.cached_report().clone())
+        else {
+            return;
+        };
+        if let Some(snapshot) = self.latest_incident_snapshot.as_mut() {
+            snapshot.detection = report.clone();
+            if report.state == DetectionState::Unavailable {
+                snapshot.health = ObservationHealth::Degraded;
+            }
+        }
+        let Some(recorder) = self.incident_recorder.as_mut() else {
+            return;
+        };
+        let unseen: Vec<_> = report
+            .transitions
+            .iter()
+            .copied()
+            .filter(|transition| transition.sequence > recorder.last_transition_sequence())
+            .collect();
+        let mut jobs = Vec::new();
+        for transition in unseen {
+            let Some(snapshot) = self.latest_incident_snapshot.as_ref() else {
+                let _ = recorder.acknowledge_without_output(&transition);
+                continue;
+            };
+            match recorder.record(&transition, snapshot) {
+                Ok(Some(job)) => jobs.push(job),
+                Ok(None) => {}
+                Err(_) => break,
+            }
+        }
+        for job in jobs {
+            self.push_incident_job(job);
+        }
+    }
+
+    fn acknowledge_request_transitions(&mut self) {
+        let Some(report) = self.detection.as_ref().map(DetectionEngine::cached_report) else {
+            return;
+        };
+        let Some(recorder) = self.incident_recorder.as_mut() else {
+            return;
+        };
+        for transition in report
+            .transitions
+            .iter()
+            .filter(|transition| transition.sequence > recorder.last_transition_sequence())
+        {
+            if recorder.acknowledge_without_output(transition).is_err() {
+                break;
+            }
+        }
+    }
+
+    fn push_incident_job(&mut self, job: IncidentWriteJob) {
+        if self.incident_jobs.len() < l2_loop_core::INCIDENT_OUTPUT_QUEUE_CAPACITY {
+            self.incident_jobs.push_back(job);
+        }
     }
 
     fn advance_analysis_deadline(&mut self, now_monotonic_ns: u64) -> Result<(), ()> {

@@ -6,13 +6,24 @@ use std::{
 };
 
 use l2_loop_agent::{
-    IncidentIdentity, IncidentOutputBackend, IncidentOutputError, IncidentOutputShutdown,
-    IncidentOutputSubmitError, IncidentOutputWorker, IncidentWriteJob,
+    EventIdSource, IncidentIdentity, IncidentOutputBackend, IncidentOutputError,
+    IncidentOutputShutdown, IncidentOutputSubmitError, IncidentOutputWorker, IncidentRecorder,
+    IncidentRecorderError, IncidentWriteJob,
 };
 use l2_loop_core::{
-    AlertCode, DetectionState, DetectionTransition, DetectionTransitionReason, EventId,
-    EvidenceStatus, InterfaceName,
+    ClassObservation, DetectionState, DetectionTransition, DetectionTransitionReason, EventId,
+    EvidenceStatus, HookObservation, HookRole, InterfaceName, ObservationCounters,
+    ObservationSnapshot, SamplingStatus, TrafficClass, VlanVisibility,
+    warming_detailed_rate_windows,
 };
+
+struct FixedId(EventId);
+
+impl EventIdSource for FixedId {
+    fn next_id(&mut self) -> Result<EventId, IncidentRecorderError> {
+        Ok(self.0)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Call {
@@ -29,7 +40,10 @@ struct RecordingBackend {
 
 impl IncidentOutputBackend for RecordingBackend {
     fn persist(&mut self, job: &IncidentWriteJob) -> Result<(), IncidentOutputError> {
-        self.calls.lock().unwrap().push(Call::Persist(job.revision));
+        self.calls
+            .lock()
+            .unwrap()
+            .push(Call::Persist(job.revision.revision));
         if let Some(entered) = self.entered.take() {
             entered.send(()).unwrap();
         }
@@ -40,7 +54,7 @@ impl IncidentOutputBackend for RecordingBackend {
                 open = changed.wait(open).unwrap();
             }
         }
-        if self.fail_revision == Some(job.revision) {
+        if self.fail_revision == Some(job.revision.revision) {
             Err(IncidentOutputError::StoreUnavailable)
         } else {
             Ok(())
@@ -51,28 +65,74 @@ impl IncidentOutputBackend for RecordingBackend {
         self.calls
             .lock()
             .unwrap()
-            .push(Call::Alert(job.revision, evidence_status));
+            .push(Call::Alert(job.revision.revision, evidence_status));
     }
 }
 
 fn job(revision: u64) -> IncidentWriteJob {
-    IncidentWriteJob {
-        event_id: EventId::from_bytes([1; 16]),
-        revision,
-        identity: IncidentIdentity::new(InterfaceName::new("l2h0123456789").unwrap(), 42, 7)
-            .unwrap(),
-        transition: DetectionTransition {
-            sequence: revision,
-            previous_state: DetectionState::Normal,
-            current_state: DetectionState::IngressStormConfirmed,
-            reason: DetectionTransitionReason::StormAsserted,
-            occurred_at_unix_ms: 1_000 + revision,
+    let identity = IncidentIdentity::new(InterfaceName::new("l2h0123456789").unwrap(), 42, 7)
+        .unwrap();
+    let mut recorder = IncidentRecorder::new(identity, FixedId(EventId::from_bytes([1; 16])));
+    let mut job = recorder
+        .record(
+            &DetectionTransition {
+                sequence: 1,
+                previous_state: DetectionState::Normal,
+                current_state: DetectionState::IngressStormConfirmed,
+                reason: DetectionTransitionReason::StormAsserted,
+                occurred_at_unix_ms: 1_001,
+            },
+            &snapshot(),
+        )
+        .unwrap()
+        .unwrap();
+    job.revision.revision = revision;
+    job.revision.transition_sequence = revision;
+    job.revision.occurred_at_unix_ms = 1_000 + revision;
+    job
+}
+
+fn snapshot() -> ObservationSnapshot {
+    const CLASSES: [TrafficClass; 6] = [
+        TrafficClass::L2Broadcast,
+        TrafficClass::Ipv4Multicast,
+        TrafficClass::Ipv6Multicast,
+        TrafficClass::OtherL2Multicast,
+        TrafficClass::LinkLocalControl,
+        TrafficClass::UnicastOrUnclassified,
+    ];
+    let hook = |role| HookObservation {
+        role,
+        total: ObservationCounters {
+            packets: 21,
+            bytes: 1_260,
         },
-        opened_at_unix_ms: 1_001,
-        closed_at_unix_ms: None,
-        code: AlertCode::StormConfirmed,
-        severity: AlertCode::StormConfirmed.severity(),
-    }
+        classes: CLASSES.map(|traffic_class| ClassObservation {
+            traffic_class,
+            counters: ObservationCounters {
+                packets: 1,
+                bytes: 60,
+            },
+        }),
+        parse_errors: ObservationCounters {
+            packets: 0,
+            bytes: 0,
+        },
+    };
+    ObservationSnapshot::new(
+        InterfaceName::new("l2h0123456789").unwrap(),
+        42,
+        7,
+        1_000,
+        VlanVisibility::VerifiedVisible,
+        [
+            hook(HookRole::ExternalXdpIngress),
+            hook(HookRole::PhysicalTcEgress),
+        ],
+        SamplingStatus::default(),
+        warming_detailed_rate_windows(),
+    )
+    .unwrap()
 }
 
 #[tokio::test]

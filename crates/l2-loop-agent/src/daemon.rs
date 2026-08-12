@@ -19,8 +19,8 @@ use tokio::{
 
 use crate::{
     AttachmentSession, IsolatedAttachmentDriver, OBS_OWNERSHIP_MISMATCH, OBS_SESSION_NOT_FOUND,
-    ObservationReader, PlatformInspector, PortError, PreflightService, SamplingService,
-    SamplingTickOutcome, SystemClock,
+    IncidentOutputHandle, ObservationReader, PlatformInspector, PortError, PreflightService,
+    SamplingService, SamplingTickOutcome, SystemClock,
     linux::acceptance_fault::ACCEPTANCE_DIAGNOSTICS_ENV,
     ownership::{FileOwnershipRepository, OwnershipRecord, RunId},
     protocol::{
@@ -393,6 +393,7 @@ pub struct TransactionIsolatedControl {
     driver: Box<dyn ControlAttachmentDriver>,
     ownership: Box<dyn CanonicalOwnershipReader>,
     sampling: SamplingService<Box<dyn ObservationReader>, SystemClock>,
+    incident_output: Option<IncidentOutputHandle>,
     active: Option<ActiveIsolatedSession>,
 }
 
@@ -413,8 +414,14 @@ impl TransactionIsolatedControl {
             driver: Box::new(driver),
             ownership: Box::new(FileOwnershipRepository),
             sampling: SamplingService::new(Box::new(reader), SystemClock::new()),
+            incident_output: None,
             active: None,
         }
+    }
+
+    pub fn with_incident_output(mut self, output: IncidentOutputHandle) -> Self {
+        self.incident_output = Some(output);
+        self
     }
 
     fn canonical_ownership(
@@ -429,6 +436,16 @@ impl TransactionIsolatedControl {
             return Err(IsolatedControlError::internal(OBS_OWNERSHIP_MISMATCH));
         }
         Ok(committed)
+    }
+
+    fn flush_incident_jobs(&mut self) {
+        let jobs = self.sampling.take_incident_jobs();
+        let Some(output) = self.incident_output.as_ref() else {
+            return;
+        };
+        for job in jobs {
+            let _ = output.try_submit(job);
+        }
     }
 }
 
@@ -450,6 +467,9 @@ impl IsolatedControl for TransactionIsolatedControl {
             .attach(interface, run_id, created_at_unix_seconds)?;
         self.sampling
             .start(&session.ownership)
+            .map_err(observation_control_error)?;
+        self.sampling
+            .start_incident_generation(interface, &session.ownership)
             .map_err(observation_control_error)?;
         self.active = Some(ActiveIsolatedSession {
             run_id: run_id.clone(),
@@ -475,12 +495,15 @@ impl IsolatedControl for TransactionIsolatedControl {
             return Err(IsolatedControlError::blocked(PF_OWNERSHIP_MISMATCH));
         }
         self.sampling.pause();
+        self.flush_incident_jobs();
         self.active
             .as_mut()
             .expect("active session was validated")
             .sampling_paused = true;
         let active = self.active.as_ref().expect("active session was validated");
         self.driver.detach_exact(&active.attachment)?;
+        self.sampling.generation_ended();
+        self.flush_incident_jobs();
         self.sampling.clear();
         self.active = None;
         Ok(())
@@ -494,10 +517,12 @@ impl IsolatedControl for TransactionIsolatedControl {
             return Ok(IsolatedSamplingOutcome::Rejected);
         }
         let ownership = self.canonical_ownership(active)?;
-        Ok(match self.sampling.sample_tick(&ownership) {
+        let outcome = match self.sampling.sample_tick(&ownership) {
             SamplingTickOutcome::Sampled => IsolatedSamplingOutcome::Sampled,
             SamplingTickOutcome::Rejected => IsolatedSamplingOutcome::Rejected,
-        })
+        };
+        self.flush_incident_jobs();
+        Ok(outcome)
     }
 
     fn observe(
@@ -1172,6 +1197,7 @@ mod tests {
                 }),
                 SystemClock::new(),
             ),
+            incident_output: None,
             active: None,
         };
         (
