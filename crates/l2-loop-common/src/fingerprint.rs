@@ -47,21 +47,21 @@ pub fn parse_fingerprint_metadata(frame: &[u8]) -> Option<FingerprintMetadata> {
     let destination_mac = copy_mac(frame, 0)?;
     let source_mac = copy_mac(frame, 6)?;
     let outer_ether_type = read_u16(frame, 12)?;
-    let (ether_type, outer_vlan_id, vlan_depth, network_offset) =
-        if is_vlan_tpid(outer_ether_type) {
-            if frame.len() < 18 {
-                return None;
-            }
-            let inner_ether_type = read_u16(frame, 16)?;
-            (
-                inner_ether_type,
-                read_u16(frame, 14)? & 0x0fff,
-                if is_vlan_tpid(inner_ether_type) { 2 } else { 1 },
-                18,
-            )
-        } else {
-            (outer_ether_type, NO_VLAN, 0, 14)
-        };
+    let (ether_type, outer_vlan_id, vlan_depth, network_offset) = if is_vlan_tpid(outer_ether_type)
+    {
+        if frame.len() < 18 {
+            return None;
+        }
+        let inner_ether_type = read_u16(frame, 16)?;
+        (
+            inner_ether_type,
+            read_u16(frame, 14)? & 0x0fff,
+            if is_vlan_tpid(inner_ether_type) { 2 } else { 1 },
+            18,
+        )
+    } else {
+        (outer_ether_type, NO_VLAN, 0, 14)
+    };
     let (protocol, subtype) = if vlan_depth == 2 {
         (0, 0)
     } else {
