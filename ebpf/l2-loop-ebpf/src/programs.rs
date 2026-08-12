@@ -57,57 +57,46 @@ fn parse_packet(data: usize, data_end: usize) -> ParsedL2Word {
     }
 }
 
-#[inline(always)]
-fn packet_byte_at<const OFFSET: usize>(
-    data: usize,
-    data_end: usize,
-    prefix_len: usize,
-) -> Option<u8> {
-    if prefix_len <= OFFSET || data + OFFSET + 1 > data_end {
-        None
-    } else {
-        Some(unsafe { *((data + OFFSET) as *const u8) })
-    }
+macro_rules! packet_byte_at {
+    ($data:expr, $data_end:expr, $prefix_len:expr, $offset:literal) => {{
+        if $prefix_len <= $offset {
+            None
+        } else {
+            packet_prefix::<{ $offset + 1 }>($data, $data_end)
+                .map(|packet| unsafe { (*packet)[$offset] })
+        }
+    }};
 }
 
-#[inline(always)]
-fn packet_u16_at<const OFFSET: usize>(
-    data: usize,
-    data_end: usize,
-    prefix_len: usize,
-) -> Option<u16> {
-    if prefix_len < OFFSET + 2 || data + OFFSET + 2 > data_end {
-        None
-    } else {
-        Some(unsafe {
-            u16::from_be_bytes([
-                *((data + OFFSET) as *const u8),
-                *((data + OFFSET + 1) as *const u8),
-            ])
-        })
-    }
+macro_rules! packet_u16_at {
+    ($data:expr, $data_end:expr, $prefix_len:expr, $offset:literal) => {{
+        if $prefix_len < $offset + 2 {
+            None
+        } else {
+            packet_prefix::<{ $offset + 2 }>($data, $data_end).map(|packet| unsafe {
+                u16::from_be_bytes([(*packet)[$offset], (*packet)[$offset + 1]])
+            })
+        }
+    }};
 }
 
-#[inline(always)]
-fn packet_mac_at<const OFFSET: usize>(
-    data: usize,
-    data_end: usize,
-    prefix_len: usize,
-) -> Option<[u8; 6]> {
-    if prefix_len < OFFSET + 6 || data + OFFSET + 6 > data_end {
-        None
-    } else {
-        Some(unsafe {
-            [
-                *((data + OFFSET) as *const u8),
-                *((data + OFFSET + 1) as *const u8),
-                *((data + OFFSET + 2) as *const u8),
-                *((data + OFFSET + 3) as *const u8),
-                *((data + OFFSET + 4) as *const u8),
-                *((data + OFFSET + 5) as *const u8),
-            ]
-        })
-    }
+macro_rules! packet_mac_at {
+    ($data:expr, $data_end:expr, $prefix_len:expr, $offset:literal) => {{
+        if $prefix_len < $offset + 6 {
+            None
+        } else {
+            packet_prefix::<{ $offset + 6 }>($data, $data_end).map(|packet| unsafe {
+                [
+                    (*packet)[$offset],
+                    (*packet)[$offset + 1],
+                    (*packet)[$offset + 2],
+                    (*packet)[$offset + 3],
+                    (*packet)[$offset + 4],
+                    (*packet)[$offset + 5],
+                ]
+            })
+        }
+    }};
 }
 
 #[inline(always)]
@@ -123,7 +112,7 @@ fn packet_fingerprint_hash(
             if prefix_len > $offset {
                 hash = fingerprint_hash_step(
                     hash,
-                    packet_byte_at::<$offset>(data, data_end, prefix_len)?,
+                    packet_byte_at!(data, data_end, prefix_len, $offset)?,
                 );
             }
         };
@@ -197,16 +186,16 @@ fn packet_fingerprint_hash(
 
 #[inline(always)]
 fn ipv4_subtype_untagged(data: usize, data_end: usize, prefix_len: usize) -> u8 {
-    let ihl = packet_byte_at::<14>(data, data_end, prefix_len).unwrap_or_default() & 0x0f;
+    let ihl = packet_byte_at!(data, data_end, prefix_len, 14).unwrap_or_default() & 0x0f;
     match ihl {
-        5 => packet_byte_at::<34>(data, data_end, prefix_len),
-        6 => packet_byte_at::<38>(data, data_end, prefix_len),
-        7 => packet_byte_at::<42>(data, data_end, prefix_len),
-        8 => packet_byte_at::<46>(data, data_end, prefix_len),
-        9 => packet_byte_at::<50>(data, data_end, prefix_len),
-        10 => packet_byte_at::<54>(data, data_end, prefix_len),
-        11 => packet_byte_at::<58>(data, data_end, prefix_len),
-        12 => packet_byte_at::<62>(data, data_end, prefix_len),
+        5 => packet_byte_at!(data, data_end, prefix_len, 34),
+        6 => packet_byte_at!(data, data_end, prefix_len, 38),
+        7 => packet_byte_at!(data, data_end, prefix_len, 42),
+        8 => packet_byte_at!(data, data_end, prefix_len, 46),
+        9 => packet_byte_at!(data, data_end, prefix_len, 50),
+        10 => packet_byte_at!(data, data_end, prefix_len, 54),
+        11 => packet_byte_at!(data, data_end, prefix_len, 58),
+        12 => packet_byte_at!(data, data_end, prefix_len, 62),
         _ => None,
     }
     .unwrap_or_default()
@@ -214,15 +203,15 @@ fn ipv4_subtype_untagged(data: usize, data_end: usize, prefix_len: usize) -> u8 
 
 #[inline(always)]
 fn ipv4_subtype_tagged(data: usize, data_end: usize, prefix_len: usize) -> u8 {
-    let ihl = packet_byte_at::<18>(data, data_end, prefix_len).unwrap_or_default() & 0x0f;
+    let ihl = packet_byte_at!(data, data_end, prefix_len, 18).unwrap_or_default() & 0x0f;
     match ihl {
-        5 => packet_byte_at::<38>(data, data_end, prefix_len),
-        6 => packet_byte_at::<42>(data, data_end, prefix_len),
-        7 => packet_byte_at::<46>(data, data_end, prefix_len),
-        8 => packet_byte_at::<50>(data, data_end, prefix_len),
-        9 => packet_byte_at::<54>(data, data_end, prefix_len),
-        10 => packet_byte_at::<58>(data, data_end, prefix_len),
-        11 => packet_byte_at::<62>(data, data_end, prefix_len),
+        5 => packet_byte_at!(data, data_end, prefix_len, 38),
+        6 => packet_byte_at!(data, data_end, prefix_len, 42),
+        7 => packet_byte_at!(data, data_end, prefix_len, 46),
+        8 => packet_byte_at!(data, data_end, prefix_len, 50),
+        9 => packet_byte_at!(data, data_end, prefix_len, 54),
+        10 => packet_byte_at!(data, data_end, prefix_len, 58),
+        11 => packet_byte_at!(data, data_end, prefix_len, 62),
         _ => None,
     }
     .unwrap_or_default()
@@ -237,8 +226,8 @@ fn packet_protocol_subtype_untagged(
 ) -> (u8, u8) {
     match ether_type {
         0x0800 => {
-            let first = packet_byte_at::<14>(data, data_end, prefix_len).unwrap_or_default();
-            let protocol = packet_byte_at::<23>(data, data_end, prefix_len).unwrap_or_default();
+            let first = packet_byte_at!(data, data_end, prefix_len, 14).unwrap_or_default();
+            let protocol = packet_byte_at!(data, data_end, prefix_len, 23).unwrap_or_default();
             if first >> 4 != 4 || first & 0x0f < 5 {
                 (0, 0)
             } else {
@@ -253,15 +242,15 @@ fn packet_protocol_subtype_untagged(
             }
         }
         0x86dd => {
-            let first = packet_byte_at::<14>(data, data_end, prefix_len).unwrap_or_default();
-            let protocol = packet_byte_at::<20>(data, data_end, prefix_len).unwrap_or_default();
+            let first = packet_byte_at!(data, data_end, prefix_len, 14).unwrap_or_default();
+            let protocol = packet_byte_at!(data, data_end, prefix_len, 20).unwrap_or_default();
             if first >> 4 != 6 {
                 (0, 0)
             } else {
                 (
                     protocol,
                     if protocol == 58 {
-                        packet_byte_at::<54>(data, data_end, prefix_len).unwrap_or_default()
+                        packet_byte_at!(data, data_end, prefix_len, 54).unwrap_or_default()
                     } else {
                         0
                     },
@@ -270,7 +259,7 @@ fn packet_protocol_subtype_untagged(
         }
         0x0806 => (
             0,
-            packet_u16_at::<20>(data, data_end, prefix_len)
+            packet_u16_at!(data, data_end, prefix_len, 20)
                 .filter(|opcode| *opcode <= u16::from(u8::MAX))
                 .unwrap_or_default() as u8,
         ),
@@ -287,8 +276,8 @@ fn packet_protocol_subtype_tagged(
 ) -> (u8, u8) {
     match ether_type {
         0x0800 => {
-            let first = packet_byte_at::<18>(data, data_end, prefix_len).unwrap_or_default();
-            let protocol = packet_byte_at::<27>(data, data_end, prefix_len).unwrap_or_default();
+            let first = packet_byte_at!(data, data_end, prefix_len, 18).unwrap_or_default();
+            let protocol = packet_byte_at!(data, data_end, prefix_len, 27).unwrap_or_default();
             if first >> 4 != 4 || first & 0x0f < 5 {
                 (0, 0)
             } else {
@@ -303,15 +292,15 @@ fn packet_protocol_subtype_tagged(
             }
         }
         0x86dd => {
-            let first = packet_byte_at::<18>(data, data_end, prefix_len).unwrap_or_default();
-            let protocol = packet_byte_at::<24>(data, data_end, prefix_len).unwrap_or_default();
+            let first = packet_byte_at!(data, data_end, prefix_len, 18).unwrap_or_default();
+            let protocol = packet_byte_at!(data, data_end, prefix_len, 24).unwrap_or_default();
             if first >> 4 != 6 {
                 (0, 0)
             } else {
                 (
                     protocol,
                     if protocol == 58 {
-                        packet_byte_at::<58>(data, data_end, prefix_len).unwrap_or_default()
+                        packet_byte_at!(data, data_end, prefix_len, 58).unwrap_or_default()
                     } else {
                         0
                     },
@@ -320,7 +309,7 @@ fn packet_protocol_subtype_tagged(
         }
         0x0806 => (
             0,
-            packet_u16_at::<24>(data, data_end, prefix_len)
+            packet_u16_at!(data, data_end, prefix_len, 24)
                 .filter(|opcode| *opcode <= u16::from(u8::MAX))
                 .unwrap_or_default() as u8,
         ),
@@ -337,17 +326,17 @@ fn packet_fingerprint_metadata(
     if prefix_len < 14 {
         return None;
     }
-    let destination_mac = packet_mac_at::<0>(data, data_end, prefix_len)?;
-    let source_mac = packet_mac_at::<6>(data, data_end, prefix_len)?;
-    let outer_ether_type = packet_u16_at::<12>(data, data_end, prefix_len)?;
+    let destination_mac = packet_mac_at!(data, data_end, prefix_len, 0)?;
+    let source_mac = packet_mac_at!(data, data_end, prefix_len, 6)?;
+    let outer_ether_type = packet_u16_at!(data, data_end, prefix_len, 12)?;
     let (ether_type, outer_vlan_id, vlan_depth) = if matches!(outer_ether_type, 0x8100 | 0x88a8) {
         if prefix_len < 18 {
             return None;
         }
-        let inner_ether_type = packet_u16_at::<16>(data, data_end, prefix_len)?;
+        let inner_ether_type = packet_u16_at!(data, data_end, prefix_len, 16)?;
         (
             inner_ether_type,
-            packet_u16_at::<14>(data, data_end, prefix_len)? & 0x0fff,
+            packet_u16_at!(data, data_end, prefix_len, 14)? & 0x0fff,
             if matches!(inner_ether_type, 0x8100 | 0x88a8) {
                 2
             } else {
