@@ -10,8 +10,8 @@ use l2_loop_agent::{
     IncidentOutputSubmitError, IncidentOutputWorker, IncidentWriteJob,
 };
 use l2_loop_core::{
-    AlertCode, DetectionState, DetectionTransition, DetectionTransitionReason, EvidenceStatus,
-    EventId, InterfaceName,
+    AlertCode, DetectionState, DetectionTransition, DetectionTransitionReason, EventId,
+    EvidenceStatus, InterfaceName,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,10 +29,7 @@ struct RecordingBackend {
 
 impl IncidentOutputBackend for RecordingBackend {
     fn persist(&mut self, job: &IncidentWriteJob) -> Result<(), IncidentOutputError> {
-        self.calls
-            .lock()
-            .unwrap()
-            .push(Call::Persist(job.revision));
+        self.calls.lock().unwrap().push(Call::Persist(job.revision));
         if let Some(entered) = self.entered.take() {
             entered.send(()).unwrap();
         }
@@ -62,12 +59,8 @@ fn job(revision: u64) -> IncidentWriteJob {
     IncidentWriteJob {
         event_id: EventId::from_bytes([1; 16]),
         revision,
-        identity: IncidentIdentity::new(
-            InterfaceName::new("l2h0123456789").unwrap(),
-            42,
-            7,
-        )
-        .unwrap(),
+        identity: IncidentIdentity::new(InterfaceName::new("l2h0123456789").unwrap(), 42, 7)
+            .unwrap(),
         transition: DetectionTransition {
             sequence: revision,
             previous_state: DetectionState::Normal,
@@ -114,7 +107,10 @@ async fn worker_preserves_order_and_publishes_only_after_each_persistence_attemp
     );
     let health = output.health();
     assert!(!health.store_available);
-    assert_eq!(health.last_error_code.as_deref(), Some("OUTPUT_STORE_UNAVAILABLE"));
+    assert_eq!(
+        health.last_error_code.as_deref(),
+        Some("OUTPUT_STORE_UNAVAILABLE")
+    );
 }
 
 #[tokio::test]
