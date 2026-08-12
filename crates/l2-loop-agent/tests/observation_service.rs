@@ -154,7 +154,12 @@ fn request_builds_privacy_reduced_fingerprint_relationships_for_observe_and_stat
         observed.fingerprints.maximum_packet_ratio_milli
     );
     let json = serde_json::to_string(&observed).unwrap();
-    for forbidden in ["fingerprint\"", "source_mac", "destination_mac", "first_seen_ns"] {
+    for forbidden in [
+        "fingerprint\"",
+        "source_mac",
+        "destination_mac",
+        "first_seen_ns",
+    ] {
         assert!(!json.contains(forbidden));
     }
 }
@@ -542,12 +547,7 @@ fn raw_with_fingerprints(units: u64, fingerprints: RawFingerprints) -> RawObserv
     }
 }
 
-fn fingerprint(
-    direction: u8,
-    first_seen_ns: u64,
-    packets: u64,
-    bytes: u64,
-) -> FingerprintEvidence {
+fn fingerprint(direction: u8, first_seen_ns: u64, packets: u64, bytes: u64) -> FingerprintEvidence {
     FingerprintEvidence {
         key: FingerprintKey {
             interface_generation: 7,
