@@ -7,8 +7,8 @@ use l2_loop_agent::{
     execute_deployment_command, parse_deployment_args, render_deployment_report,
 };
 use l2_loop_core::{
-    DG_PLATFORM_BLOCKED, DeploymentArtifactIdentityV1, DeploymentCommandV1,
-    DeploymentFindingV1, DeploymentGateReportV1, DeploymentGateSummariesV1,
+    DG_PLATFORM_BLOCKED, DeploymentArtifactIdentityV1, DeploymentCommandV1, DeploymentFindingV1,
+    DeploymentGateReportV1, DeploymentGateSummariesV1,
 };
 
 const COMMIT_SHA: &str = "0123456789abcdef0123456789abcdef01234567";

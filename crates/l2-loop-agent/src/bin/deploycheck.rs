@@ -1,8 +1,8 @@
 use std::process::ExitCode;
 
 use l2_loop_agent::{
-    DeploymentCliAction, DeploymentGateService, SystemClock, EXIT_DEPLOYMENT_INTERNAL,
-    EXIT_DEPLOYMENT_SUCCESS, EXIT_DEPLOYMENT_USAGE, deployment_help, execute_deployment_command,
+    DeploymentCliAction, DeploymentGateService, EXIT_DEPLOYMENT_INTERNAL, EXIT_DEPLOYMENT_SUCCESS,
+    EXIT_DEPLOYMENT_USAGE, SystemClock, deployment_help, execute_deployment_command,
     linux::{
         deployment_fs::LinuxDeploymentFilesystem,
         deployment_platform::SystemLinuxDeploymentPlatformInspector,

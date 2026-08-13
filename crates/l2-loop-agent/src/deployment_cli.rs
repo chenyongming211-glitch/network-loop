@@ -1,8 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use l2_loop_core::{
-    DeploymentDecisionV1, DeploymentGateReportV1, DeploymentGateStateV1,
-};
+use l2_loop_core::{DeploymentDecisionV1, DeploymentGateReportV1, DeploymentGateStateV1};
 use thiserror::Error;
 
 use crate::{
@@ -239,11 +237,7 @@ fn render_text(report: &DeploymentGateReportV1) -> Result<String, DeploymentCliR
     Ok(lines.join("\n"))
 }
 
-fn append_gate(
-    lines: &mut Vec<String>,
-    name: &str,
-    gate: &l2_loop_core::DeploymentGateSummaryV1,
-) {
+fn append_gate(lines: &mut Vec<String>, name: &str, gate: &l2_loop_core::DeploymentGateSummaryV1) {
     let state = match gate.state {
         DeploymentGateStateV1::Passed => "passed",
         DeploymentGateStateV1::Blocked => "blocked",
