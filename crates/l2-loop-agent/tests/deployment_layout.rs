@@ -220,6 +220,7 @@ fn deployment_filesystem_source_is_finite_bounded_and_read_only() {
     for required in [
         "symlink_metadata",
         "O_NOFOLLOW",
+        "HASH_BUFFER_BYTES",
         "hard_links",
         "canonicalize",
         "MAX_",

@@ -28,6 +28,7 @@ const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const MAX_CHECKSUM_BYTES: u64 = 64 * 1024;
 const MAX_BUNDLE_FILE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_EBPF_BYTES: u64 = 16 * 1024 * 1024;
+const HASH_BUFFER_BYTES: usize = 16 * 1024;
 
 pub const EXPECTED_BUNDLE_FILES: [&str; 9] = [
     "SHA256SUMS",
@@ -597,17 +598,61 @@ fn inspect_regular_file(
     {
         return Err(DeploymentIoError::Unavailable);
     }
-    let bytes = read_bounded_no_follow(path, maximum)?;
+    let (digest, verified) = hash_bounded_no_follow(path, maximum)?;
     Ok(BundleFileIdentityV1 {
-        sha256: sha256(&bytes),
-        size: metadata.len(),
-        mode: metadata.permissions().mode() & 0o7777,
-        uid: metadata.uid(),
-        gid: metadata.gid(),
-        device: metadata.dev(),
-        inode: metadata.ino(),
-        hard_links: metadata.nlink(),
+        sha256: digest,
+        size: verified.len(),
+        mode: verified.permissions().mode() & 0o7777,
+        uid: verified.uid(),
+        gid: verified.gid(),
+        device: verified.dev(),
+        inode: verified.ino(),
+        hard_links: verified.nlink(),
     })
+}
+
+fn hash_bounded_no_follow(
+    path: &Path,
+    maximum: u64,
+) -> Result<(String, Metadata), DeploymentIoError> {
+    let before = fs::symlink_metadata(path).map_err(unavailable)?;
+    if !before.file_type().is_file() || before.nlink() != 1 || before.len() > maximum {
+        return Err(DeploymentIoError::Unavailable);
+    }
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(unavailable)?;
+    let opened = file.metadata().map_err(unavailable)?;
+    if !same_file_identity(&before, &opened) || !opened.file_type().is_file() {
+        return Err(DeploymentIoError::Unavailable);
+    }
+
+    let mut reader = (&file).take(maximum + 1);
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; HASH_BUFFER_BYTES];
+    let mut total = 0_u64;
+    loop {
+        let count = reader.read(&mut buffer).map_err(unavailable)?;
+        if count == 0 {
+            break;
+        }
+        total = total
+            .checked_add(u64::try_from(count).map_err(|_| DeploymentIoError::Unavailable)?)
+            .ok_or(DeploymentIoError::Unavailable)?;
+        if total > maximum {
+            return Err(DeploymentIoError::Unavailable);
+        }
+        digest.update(&buffer[..count]);
+    }
+
+    let after = file.metadata().map_err(unavailable)?;
+    if !same_file_identity(&before, &after) || after.len() != total {
+        return Err(DeploymentIoError::Unavailable);
+    }
+    let digest = digest.finalize();
+    Ok((format!("{digest:x}"), after))
 }
 
 fn read_bounded_no_follow(path: &Path, maximum: u64) -> Result<Vec<u8>, DeploymentIoError> {
@@ -798,10 +843,6 @@ fn maximum_layout_size(relative: &str, kind: DeploymentEntryKindV1) -> u64 {
             .map(maximum_bundle_size)
             .unwrap_or(0)
     }
-}
-
-fn sha256(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
 }
 
 fn is_lower_hex(byte: u8) -> bool {
