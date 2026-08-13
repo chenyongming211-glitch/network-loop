@@ -473,7 +473,10 @@ fn valid_layout() -> StagedLayoutInputV1 {
     }
 }
 
-fn entry_mut(input: &mut StagedLayoutInputV1, relative: &str) -> &mut DeploymentEntrySnapshotV1 {
+fn entry_mut<'a>(
+    input: &'a mut StagedLayoutInputV1,
+    relative: &str,
+) -> &'a mut DeploymentEntrySnapshotV1 {
     input
         .entries
         .iter_mut()
