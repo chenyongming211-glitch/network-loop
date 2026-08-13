@@ -13,7 +13,7 @@ use l2_loop_agent::{
     RawObservation, SafeTcPort,
     linux::{
         acceptance_fault::{
-            AcceptanceEvidenceFailure, AcceptanceFault, FaultInjectingMaps,
+            AcceptanceEvidenceFailure, AcceptanceFault, AcceptanceOnlyMode, FaultInjectingMaps,
             FaultInjectingObservation, FaultInjectingObservationReader, FaultInjectingTc,
             parse_acceptance_evidence_root,
         },
@@ -91,6 +91,17 @@ fn accepts_only_exact_generated_incident_output_configuration() {
         AcceptanceEvidenceFailure::None
     );
     assert!(AcceptanceEvidenceFailure::parse(Some("always")).is_err());
+}
+
+#[test]
+fn pass_through_requires_an_explicit_acceptance_only_mode() {
+    assert_eq!(
+        AcceptanceOnlyMode::parse(Some("pass-through-v1")).unwrap(),
+        AcceptanceOnlyMode::PassThrough
+    );
+    for invalid in [None, Some(""), Some("observe"), Some("production")] {
+        assert!(AcceptanceOnlyMode::parse(invalid).is_err());
+    }
 }
 
 #[test]

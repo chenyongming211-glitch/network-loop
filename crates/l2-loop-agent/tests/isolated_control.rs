@@ -6,7 +6,7 @@ use l2_loop_agent::{
     PlatformInspector, PortError, PreflightService,
     daemon::{DaemonDispatcher, IsolatedControl, IsolatedControlError, IsolatedSamplingOutcome},
     ownership::RunId,
-    protocol::{ControlRequest, ResponseBody},
+    protocol::{ControlRequest, ProtocolError, ResponseBody, decode_request},
 };
 use l2_loop_core::{
     AgentCommand, AgentResult, AttachmentState, BpfInspection, ClassObservation, HookObservation,
@@ -181,6 +181,18 @@ async fn internal_attachment_failures_preserve_only_the_stable_stage_code() {
         error(&response),
         ("BPF_LOAD_FAILED", "isolated control failed")
     );
+}
+
+#[test]
+fn production_protocol_exposes_no_acceptance_pass_through_command() {
+    let payload = br#"{"protocol_version":1,"kind":"acceptance_pass_through","interface":"l2h0123456789","run_id":"0123456789abcdef0123456789abcdef"}"#;
+    let mut frame = Vec::from((payload.len() as u32).to_be_bytes());
+    frame.extend_from_slice(payload);
+
+    assert!(matches!(
+        decode_request(&frame),
+        Err(ProtocolError::InvalidJson(_))
+    ));
 }
 
 #[derive(Clone)]

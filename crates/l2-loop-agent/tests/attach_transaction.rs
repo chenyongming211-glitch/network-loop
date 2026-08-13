@@ -5,9 +5,13 @@ use std::{cell::RefCell, rc::Rc};
 use l2_loop_agent::{
     AttachmentTransaction, BpfObjectLoader, EphemeralOwnershipStore, LoadedBpfObject, MapPublisher,
     PlatformInspector, PortError, ResourceLimits, SafeTcPort, SafeXdpPort,
+    host_acceptance::{
+        AcceptancePassThroughRequest, HostIdentitySnapshot, InterfaceBpfIdentity,
+        authorize_acceptance_pass_through,
+    },
 };
 use l2_loop_agent::{
-    linux::{tc::LoadedTc, xdp::LoadedXdp},
+    linux::{acceptance_fault::AcceptanceOnlyMode, tc::LoadedTc, xdp::LoadedXdp},
     ownership::{
         OWNED_MAP_NAMES, OwnedMapPin, OwnedTc, OwnedXdp, OwnershipRecord, RunId, TcHook,
         TestPinRoot, XdpAttachMode,
@@ -252,6 +256,113 @@ fn stable_adapter_codes_survive_transaction_rollback() {
             .events()
             .ends_with(&["attach_tc_explicit", "detach_xdp_exact", "unload_exact",])
     );
+}
+
+#[test]
+fn acceptance_pass_through_skips_only_config_publication_and_rolls_back_in_reverse() {
+    let shared = Shared::new(None);
+    let report = pass_through_report();
+    let permit = authorize_acceptance_pass_through(
+        &AcceptancePassThroughRequest {
+            mode: AcceptanceOnlyMode::PassThrough,
+            run_id: run_id(),
+            evidence_root: "/run/l2-loop/accept/0123456789abcdef0123456789abcdef/evidence/v1"
+                .into(),
+            artifact_root: "/run/l2-loop/accept/0123456789abcdef0123456789abcdef".into(),
+            interface: pass_through_interface(),
+            ifindex: 17,
+            journal_path: "/run/l2-loop/tests/0123456789abcdef0123456789abcdef.json"
+                .into(),
+        },
+        &report,
+        &empty_pass_through_snapshot(),
+    )
+    .unwrap();
+    let mut transaction = transaction(shared.clone(), report);
+
+    let session = transaction
+        .execute_acceptance_pass_through(&permit, 1_754_521_600)
+        .unwrap();
+
+    assert!(!session.observation_enabled());
+    assert_eq!(
+        shared.events(),
+        [
+            "preflight",
+            "raise_memlock",
+            "load_and_validate_abi",
+            "initialize_maps",
+            "attach_xdp_no_replace",
+            "verify_xdp",
+            "attach_tc_explicit",
+            "verify_tc",
+            "save_ephemeral_journal",
+        ]
+    );
+    transaction
+        .detach_acceptance_pass_through_exact(&permit, &session)
+        .unwrap();
+    assert!(shared.events().ends_with(&[
+        "remove_ephemeral_journal_exact",
+        "detach_tc_exact",
+        "detach_xdp_exact",
+        "rollback_maps_exact",
+        "unload_exact",
+    ]));
+    assert!(!shared.events().contains(&"publish_iface_config"));
+}
+
+#[test]
+fn acceptance_pass_through_rejects_identity_changes_without_broad_cleanup() {
+    let valid_report = pass_through_report();
+    let valid_snapshot = empty_pass_through_snapshot();
+    let valid = AcceptancePassThroughRequest {
+        mode: AcceptanceOnlyMode::PassThrough,
+        run_id: run_id(),
+        evidence_root: "/run/l2-loop/accept/0123456789abcdef0123456789abcdef/evidence/v1"
+            .into(),
+        artifact_root: "/run/l2-loop/accept/0123456789abcdef0123456789abcdef".into(),
+        interface: pass_through_interface(),
+        ifindex: 17,
+        journal_path: "/run/l2-loop/tests/0123456789abcdef0123456789abcdef.json".into(),
+    };
+
+    let mut cases = Vec::new();
+    let mut wrong_evidence = valid.clone();
+    wrong_evidence.evidence_root = "/var/lib/l2-loop/evidence/v1".into();
+    cases.push(wrong_evidence);
+    let mut wrong_artifact = valid.clone();
+    wrong_artifact.artifact_root = "/opt/l2-loop".into();
+    cases.push(wrong_artifact);
+    let mut wrong_name = valid.clone();
+    wrong_name.interface = InterfaceName::new("eth0").unwrap();
+    cases.push(wrong_name);
+    let mut wrong_ifindex = valid.clone();
+    wrong_ifindex.ifindex = 18;
+    cases.push(wrong_ifindex);
+    let mut wrong_journal = valid.clone();
+    wrong_journal.journal_path = "/tmp/ownership.json".into();
+    cases.push(wrong_journal);
+
+    for request in cases {
+        assert!(
+            authorize_acceptance_pass_through(&request, &valid_report, &valid_snapshot).is_err()
+        );
+    }
+
+    let mut occupied = valid_snapshot;
+    occupied.interfaces[0].xdp_generic = AttachmentState::Occupied { program_id: 999 };
+    assert!(authorize_acceptance_pass_through(&valid, &valid_report, &occupied).is_err());
+
+    for report in [
+        report(InterfaceKind::Physical, false, false),
+        report(InterfaceKind::Veth, false, true),
+    ] {
+        assert!(
+            authorize_acceptance_pass_through(&valid, &report, &empty_pass_through_snapshot())
+                .is_err()
+        );
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -503,6 +614,34 @@ fn transaction(shared: Shared, report: PreflightReport) -> Transaction {
 
 fn interface() -> InterfaceName {
     InterfaceName::new("l2lt0001").unwrap()
+}
+
+fn pass_through_interface() -> InterfaceName {
+    InterfaceName::new("l2h0123456789").unwrap()
+}
+
+fn pass_through_report() -> PreflightReport {
+    let mut value = report(InterfaceKind::Veth, true, false);
+    value.interface.requested.name = pass_through_interface();
+    value
+}
+
+fn empty_pass_through_snapshot() -> HostIdentitySnapshot {
+    HostIdentitySnapshot {
+        program_ids: Vec::new(),
+        map_ids: Vec::new(),
+        pin_roots: Vec::new(),
+        interfaces: vec![InterfaceBpfIdentity {
+            name: pass_through_interface().as_str().to_owned(),
+            ifindex: 17,
+            xdp_native: AttachmentState::Empty,
+            xdp_generic: AttachmentState::Empty,
+            tc_state_known: true,
+            tc_clsact: false,
+            tc_ingress: Vec::new(),
+            tc_egress: Vec::new(),
+        }],
+    }
 }
 
 fn run_id() -> RunId {
