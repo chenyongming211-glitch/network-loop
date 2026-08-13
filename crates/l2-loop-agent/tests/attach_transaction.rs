@@ -271,8 +271,7 @@ fn acceptance_pass_through_skips_only_config_publication_and_rolls_back_in_rever
             artifact_root: "/run/l2-loop/accept/0123456789abcdef0123456789abcdef".into(),
             interface: pass_through_interface(),
             ifindex: 17,
-            journal_path: "/run/l2-loop/tests/0123456789abcdef0123456789abcdef.json"
-                .into(),
+            journal_path: "/run/l2-loop/tests/0123456789abcdef0123456789abcdef.json".into(),
         },
         &report,
         &empty_pass_through_snapshot(),
@@ -319,8 +318,7 @@ fn acceptance_pass_through_rejects_identity_changes_without_broad_cleanup() {
     let valid = AcceptancePassThroughRequest {
         mode: AcceptanceOnlyMode::PassThrough,
         run_id: run_id(),
-        evidence_root: "/run/l2-loop/accept/0123456789abcdef0123456789abcdef/evidence/v1"
-            .into(),
+        evidence_root: "/run/l2-loop/accept/0123456789abcdef0123456789abcdef/evidence/v1".into(),
         artifact_root: "/run/l2-loop/accept/0123456789abcdef0123456789abcdef".into(),
         interface: pass_through_interface(),
         ifindex: 17,
