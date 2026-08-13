@@ -121,12 +121,19 @@ pub struct StagedLayoutInputV1 {
     pub runtime_entries: Vec<DeploymentEntrySnapshotV1>,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-pub struct LinuxDeploymentFilesystem;
+#[derive(Debug, Clone)]
+pub struct LinuxDeploymentFilesystem {
+    expected_artifact: DeploymentArtifactIdentityV1,
+}
 
 impl LinuxDeploymentFilesystem {
-    pub const fn new() -> Self {
-        Self
+    pub fn new(
+        expected_artifact: DeploymentArtifactIdentityV1,
+    ) -> Result<Self, DeploymentIoError> {
+        expected_artifact
+            .validate()
+            .map_err(|_| DeploymentIoError::Unavailable)?;
+        Ok(Self { expected_artifact })
     }
 
     pub fn validate_staging_root(&self, root: &Path) -> Result<(), DeploymentIoError> {
@@ -134,7 +141,7 @@ impl LinuxDeploymentFilesystem {
     }
 
     pub fn inspect_bundle(&self, bundle: &Path) -> Result<BundleSnapshotV1, DeploymentIoError> {
-        inspect_bundle_path(bundle)
+        inspect_bundle_path(bundle, &self.expected_artifact)
     }
 }
 
@@ -144,14 +151,14 @@ impl DeploymentFilesystem for LinuxDeploymentFilesystem {
     }
 
     fn inspect_bundle(&mut self, bundle: &Path) -> Result<BundleSnapshotV1, DeploymentIoError> {
-        inspect_bundle_path(bundle)
+        inspect_bundle_path(bundle, &self.expected_artifact)
     }
 
     fn inspect_staged_layout(
         &mut self,
         root: &Path,
     ) -> Result<LayoutSnapshotV1, DeploymentIoError> {
-        inspect_layout(root, true)
+        inspect_layout(root, true, &self.expected_artifact)
     }
 
     fn inspect_staged_service(
@@ -183,7 +190,7 @@ impl DeploymentFilesystem for LinuxDeploymentFilesystem {
     }
 
     fn inspect_installed_layout(&mut self) -> Result<LayoutSnapshotV1, DeploymentIoError> {
-        inspect_layout(Path::new(INSTALLED_ROOT), false)
+        inspect_layout(Path::new(INSTALLED_ROOT), false, &self.expected_artifact)
     }
 
     fn inspect_installed_service(&mut self) -> Result<ServiceUnitSnapshotV1, DeploymentIoError> {
@@ -305,7 +312,10 @@ fn validate_staging_root_path(root: &Path) -> Result<(), DeploymentIoError> {
     Ok(())
 }
 
-fn inspect_bundle_path(bundle: &Path) -> Result<BundleSnapshotV1, DeploymentIoError> {
+fn inspect_bundle_path(
+    bundle: &Path,
+    expected_artifact: &DeploymentArtifactIdentityV1,
+) -> Result<BundleSnapshotV1, DeploymentIoError> {
     let root_metadata = fs::symlink_metadata(bundle).map_err(unavailable)?;
     if !root_metadata.file_type().is_dir() {
         return Err(DeploymentIoError::Unavailable);
@@ -341,13 +351,17 @@ fn inspect_bundle_path(bundle: &Path) -> Result<BundleSnapshotV1, DeploymentIoEr
     let manifest_bytes = read_bounded_no_follow(&bundle.join("manifest.json"), MAX_MANIFEST_BYTES)?;
     let manifest: BundleManifestV1 =
         serde_json::from_slice(&manifest_bytes).map_err(|_| DeploymentIoError::Unavailable)?;
-    let artifact = manifest.validate(&files)?;
+    let artifact = manifest.validate(&files, expected_artifact)?;
     let checksum_bytes = read_bounded_no_follow(&bundle.join("SHA256SUMS"), MAX_CHECKSUM_BYTES)?;
     validate_checksums(&checksum_bytes, &files)?;
     Ok(BundleSnapshotV1::with_files(artifact, files))
 }
 
-fn inspect_layout(root: &Path, staging: bool) -> Result<LayoutSnapshotV1, DeploymentIoError> {
+fn inspect_layout(
+    root: &Path,
+    staging: bool,
+    expected_artifact: &DeploymentArtifactIdentityV1,
+) -> Result<LayoutSnapshotV1, DeploymentIoError> {
     if staging {
         validate_staging_root_path(root)?;
         validate_no_follow_staging_ancestors(root)?;
@@ -383,6 +397,9 @@ fn inspect_layout(root: &Path, staging: bool) -> Result<LayoutSnapshotV1, Deploy
     let manifest: BundleManifestV1 =
         serde_json::from_slice(&manifest_bytes).map_err(|_| DeploymentIoError::Unavailable)?;
     let artifact = manifest.artifact()?;
+    if artifact != *expected_artifact {
+        return Err(DeploymentIoError::Unavailable);
+    }
     validate_layout_inventories(root, staging)?;
     let input = StagedLayoutInputV1 {
         logical_root: root.to_path_buf(),
@@ -691,6 +708,7 @@ fn read_bounded_no_follow(path: &Path, maximum: u64) -> Result<Vec<u8>, Deployme
 fn same_file_identity(before: &Metadata, after: &Metadata) -> bool {
     before.dev() == after.dev()
         && before.ino() == after.ino()
+        && before.nlink() == after.nlink()
         && before.len() == after.len()
         && before.mtime() == after.mtime()
         && before.mtime_nsec() == after.mtime_nsec()
@@ -886,9 +904,11 @@ impl BundleManifestV1 {
     fn validate(
         &self,
         files: &BTreeMap<String, BundleFileIdentityV1>,
+        expected_artifact: &DeploymentArtifactIdentityV1,
     ) -> Result<DeploymentArtifactIdentityV1, DeploymentIoError> {
         let artifact = self.artifact()?;
-        if files
+        if artifact != *expected_artifact
+            || files
             .get(&self.files.service_unit)
             .map(|identity| identity.sha256.as_str())
             != Some(self.service_unit_sha256.as_str())

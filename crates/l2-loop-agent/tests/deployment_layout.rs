@@ -32,7 +32,7 @@ const PAYLOADS: [&str; 8] = [
 
 #[test]
 fn staging_root_grammar_accepts_only_the_generated_acceptance_shape() {
-    let filesystem = LinuxDeploymentFilesystem::new();
+    let filesystem = filesystem();
     assert!(
         filesystem
             .validate_staging_root(Path::new(LOGICAL_ROOT))
@@ -66,7 +66,7 @@ fn staging_root_grammar_accepts_only_the_generated_acceptance_shape() {
 #[test]
 fn bundle_reader_accepts_exact_inventory_manifest_and_checksums() {
     let bundle = BundleTree::valid("valid");
-    let filesystem = LinuxDeploymentFilesystem::new();
+    let filesystem = filesystem();
 
     let snapshot = filesystem.inspect_bundle(bundle.path()).unwrap();
 
@@ -79,7 +79,7 @@ fn bundle_reader_accepts_exact_inventory_manifest_and_checksums() {
 
 #[test]
 fn bundle_reader_rejects_extra_missing_nested_and_renamed_entries() {
-    let filesystem = LinuxDeploymentFilesystem::new();
+    let filesystem = filesystem();
 
     let extra = BundleTree::valid("extra");
     fs::write(extra.path().join("host.txt"), b"forbidden").unwrap();
@@ -104,7 +104,7 @@ fn bundle_reader_rejects_extra_missing_nested_and_renamed_entries() {
 
 #[test]
 fn bundle_reader_rejects_noncanonical_duplicate_or_untrusted_checksum_names() {
-    let filesystem = LinuxDeploymentFilesystem::new();
+    let filesystem = filesystem();
     for (label, edit) in [
         ("uppercase", ChecksumEdit::Uppercase),
         ("duplicate", ChecksumEdit::Duplicate),
@@ -124,7 +124,7 @@ fn bundle_reader_rejects_noncanonical_duplicate_or_untrusted_checksum_names() {
 
 #[test]
 fn bundle_reader_rejects_manifest_binding_changes_and_oversized_reads() {
-    let filesystem = LinuxDeploymentFilesystem::new();
+    let filesystem = filesystem();
     for (label, before, after) in [
         (
             "commit",
@@ -161,7 +161,7 @@ fn bundle_reader_rejects_manifest_binding_changes_and_oversized_reads() {
 
 #[test]
 fn bundle_reader_rejects_symlinks_hard_links_and_non_regular_entries() {
-    let filesystem = LinuxDeploymentFilesystem::new();
+    let filesystem = filesystem();
 
     let linked = BundleTree::valid("symlink");
     fs::remove_file(linked.path().join("l2-loopd")).unwrap();
@@ -250,6 +250,10 @@ fn deployment_filesystem_source_is_finite_bounded_and_read_only() {
 
 fn artifact() -> DeploymentArtifactIdentityV1 {
     DeploymentArtifactIdentityV1::new(COMMIT_SHA, "0.1.0").unwrap()
+}
+
+fn filesystem() -> LinuxDeploymentFilesystem {
+    LinuxDeploymentFilesystem::new(artifact()).unwrap()
 }
 
 fn sha256(bytes: &[u8]) -> String {
