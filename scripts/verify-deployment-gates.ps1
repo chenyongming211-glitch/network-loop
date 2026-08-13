@@ -686,7 +686,9 @@ stop_pass_through() {
     exec 3>&-
     wait_owned_exit "$pass_pid"
     grep -Fq '"state":"cleaned"' "$root/pass-through.out" || fail "pass-through cleanup state is missing"
-    unlink "$root/pass-through.pid" "$root/pass-through.out" "$root/pass-through.fifo"
+    unlink "$root/pass-through.pid"
+    unlink "$root/pass-through.out"
+    unlink "$root/pass-through.fifo"
 }
 start_observe() {
     cd "$bundle"
@@ -703,7 +705,8 @@ stop_observe() {
     "$bundle/l2-loopctl" isolated-detach --run-id "$run" >/dev/null
     kill -TERM "$daemon_pid"
     wait_owned_exit "$daemon_pid"
-    unlink "$root/daemon.pid" "$root/daemon.log"
+    unlink "$root/daemon.pid"
+    unlink "$root/daemon.log"
     test ! -e /run/l2-loop/agent.sock && test ! -L /run/l2-loop/agent.sock || fail "observe daemon socket remained"
 }
 run_measurement() {
