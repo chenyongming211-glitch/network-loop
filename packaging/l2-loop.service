@@ -1,0 +1,28 @@
+[Unit]
+Description=L2 Loop Detection Agent
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/l2-loop/l2-loopd
+User=root
+Group=root
+RuntimeDirectory=l2-loop
+RuntimeDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=CAP_BPF CAP_NET_ADMIN CAP_PERFMON CAP_SYS_RESOURCE
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+ReadWritePaths=/run/l2-loop /var/lib/l2-loop/evidence/v1
+TimeoutStopSec=10s
+Restart=no

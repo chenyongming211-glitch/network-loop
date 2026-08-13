@@ -17,6 +17,8 @@ use crate::{
     BundleFileIdentityV1, BundleSnapshotV1, DeploymentFilesystem, DeploymentIoError,
     DeploymentPrerequisitesV1, LayoutSnapshotV1, ServiceUnitSnapshotV1,
 };
+
+use super::deployment_unit::{MAX_SERVICE_UNIT_BYTES, validate_service_unit};
 pub use crate::{DeploymentEntryKindV1, DeploymentEntrySnapshotV1};
 
 const ACCEPTANCE_ROOT_PREFIX: &str = "/run/l2-loop/accept/";
@@ -161,9 +163,9 @@ impl DeploymentFilesystem for LinuxDeploymentFilesystem {
 
     fn inspect_staged_service(
         &mut self,
-        _root: &Path,
+        root: &Path,
     ) -> Result<ServiceUnitSnapshotV1, DeploymentIoError> {
-        Err(DeploymentIoError::Unavailable)
+        inspect_service(root)
     }
 
     fn load_staged_authorization(
@@ -192,7 +194,7 @@ impl DeploymentFilesystem for LinuxDeploymentFilesystem {
     }
 
     fn inspect_installed_service(&mut self) -> Result<ServiceUnitSnapshotV1, DeploymentIoError> {
-        Err(DeploymentIoError::Unavailable)
+        inspect_service(Path::new(INSTALLED_ROOT))
     }
 
     fn load_installed_authorization(
@@ -210,6 +212,15 @@ impl DeploymentFilesystem for LinuxDeploymentFilesystem {
     ) -> Result<DeploymentPrerequisitesV1, DeploymentIoError> {
         Err(DeploymentIoError::Unavailable)
     }
+}
+
+fn inspect_service(root: &Path) -> Result<ServiceUnitSnapshotV1, DeploymentIoError> {
+    let path = root.join("usr/lib/systemd/system/l2-loop.service");
+    let bytes = read_bounded_no_follow(
+        &path,
+        u64::try_from(MAX_SERVICE_UNIT_BYTES).map_err(|_| DeploymentIoError::Unavailable)?,
+    )?;
+    validate_service_unit(&bytes).map_err(|_| DeploymentIoError::Unavailable)
 }
 
 pub fn validate_staged_layout_snapshot(

@@ -4,8 +4,6 @@ use l2_loop_agent::linux::deployment_unit::validate_service_unit;
 
 const EXPECTED_UNIT: &str = "[Unit]\n\
 Description=L2 Loop Detection Agent\n\
-After=network-pre.target\n\
-Wants=network-pre.target\n\
 \n\
 [Service]\n\
 Type=simple\n\
@@ -48,16 +46,6 @@ fn every_required_identity_and_hardening_value_is_exact() {
             "description",
             "Description=L2 Loop Detection Agent",
             "Description=Loop Agent",
-        ),
-        (
-            "after",
-            "After=network-pre.target",
-            "After=network-online.target",
-        ),
-        (
-            "wants",
-            "Wants=network-pre.target",
-            "Wants=network-online.target",
         ),
         ("type", "Type=simple", "Type=notify"),
         (
