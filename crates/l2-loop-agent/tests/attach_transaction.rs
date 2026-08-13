@@ -350,7 +350,12 @@ fn acceptance_pass_through_rejects_identity_changes_without_broad_cleanup() {
 
     let mut occupied = valid_snapshot;
     occupied.interfaces[0].xdp_generic = AttachmentState::Occupied { program_id: 999 };
-    assert!(authorize_acceptance_pass_through(&valid, &valid_report, &occupied).is_err());
+    assert_eq!(
+        authorize_acceptance_pass_through(&valid, &valid_report, &occupied)
+            .unwrap_err()
+            .to_string(),
+        "isolated pass-through authorization is invalid: PT_SNAPSHOT_HOOK_STATE"
+    );
 
     for report in [
         report(InterfaceKind::Physical, false, false),
