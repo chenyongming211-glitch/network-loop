@@ -191,7 +191,7 @@ foreach ($Forbidden in @(
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)^\s*param\([\s\S]*?\[string\]\s+\$Interface\b')) 'deployment harness exposes an interface parameter'
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)^\s*ip\s+(?:addr|address|route)\s+(?:add|append|change|delete|del|flush|prepend|replace)\b')) 'deployment harness mutates addresses or routes'
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)^\s*(?:while\s+(?::|true)|for\s*\(\s*;\s*;\s*\))')) 'deployment harness contains an unbounded loop'
-Assert-True (-not [regex]::IsMatch($Harness, '(?m)(?:Remove-Item|rm|unlink)[^\r\n]*[\*\?]')) 'deployment harness cleanup uses a wildcard target'
+Assert-True (-not [regex]::IsMatch($Harness, '(?m)\b(?:Remove-Item|rm|unlink)\b[^\r\n]*[\*\?]')) 'deployment harness cleanup uses a wildcard target'
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)^\s*(?:install|cp|mv|mkdir|chmod|chown)\b[^\r\n]*(?:\s|=)/(?:etc|usr|var)(?:/|\s|$)')) 'deployment harness writes a real production path'
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)ssh[^\r\n]*\$\(')) 'deployment harness SSH command uses command substitution'
 Assert-True (-not [regex]::IsMatch($Harness, '\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')) 'deployment harness contains a hard-coded IPv4 target'

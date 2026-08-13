@@ -60,6 +60,26 @@ function New-IsolatedNames {
     }
 }
 
+function New-DeploymentGateNames {
+    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $RunId)
+
+    $Isolated = New-IsolatedNames -RunId $RunId
+    $StagingRoot = "$($Isolated.RemoteRunRoot)/staging-root"
+    [pscustomobject]@{
+        RunId = $Isolated.RunId
+        Namespace = $Isolated.Namespace
+        HostVeth = $Isolated.HostVeth
+        PeerVeth = $Isolated.PeerVeth
+        RemoteRunRoot = $Isolated.RemoteRunRoot
+        BundleRoot = "$($Isolated.RemoteRunRoot)/bundle"
+        StagingRoot = $StagingRoot
+        AuthorizationPath = "$StagingRoot/etc/l2-loop/deployment-v1.json"
+        PerformancePath = "$StagingRoot/var/lib/l2-loop/gates/performance-v1.json"
+        Journal = $Isolated.Journal
+        PinRoot = $Isolated.PinRoot
+    }
+}
+
 function Get-SshArguments {
     param(
         [Parameter(Mandatory)] [string] $Target,
@@ -121,11 +141,33 @@ function Assert-CleanupTarget {
     }
 }
 
+function Assert-DeploymentCleanupTarget {
+    param(
+        [Parameter(Mandatory)] [psobject] $Names,
+        [Parameter(Mandatory)] [string] $Namespace,
+        [Parameter(Mandatory)] [string] $HostVeth,
+        [Parameter(Mandatory)] [string] $PeerVeth,
+        [Parameter(Mandatory)] [string] $RunRoot,
+        [Parameter(Mandatory)] [string] $BundleRoot,
+        [Parameter(Mandatory)] [string] $StagingRoot
+    )
+
+    Assert-CleanupTarget -Names $Names -Namespace $Namespace -HostVeth $HostVeth -PeerVeth $PeerVeth -RunRoot $RunRoot
+    if ($BundleRoot -cne "$RunRoot/bundle" -or
+        $StagingRoot -cne "$RunRoot/staging-root" -or
+        $Names.BundleRoot -cne $BundleRoot -or
+        $Names.StagingRoot -cne $StagingRoot) {
+        throw 'deployment cleanup target does not exactly match the active generated roots'
+    }
+}
+
 Export-ModuleMember -Function @(
     'ConvertTo-WindowsNativeArgument',
     'Assert-IsolatedRunId',
     'New-IsolatedNames',
+    'New-DeploymentGateNames',
     'Get-SshArguments',
     'Get-ScpArguments',
-    'Assert-CleanupTarget'
+    'Assert-CleanupTarget',
+    'Assert-DeploymentCleanupTarget'
 )
