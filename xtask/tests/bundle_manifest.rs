@@ -7,7 +7,9 @@ use std::{
 
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use xtask::bundle::{BundleInputs, BundleManifest, create_bundle, render_manifest, render_sha256sums};
+use xtask::bundle::{
+    BundleInputs, BundleManifest, create_bundle, render_manifest, render_sha256sums,
+};
 
 const COMMIT_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 const SERVICE_DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -63,10 +65,7 @@ fn checksum_manifest_is_lexically_ordered_and_exact_for_eight_payloads() {
         .collect::<BTreeMap<_, _>>();
 
     let rendered = render_sha256sums(&checksums).expect("approved checksums should render");
-    let names = rendered
-        .lines()
-        .map(|line| &line[66..])
-        .collect::<Vec<_>>();
+    let names = rendered.lines().map(|line| &line[66..]).collect::<Vec<_>>();
     assert_eq!(names, PAYLOADS);
     assert!(rendered.ends_with('\n'));
     assert_eq!(rendered.lines().count(), 8);
@@ -123,7 +122,10 @@ fn bundle_creation_emits_only_nine_regular_top_level_files() {
     for line in checksums.lines() {
         let expected = &line[..64];
         let filename = &line[66..];
-        assert_eq!(sha256(&fs::read(tree.output.join(filename)).unwrap()), expected);
+        assert_eq!(
+            sha256(&fs::read(tree.output.join(filename)).unwrap()),
+            expected
+        );
     }
 }
 
