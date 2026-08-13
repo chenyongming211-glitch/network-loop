@@ -233,10 +233,7 @@ fn missing_or_additional_live_refusal_is_preserved_for_the_gate_service() {
             "live interface attachment is refused",
         )],
         vec![
-            PreflightFinding::blocker(
-                PF_LIVE_INTERFACE,
-                "live interface attachment is refused",
-            ),
+            PreflightFinding::blocker(PF_LIVE_INTERFACE, "live interface attachment is refused"),
             PreflightFinding::blocker(PF_INTERFACE_UNSUPPORTED, "additional blocker"),
         ],
     ] {
@@ -282,8 +279,7 @@ fn collector_errors_never_escape_the_single_sanitized_error_variant() {
 #[test]
 fn linux_adapter_source_is_read_only_and_never_enumerates_as_fallback() {
     let source = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src/linux/deployment_platform.rs"),
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/linux/deployment_platform.rs"),
     )
     .unwrap();
     for prohibited in [
@@ -304,10 +300,7 @@ fn linux_adapter_source_is_read_only_and_never_enumerates_as_fallback() {
 }
 
 fn authorization() -> DeploymentAuthorizationV1 {
-    serde_json::from_str(include_str!(
-        "fixtures/deployment/physical-empty.json"
-    ))
-    .unwrap()
+    serde_json::from_str(include_str!("fixtures/deployment/physical-empty.json")).unwrap()
 }
 
 fn physical_link() -> DeploymentLinkSnapshotV1 {
@@ -451,10 +444,9 @@ impl DeploymentCandidateSource for FakeCandidate {
         interface: &InterfaceName,
         ifindex: u32,
     ) -> Result<DeploymentConsumerSnapshotV1, DeploymentIoError> {
-        self.calls.borrow_mut().push(format!(
-            "consumers:{}:{ifindex}",
-            interface.as_str()
-        ));
+        self.calls
+            .borrow_mut()
+            .push(format!("consumers:{}:{ifindex}", interface.as_str()));
         Ok(self.consumers)
     }
 }
