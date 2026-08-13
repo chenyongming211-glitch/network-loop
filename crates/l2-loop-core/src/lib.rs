@@ -3,6 +3,7 @@
 mod baseline;
 mod command;
 mod detection;
+mod deployment;
 mod error;
 mod evidence;
 mod fingerprint;
@@ -18,6 +19,7 @@ mod value;
 pub use baseline::*;
 pub use command::*;
 pub use detection::*;
+pub use deployment::*;
 pub use error::*;
 pub use evidence::*;
 pub use fingerprint::*;
