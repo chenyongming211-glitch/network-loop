@@ -53,6 +53,8 @@ pub enum HostAcceptanceError {
     CounterMap,
     #[error("isolated pass-through authorization is invalid")]
     InvalidPassThrough,
+    #[error("isolated pass-through authorization is invalid: {0}")]
+    InvalidPassThroughPredicate(&'static str),
     #[error("isolated pass-through attachment failed: {0}")]
     PassThroughAttach(String),
     #[error("isolated pass-through cleanup failed: {0}")]
@@ -175,22 +177,38 @@ pub fn authorize_acceptance_pass_through(
         || request.journal_path != expected_journal.path()
         || request.interface.as_str() != expected_interface
         || request.ifindex == 0
-        || report.decision != PreflightDecision::Ready
-        || report.interface.requested.name != request.interface
+    {
+        return Err(HostAcceptanceError::InvalidPassThroughPredicate(
+            "PT_REQUEST_IDENTITY",
+        ));
+    }
+    if report.decision != PreflightDecision::Ready {
+        return Err(HostAcceptanceError::InvalidPassThroughPredicate(
+            "PT_REPORT_DECISION",
+        ));
+    }
+    if report.interface.requested.name != request.interface
         || report.interface.requested.ifindex != request.ifindex
         || report.interface.kind != InterfaceKind::Veth
         || !report.interface.isolated
         || report.interface.live_shared
         || report.interface.master.is_some()
         || report.interface.bond.is_some()
-        || !report.bpf.relevant_objects_enumerable
+    {
+        return Err(HostAcceptanceError::InvalidPassThroughPredicate(
+            "PT_REPORT_INTERFACE",
+        ));
+    }
+    if !report.bpf.relevant_objects_enumerable
         || report.bpf.pin_root != PinRootState::Absent
         || report.bpf.xdp_native != AttachmentState::Empty
         || report.bpf.xdp_generic != AttachmentState::Empty
         || !report.bpf.tc_ingress.is_empty()
         || !report.bpf.tc_egress.is_empty()
     {
-        return Err(HostAcceptanceError::InvalidPassThrough);
+        return Err(HostAcceptanceError::InvalidPassThroughPredicate(
+            "PT_REPORT_BPF_STATE",
+        ));
     }
 
     let mut matches = snapshot.interfaces.iter().filter(|candidate| {
@@ -198,15 +216,23 @@ pub fn authorize_acceptance_pass_through(
     });
     let observed = matches
         .next()
-        .ok_or(HostAcceptanceError::InvalidPassThrough)?;
-    if matches.next().is_some()
-        || observed.xdp_native != AttachmentState::Empty
+        .ok_or(HostAcceptanceError::InvalidPassThroughPredicate(
+            "PT_SNAPSHOT_INTERFACE",
+        ))?;
+    if matches.next().is_some() {
+        return Err(HostAcceptanceError::InvalidPassThroughPredicate(
+            "PT_SNAPSHOT_INTERFACE",
+        ));
+    }
+    if observed.xdp_native != AttachmentState::Empty
         || observed.xdp_generic != AttachmentState::Empty
         || !observed.tc_state_known
         || !observed.tc_ingress.is_empty()
         || !observed.tc_egress.is_empty()
     {
-        return Err(HostAcceptanceError::InvalidPassThrough);
+        return Err(HostAcceptanceError::InvalidPassThroughPredicate(
+            "PT_SNAPSHOT_HOOK_STATE",
+        ));
     }
 
     Ok(AcceptancePassThroughPermit {

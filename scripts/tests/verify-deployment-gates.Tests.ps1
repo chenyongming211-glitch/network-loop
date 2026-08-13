@@ -197,6 +197,10 @@ Assert-True (-not [regex]::IsMatch($Harness, '(?m)ssh[^\r\n]*\$\(')) 'deployment
 Assert-True (-not [regex]::IsMatch($Harness, '\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')) 'deployment harness contains a hard-coded IPv4 target'
 Assert-True (-not $Harness.Contains('.ssh')) 'deployment harness contains a hard-coded key path'
 Assert-True ($Harness.Contains('cleanup_file "$root/checker.err"')) 'negative checker stderr is not included in failure-path cleanup'
+Assert-True ($Harness.Contains('rebind_hardened_unit_fixture')) 'hardened-unit scenario does not preserve the preceding artifact/layout identities'
+Assert-True ([regex]::IsMatch($Harness, '(?s)authorization = \{.*?"expires_at_unix_ms": now \+ 3600000\s*\}\s*orders = \[')) 'generated authorization fixture is not closed before performance trial construction'
+Assert-True ($Harness.Contains('install -m 0755 "$bundle/l2-loop-hostcheck" "$root/l2-loop-hostcheck"')) 'pass-through hostcheck is not staged at its exact Task 9 artifact root'
+Assert-True ($Harness.Contains('install -m 0644 "$bundle/l2-loop-ebpf.o" "$root/l2-loop-ebpf.o"')) 'pass-through eBPF object is not staged at its exact Task 9 artifact root'
 Assert-True ($Workflow.Contains('pwsh -NoProfile -File scripts/tests/verify-deployment-gates.Tests.ps1')) 'Linux CI does not run deployment harness safety tests'
 Assert-True ($Workflow.Contains('powershell -NoProfile -File scripts/tests/verify-deployment-gates.Tests.ps1')) 'Windows CI does not run deployment harness safety tests'
 

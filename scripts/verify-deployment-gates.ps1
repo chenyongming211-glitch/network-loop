@@ -353,7 +353,7 @@ cleanup_staging_tree() {
 }
 cleanup_generated_tree() {
     stop_owned_process "$root/daemon.pid" "$bundle/l2-loopd"
-    stop_owned_process "$root/pass-through.pid" "$bundle/l2-loop-hostcheck"
+    stop_owned_process "$root/pass-through.pid" "$root/l2-loop-hostcheck"
     if ip link show dev "$host" >/dev/null 2>&1; then
         kind=$(ip -j -details link show dev "$host" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0].get("linkinfo",{}).get("info_kind",""))')
         test "$kind" = veth || fail "generated host cleanup identity changed"
@@ -367,10 +367,13 @@ cleanup_generated_tree() {
     cleanup_file "$root/pass-through.fifo"
     cleanup_file "$root/pass-through.out"
     cleanup_file "$root/pass-through.pid"
+    cleanup_file "$root/pass-through.strace"
     cleanup_file "$root/daemon.pid"
     cleanup_file "$root/daemon.log"
     cleanup_file "$root/trial.json"
     cleanup_file "$root/checker.err"
+    cleanup_file "$root/l2-loop-hostcheck"
+    cleanup_file "$root/l2-loop-ebpf.o"
     cleanup_dir "$root/evidence/v1"
     cleanup_dir "$root/evidence"
     for name in deployment-v1.example.json l2-loop-deploycheck l2-loop-ebpf.o l2-loop-hostcheck l2-loop.service l2-loopctl l2-loopd manifest.json SHA256SUMS; do
@@ -464,6 +467,45 @@ for relative, value in [
 PY
 }
 
+rebind_hardened_unit_fixture() {
+    scenario_bundle="$root/scenario-bundle"
+    install -d -m 0700 "$scenario_bundle"
+    for name in deployment-v1.example.json l2-loop-deploycheck l2-loop-ebpf.o l2-loop-hostcheck l2-loop.service l2-loopctl l2-loopd manifest.json SHA256SUMS; do
+        install -m 0600 "$bundle/$name" "$scenario_bundle/$name"
+    done
+    python3 - "$scenario_bundle" <<'PY'
+import hashlib, json, os, sys
+root = sys.argv[1]
+unit_path = os.path.join(root, "l2-loop.service")
+with open(unit_path, "r", encoding="utf-8") as channel:
+    unit = channel.read()
+if unit.count("Restart=no") != 1:
+    raise SystemExit("service fixture restart identity changed")
+unit = unit.replace("Restart=no", "Restart=always")
+with open(unit_path, "w", encoding="utf-8", newline="") as channel:
+    channel.write(unit)
+unit_digest = hashlib.sha256(unit.encode("utf-8")).hexdigest()
+manifest_path = os.path.join(root, "manifest.json")
+with open(manifest_path, "r", encoding="utf-8") as channel:
+    manifest = json.load(channel)
+manifest["service_unit_sha256"] = unit_digest
+with open(manifest_path, "w", encoding="utf-8", newline="") as channel:
+    json.dump(manifest, channel, sort_keys=True, separators=(",", ":"))
+payloads = [
+    "deployment-v1.example.json", "l2-loop-deploycheck", "l2-loop-ebpf.o",
+    "l2-loop-hostcheck", "l2-loop.service", "l2-loopctl", "l2-loopd", "manifest.json"
+]
+with open(os.path.join(root, "SHA256SUMS"), "w", encoding="ascii", newline="") as channel:
+    for name in sorted(payloads):
+        with open(os.path.join(root, name), "rb") as payload:
+            digest = hashlib.sha256(payload.read()).hexdigest()
+        channel.write("%s  %s\n" % (digest, name))
+PY
+    install -m 0644 "$scenario_bundle/l2-loop.service" "$staging/usr/lib/systemd/system/l2-loop.service"
+    install -m 0644 "$scenario_bundle/manifest.json" "$staging/usr/libexec/l2-loop/manifest.json"
+    install -m 0644 "$scenario_bundle/SHA256SUMS" "$staging/usr/libexec/l2-loop/SHA256SUMS"
+}
+
 run_checker_positive() {
     output=$("$checker" staging --bundle "$bundle" --root "$staging" --json)
     test "${#output}" -le 1048576 || fail "checker output exceeded the fixed bound"
@@ -480,7 +522,7 @@ run_checker_blocked() {
     set -e
     test "$status" -eq 4 || fail "negative checker scenario did not return exit code 4"
     test "${#output}" -le 1048576 || fail "negative checker output exceeded the fixed bound"
-    printf '%s' "$output" | python3 -c 'import json,sys; expected=sys.argv[1]; value=json.load(sys.stdin); codes=[item.get("code") for item in value.get("findings",[])]; value.get("decision")!="blocked" and sys.exit("negative scenario was not blocked"); codes!=[expected] and sys.exit("negative scenario finding changed")' "$expected"
+    printf '%s' "$output" | python3 -c 'import json,sys; expected=sys.argv[1]; scenario=sys.argv[2]; value=json.load(sys.stdin); codes=[item.get("code") for item in value.get("findings",[])]; value.get("decision")!="blocked" and sys.exit("negative scenario was not blocked: "+scenario); codes!=[expected] and sys.exit("negative scenario finding changed: %s expected %s got %s"%(scenario,expected,",".join(str(code) for code in codes)))' "$expected" "$scenario"
     unlink "$root/checker.err"
 }
 
@@ -535,9 +577,12 @@ PY
             install_layout
             ;;
         HardenedUnitFailure)
-            printf '\nRestart=always\n' >>"$staging/usr/lib/systemd/system/l2-loop.service"
-            run_checker_blocked "$bundle" DG_SYSTEMD_CONTRACT
+            rebind_hardened_unit_fixture
+            run_checker_blocked "$root/scenario-bundle" DG_SYSTEMD_CONTRACT
             install -m 0644 "$bundle/l2-loop.service" "$staging/usr/lib/systemd/system/l2-loop.service"
+            install -m 0644 "$bundle/manifest.json" "$staging/usr/libexec/l2-loop/manifest.json"
+            install -m 0644 "$bundle/SHA256SUMS" "$staging/usr/libexec/l2-loop/SHA256SUMS"
+            cleanup_scenario_bundle
             ;;
         *) fail "unknown staging scenario" ;;
     esac
@@ -626,13 +671,28 @@ start_pass_through() {
     rm_fifo="$root/pass-through.fifo"
     test ! -e "$rm_fifo" && test ! -L "$rm_fifo" || fail "pass-through control path is occupied"
     mkfifo -m 0600 "$rm_fifo"
-    "$bundle/l2-loop-hostcheck" pass-through --acceptance-only pass-through-v1 --run-id "$run" --evidence-root "$evidence" --interface "$host" --ifindex "$(cat /sys/class/net/$host/ifindex)" <"$rm_fifo" >"$root/pass-through.out" &
+    "$root/l2-loop-hostcheck" pass-through --acceptance-only pass-through-v1 --run-id "$run" --evidence-root "$evidence" --interface "$host" --ifindex "$(cat /sys/class/net/$host/ifindex)" <"$rm_fifo" >"$root/pass-through.out" &
     pass_pid=$!
     printf '%s\n' "$pass_pid" >"$root/pass-through.pid"
     exec 3>"$rm_fifo"
     tries=0
     while ! grep -Fq '"state":"ready"' "$root/pass-through.out" && test "$tries" -lt 100; do sleep 0.1; tries=$((tries + 1)); done
-    grep -Fq '"state":"ready"' "$root/pass-through.out" || fail "pass-through did not become ready"
+    if ! grep -Fq '"state":"ready"' "$root/pass-through.out"; then
+        printf 'stop\n' | strace -f -e trace=%file -o "$root/pass-through.strace" "$root/l2-loop-hostcheck" pass-through --acceptance-only pass-through-v1 --run-id "$run" --evidence-root "$evidence" --interface "$host" --ifindex "$(cat /sys/class/net/$host/ifindex)" >/dev/null 2>&1 || true
+        tail -n 80 "$root/pass-through.strace" >&2
+        "$bundle/l2-loop-hostcheck" snapshot >&2 || true
+        stat -c '%F %u:%g:%a:%h %n' "$root" "$evidence" "$root/l2-loop-hostcheck" "$root/l2-loop-ebpf.o" >&2
+        cd "$bundle"
+        ulimit -l unlimited
+        env L2_LOOP_ACCEPTANCE_EVIDENCE_ROOT="$evidence" ./l2-loopd >"$root/daemon.log" 2>&1 &
+        diagnostic_pid=$!
+        tries=0
+        while test ! -S /run/l2-loop/agent.sock && test "$tries" -lt 100; do sleep 0.1; tries=$((tries + 1)); done
+        test -S /run/l2-loop/agent.sock && "$bundle/l2-loopctl" preflight --interface "$host" --json >&2 || true
+        kill -TERM "$diagnostic_pid" 2>/dev/null || true
+        wait "$diagnostic_pid" 2>/dev/null || true
+        fail "pass-through did not become ready"
+    fi
 }
 stop_pass_through() {
     printf 'stop\n' >&3
@@ -718,6 +778,8 @@ for name in names:
 PY
         chmod 0755 l2-loopd l2-loopctl l2-loop-deploycheck l2-loop-hostcheck
         chmod 0644 l2-loop-ebpf.o l2-loop.service deployment-v1.example.json manifest.json SHA256SUMS
+        install -m 0755 "$bundle/l2-loop-hostcheck" "$root/l2-loop-hostcheck"
+        install -m 0644 "$bundle/l2-loop-ebpf.o" "$root/l2-loop-ebpf.o"
         ;;
     install-layout) install_layout ;;
     staging-positive) run_checker_positive ;;
@@ -1139,6 +1201,7 @@ try {
     $null = Invoke-DeploymentRemotePhase -Phase 'install-layout' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
     $null = Invoke-DeploymentRemotePhase -Phase 'staging-positive' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
     foreach ($Scenario in $STAGING_SCENARIOS | Where-Object { $_ -cne 'Positive' }) {
+        Write-Host "staging scenario: $Scenario"
         $null = Invoke-DeploymentRemotePhase -Phase 'staging-negative' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -Scenario $Scenario
         $null = Invoke-DeploymentRemotePhase -Phase 'staging-positive' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
     }
