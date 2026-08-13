@@ -452,12 +452,7 @@ fn physical_preflight() -> PreflightReport {
 }
 
 fn normalized(report: PreflightReport) -> PreflightReport {
-    PreflightReport::new(
-        report.interface,
-        report.kernel,
-        report.bpf,
-        report.findings,
-    )
+    PreflightReport::new(report.interface, report.kernel, report.bpf, report.findings)
 }
 
 struct FakePreflight {
