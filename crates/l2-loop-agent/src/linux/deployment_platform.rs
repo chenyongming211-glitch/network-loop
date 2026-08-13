@@ -144,7 +144,12 @@ fn preflight_matches_link(report: &PreflightReport, link: &DeploymentLinkSnapsho
         && report.interface.kind == link.kind
         && report.interface.admin_up == link.administrative_up
         && report.interface.oper_up == link.operational_up
-        && report.interface.master.as_ref().map(|master| master.ifindex) == link.master_ifindex
+        && report
+            .interface
+            .master
+            .as_ref()
+            .map(|master| master.ifindex)
+            == link.master_ifindex
 }
 
 #[derive(Debug, Default)]
@@ -157,8 +162,8 @@ impl DeploymentCandidateSource for SystemDeploymentCandidateSource {
     ) -> Result<DeploymentLinkSnapshotV1, DeploymentIoError> {
         let name = interface.as_str().to_owned();
         run_async(move || async move {
-            let (connection, handle, _) = rtnetlink::new_connection()
-                .map_err(|_| unavailable_inspector_error())?;
+            let (connection, handle, _) =
+                rtnetlink::new_connection().map_err(|_| unavailable_inspector_error())?;
             tokio::spawn(connection);
             let mut messages = handle.link().get().match_name(name).execute();
             let message = messages
@@ -358,7 +363,10 @@ pub type SystemLinuxDeploymentPlatformInspector =
 
 impl LinuxDeploymentPlatformInspector<SystemLinuxInspector, SystemDeploymentCandidateSource> {
     pub fn system() -> Self {
-        Self::new(SystemLinuxInspector::system(), SystemDeploymentCandidateSource)
+        Self::new(
+            SystemLinuxInspector::system(),
+            SystemDeploymentCandidateSource,
+        )
     }
 }
 

@@ -8,10 +8,10 @@ use l2_loop_agent::{
     },
 };
 use l2_loop_core::{
-    AttachmentState, BondInspection, BondMode, BpfInspection, DeploymentAuthorizationV1,
-    Direction, InterfaceInspection, InterfaceKind, InterfaceName, InterfaceRef, KernelInspection,
-    MemlockInspection, PF_INTERFACE_UNSUPPORTED, PF_LIVE_INTERFACE, PinRootState,
-    PreflightFinding, PreflightReport, TcAttachment,
+    AttachmentState, BondInspection, BondMode, BpfInspection, DeploymentAuthorizationV1, Direction,
+    InterfaceInspection, InterfaceKind, InterfaceName, InterfaceRef, KernelInspection,
+    MemlockInspection, PF_INTERFACE_UNSUPPORTED, PF_LIVE_INTERFACE, PinRootState, PreflightFinding,
+    PreflightReport, TcAttachment,
 };
 
 #[test]
