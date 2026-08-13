@@ -15,8 +15,7 @@ use l2_loop_core::DeploymentArtifactIdentityV1;
 use sha2::{Digest, Sha256};
 
 const COMMIT_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
-const LOGICAL_ROOT: &str =
-    "/run/l2-loop/accept/00112233445566778899aabbccddeeff/staging-root";
+const LOGICAL_ROOT: &str = "/run/l2-loop/accept/00112233445566778899aabbccddeeff/staging-root";
 const MANIFEST: &str = include_str!("fixtures/deployment/manifest-v1.json");
 const UNIT: &[u8] = b"unit-v1\n";
 const EXAMPLE: &[u8] = b"example-v1\n";
@@ -34,7 +33,11 @@ const PAYLOADS: [&str; 8] = [
 #[test]
 fn staging_root_grammar_accepts_only_the_generated_acceptance_shape() {
     let filesystem = LinuxDeploymentFilesystem::new();
-    assert!(filesystem.validate_staging_root(Path::new(LOGICAL_ROOT)).is_ok());
+    assert!(
+        filesystem
+            .validate_staging_root(Path::new(LOGICAL_ROOT))
+            .is_ok()
+    );
 
     for rejected in [
         "/run/l2-loop/accept/00112233445566778899AABBCCDDEEFF/staging-root",
@@ -123,9 +126,17 @@ fn bundle_reader_rejects_noncanonical_duplicate_or_untrusted_checksum_names() {
 fn bundle_reader_rejects_manifest_binding_changes_and_oversized_reads() {
     let filesystem = LinuxDeploymentFilesystem::new();
     for (label, before, after) in [
-        ("commit", COMMIT_SHA, "fedcba9876543210fedcba9876543210fedcba98"),
+        (
+            "commit",
+            COMMIT_SHA,
+            "fedcba9876543210fedcba9876543210fedcba98",
+        ),
         ("role", "l2-loopd", "daemon"),
-        ("target", "x86_64-unknown-linux-musl", "x86_64-unknown-linux-gnu"),
+        (
+            "target",
+            "x86_64-unknown-linux-musl",
+            "x86_64-unknown-linux-gnu",
+        ),
         ("abi", "\"abi_version\": 1", "\"abi_version\": 2"),
     ] {
         let bundle = BundleTree::valid(label);
@@ -215,7 +226,10 @@ fn deployment_filesystem_source_is_finite_bounded_and_read_only() {
         "EXPECTED_BUNDLE_FILES",
         "EXPECTED_LAYOUT_ENTRIES",
     ] {
-        assert!(source.contains(required), "missing safety primitive: {required}");
+        assert!(
+            source.contains(required),
+            "missing safety primitive: {required}"
+        );
     }
     for prohibited in [
         "create_dir",
@@ -329,53 +343,127 @@ fn valid_layout() -> StagedLayoutInputV1 {
         ("usr/bin", DeploymentEntryKindV1::Directory, 0o755),
         ("usr/lib", DeploymentEntryKindV1::Directory, 0o755),
         ("usr/libexec", DeploymentEntryKindV1::Directory, 0o755),
-        ("usr/libexec/l2-loop", DeploymentEntryKindV1::Directory, 0o755),
+        (
+            "usr/libexec/l2-loop",
+            DeploymentEntryKindV1::Directory,
+            0o755,
+        ),
         ("usr/lib/systemd", DeploymentEntryKindV1::Directory, 0o755),
-        ("usr/lib/systemd/system", DeploymentEntryKindV1::Directory, 0o755),
+        (
+            "usr/lib/systemd/system",
+            DeploymentEntryKindV1::Directory,
+            0o755,
+        ),
         ("usr/share", DeploymentEntryKindV1::Directory, 0o755),
         ("usr/share/doc", DeploymentEntryKindV1::Directory, 0o755),
-        ("usr/share/doc/l2-loop", DeploymentEntryKindV1::Directory, 0o755),
+        (
+            "usr/share/doc/l2-loop",
+            DeploymentEntryKindV1::Directory,
+            0o755,
+        ),
         ("etc", DeploymentEntryKindV1::Directory, 0o755),
         ("etc/l2-loop", DeploymentEntryKindV1::Directory, 0o700),
         ("var", DeploymentEntryKindV1::Directory, 0o755),
         ("var/lib", DeploymentEntryKindV1::Directory, 0o755),
         ("var/lib/l2-loop", DeploymentEntryKindV1::Directory, 0o700),
-        ("var/lib/l2-loop/gates", DeploymentEntryKindV1::Directory, 0o700),
-        ("var/lib/l2-loop/evidence", DeploymentEntryKindV1::Directory, 0o700),
-        ("var/lib/l2-loop/evidence/v1", DeploymentEntryKindV1::Directory, 0o700),
+        (
+            "var/lib/l2-loop/gates",
+            DeploymentEntryKindV1::Directory,
+            0o700,
+        ),
+        (
+            "var/lib/l2-loop/evidence",
+            DeploymentEntryKindV1::Directory,
+            0o700,
+        ),
+        (
+            "var/lib/l2-loop/evidence/v1",
+            DeploymentEntryKindV1::Directory,
+            0o700,
+        ),
         ("run", DeploymentEntryKindV1::Directory, 0o700),
         ("run/l2-loop", DeploymentEntryKindV1::Directory, 0o700),
         ("usr/bin/l2-loopctl", DeploymentEntryKindV1::Regular, 0o755),
-        ("usr/libexec/l2-loop/l2-loopd", DeploymentEntryKindV1::Regular, 0o755),
-        ("usr/libexec/l2-loop/l2-loop-deploycheck", DeploymentEntryKindV1::Regular, 0o755),
-        ("usr/libexec/l2-loop/l2-loop-hostcheck", DeploymentEntryKindV1::Regular, 0o755),
-        ("usr/libexec/l2-loop/l2-loop-ebpf.o", DeploymentEntryKindV1::Regular, 0o644),
-        ("usr/libexec/l2-loop/manifest.json", DeploymentEntryKindV1::Regular, 0o644),
-        ("usr/libexec/l2-loop/SHA256SUMS", DeploymentEntryKindV1::Regular, 0o644),
-        ("usr/lib/systemd/system/l2-loop.service", DeploymentEntryKindV1::Regular, 0o644),
-        ("usr/share/doc/l2-loop/deployment-v1.example.json", DeploymentEntryKindV1::Regular, 0o644),
-        ("etc/l2-loop/deployment-v1.json", DeploymentEntryKindV1::Regular, 0o600),
-        ("var/lib/l2-loop/gates/performance-v1.json", DeploymentEntryKindV1::Regular, 0o600),
+        (
+            "usr/libexec/l2-loop/l2-loopd",
+            DeploymentEntryKindV1::Regular,
+            0o755,
+        ),
+        (
+            "usr/libexec/l2-loop/l2-loop-deploycheck",
+            DeploymentEntryKindV1::Regular,
+            0o755,
+        ),
+        (
+            "usr/libexec/l2-loop/l2-loop-hostcheck",
+            DeploymentEntryKindV1::Regular,
+            0o755,
+        ),
+        (
+            "usr/libexec/l2-loop/l2-loop-ebpf.o",
+            DeploymentEntryKindV1::Regular,
+            0o644,
+        ),
+        (
+            "usr/libexec/l2-loop/manifest.json",
+            DeploymentEntryKindV1::Regular,
+            0o644,
+        ),
+        (
+            "usr/libexec/l2-loop/SHA256SUMS",
+            DeploymentEntryKindV1::Regular,
+            0o644,
+        ),
+        (
+            "usr/lib/systemd/system/l2-loop.service",
+            DeploymentEntryKindV1::Regular,
+            0o644,
+        ),
+        (
+            "usr/share/doc/l2-loop/deployment-v1.example.json",
+            DeploymentEntryKindV1::Regular,
+            0o644,
+        ),
+        (
+            "etc/l2-loop/deployment-v1.json",
+            DeploymentEntryKindV1::Regular,
+            0o600,
+        ),
+        (
+            "var/lib/l2-loop/gates/performance-v1.json",
+            DeploymentEntryKindV1::Regular,
+            0o600,
+        ),
     ];
     let entries = definitions
         .into_iter()
         .enumerate()
-        .map(|(index, (relative, kind, mode))| DeploymentEntrySnapshotV1 {
-            relative_path: relative.to_owned(),
-            canonical_path: if relative == "." {
-                root.clone()
-            } else {
-                root.join(relative)
+        .map(
+            |(index, (relative, kind, mode))| DeploymentEntrySnapshotV1 {
+                relative_path: relative.to_owned(),
+                canonical_path: if relative == "." {
+                    root.clone()
+                } else {
+                    root.join(relative)
+                },
+                kind,
+                mode,
+                uid: 0,
+                gid: 0,
+                device: 1,
+                inode: u64::try_from(index + 1).unwrap(),
+                hard_links: if kind == DeploymentEntryKindV1::Directory {
+                    2
+                } else {
+                    1
+                },
+                size: if kind == DeploymentEntryKindV1::Directory {
+                    0
+                } else {
+                    8
+                },
             },
-            kind,
-            mode,
-            uid: 0,
-            gid: 0,
-            device: 1,
-            inode: u64::try_from(index + 1).unwrap(),
-            hard_links: if kind == DeploymentEntryKindV1::Directory { 2 } else { 1 },
-            size: if kind == DeploymentEntryKindV1::Directory { 0 } else { 8 },
-        })
+        )
         .collect();
     StagedLayoutInputV1 {
         logical_root: root,
