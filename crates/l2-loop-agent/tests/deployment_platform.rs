@@ -78,14 +78,14 @@ fn authorization_name_or_ifindex_mismatch_stops_before_later_collection() {
 
 #[test]
 fn mixed_or_changing_identity_fails_closed() {
-    let mutations: Vec<Box<dyn Fn(&mut DeploymentLinkSnapshotV1)>> = vec![
-        Box::new(|link| link.name = InterfaceName::new("other0").unwrap()),
-        Box::new(|link| link.ifindex = 8),
-        Box::new(|link| link.kind = InterfaceKind::Veth),
-        Box::new(|link| link.administrative_up = false),
-        Box::new(|link| link.operational_up = false),
-        Box::new(|link| link.master_ifindex = Some(19)),
-        Box::new(|link| link.peer_or_namespace_relation_present = true),
+    let mutations: [fn(&mut DeploymentLinkSnapshotV1); 7] = [
+        |link| link.name = InterfaceName::new("other0").unwrap(),
+        |link| link.ifindex = 8,
+        |link| link.kind = InterfaceKind::Veth,
+        |link| link.administrative_up = false,
+        |link| link.operational_up = false,
+        |link| link.master_ifindex = Some(19),
+        |link| link.peer_or_namespace_relation_present = true,
     ];
 
     for mutate in mutations {
@@ -106,18 +106,18 @@ fn mixed_or_changing_identity_fails_closed() {
 
 #[test]
 fn preflight_identity_must_describe_the_same_fresh_link() {
-    let mutations: Vec<Box<dyn Fn(&mut InterfaceInspection)>> = vec![
-        Box::new(|interface| interface.requested.name = InterfaceName::new("other0").unwrap()),
-        Box::new(|interface| interface.requested.ifindex = 8),
-        Box::new(|interface| interface.kind = InterfaceKind::Bridge),
-        Box::new(|interface| interface.admin_up = false),
-        Box::new(|interface| interface.oper_up = false),
-        Box::new(|interface| {
+    let mutations: [fn(&mut InterfaceInspection); 6] = [
+        |interface| interface.requested.name = InterfaceName::new("other0").unwrap(),
+        |interface| interface.requested.ifindex = 8,
+        |interface| interface.kind = InterfaceKind::Bridge,
+        |interface| interface.admin_up = false,
+        |interface| interface.oper_up = false,
+        |interface| {
             interface.master = Some(InterfaceRef {
                 name: InterfaceName::new("bond0").unwrap(),
                 ifindex: 19,
             })
-        }),
+        },
     ];
 
     for mutate in mutations {
