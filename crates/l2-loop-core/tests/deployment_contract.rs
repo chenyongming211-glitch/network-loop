@@ -556,10 +556,10 @@ fn valid_performance_value() -> Value {
     let mut trials = Vec::new();
     for (trial_index, order) in orders.iter().enumerate() {
         for mode in order {
-            let (pps, bps) = match *mode {
-                "baseline" => (1_000_000_u64, 696_320_000_u64),
-                "pass_through" => (960_000_u64, 668_467_200_u64),
-                "observe" => (910_000_u64, 633_651_200_u64),
+            let (duration_ns, pps, bps) = match *mode {
+                "baseline" => (196_608_000_u64, 1_000_000_u64, 696_666_666_u64),
+                "pass_through" => (204_800_000_u64, 960_000_u64, 668_800_000_u64),
+                "observe" => (216_052_747_u64, 910_000_u64, 633_966_667_u64),
                 _ => unreachable!(),
             };
             trials.push(json!({
@@ -567,7 +567,7 @@ fn valid_performance_value() -> Value {
                 "mode": mode,
                 "frame_sizes": [64, 512, 1514],
                 "frames_per_size": 65536,
-                "duration_ns": 196_608_000,
+                "duration_ns": duration_ns,
                 "packets_per_second": pps,
                 "bytes_per_second": bps,
                 "daemon_cpu_time_ns": 10_000_000,
@@ -588,20 +588,34 @@ fn valid_performance_value() -> Value {
         "veth_xdp_mode": "generic",
         "issued_at_unix_ms": NOW_MS,
         "expires_at_unix_ms": EXPIRES_MS,
+        "warm_up_complete": true,
+        "measurement_complete": true,
+        "measurement_noisy": false,
+        "host_identity_stable": true,
         "trials": trials,
         "medians": {
-            "baseline": {"packets_per_second": 1_000_000, "bytes_per_second": 696_320_000},
-            "pass_through": {"packets_per_second": 960_000, "bytes_per_second": 668_467_200},
-            "observe": {"packets_per_second": 910_000, "bytes_per_second": 633_651_200}
+            "baseline": {"packets_per_second": 1_000_000, "bytes_per_second": 696_666_666},
+            "pass_through": {"packets_per_second": 960_000, "bytes_per_second": 668_800_000},
+            "observe": {"packets_per_second": 910_000, "bytes_per_second": 633_966_667}
         },
         "pass_through_baseline_ratio_permille": 960,
         "observe_baseline_ratio_permille": 910,
         "daemon_cpu_time_ns": 150_000_000,
-        "daemon_cpu_permille": 100,
+        "daemon_cpu_permille": 48,
         "peak_resident_memory_bytes": 67_108_864,
-        "rss_growth_bytes": 1_048_576,
+        "rss_growth_bytes": 0,
         "packet_drop_delta": 0,
         "packet_error_delta": 0,
+        "process_count_before": 1,
+        "process_count_after": 1,
+        "map_count_before": 6,
+        "map_count_after": 6,
+        "program_count_before": 2,
+        "program_count_after": 2,
+        "pin_count_before": 6,
+        "pin_count_after": 6,
+        "namespace_count_before": 1,
+        "namespace_count_after": 1,
         "forwarding_intact": true,
         "owned_cleanup_complete": true,
         "network_identity_restored": true,

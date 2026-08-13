@@ -446,13 +446,11 @@ fn performance_failure(
         PerformanceResultV1::Failed => DG_PERFORMANCE_REGRESSION,
         PerformanceResultV1::Unavailable => DG_PERFORMANCE_UNAVAILABLE,
     };
-    if performance
-        .validate_for(captured_at_unix_ms, artifact, host)
-        .is_err()
-    {
-        return Some(result_code);
-    }
-    match performance.result {
+    let assessment = match performance.assess_for(captured_at_unix_ms, artifact, host) {
+        Ok(assessment) => assessment,
+        Err(_) => return Some(result_code),
+    };
+    match assessment.result {
         PerformanceResultV1::Passed => None,
         PerformanceResultV1::Failed => Some(DG_PERFORMANCE_REGRESSION),
         PerformanceResultV1::Unavailable => Some(DG_PERFORMANCE_UNAVAILABLE),

@@ -361,16 +361,16 @@ impl PerformanceTrialV1 {
         let sent_bytes = sent_bytes
             .checked_mul(u128::from(self.frames_per_size))
             .ok_or(DeploymentContractError::InvalidPerformanceEvidence)?;
-        let maximum_packets_per_second = sent_packets
+        let expected_packets_per_second = sent_packets
             .checked_mul(1_000_000_000)
             .ok_or(DeploymentContractError::InvalidPerformanceEvidence)?
             / u128::from(self.duration_ns);
-        let maximum_bytes_per_second = sent_bytes
+        let expected_bytes_per_second = sent_bytes
             .checked_mul(1_000_000_000)
             .ok_or(DeploymentContractError::InvalidPerformanceEvidence)?
             / u128::from(self.duration_ns);
-        if u128::from(self.packets_per_second) > maximum_packets_per_second
-            || u128::from(self.bytes_per_second) > maximum_bytes_per_second
+        if u128::from(self.packets_per_second) != expected_packets_per_second
+            || u128::from(self.bytes_per_second) != expected_bytes_per_second
         {
             return Err(DeploymentContractError::InvalidPerformanceEvidence);
         }
@@ -408,6 +408,10 @@ pub struct PerformanceEvidenceV1 {
     pub veth_xdp_mode: PerformanceXdpModeV1,
     pub issued_at_unix_ms: u64,
     pub expires_at_unix_ms: u64,
+    pub warm_up_complete: bool,
+    pub measurement_complete: bool,
+    pub measurement_noisy: bool,
+    pub host_identity_stable: bool,
     pub trials: Vec<PerformanceTrialV1>,
     pub medians: PerformanceMediansV1,
     pub pass_through_baseline_ratio_permille: u16,
@@ -418,6 +422,16 @@ pub struct PerformanceEvidenceV1 {
     pub rss_growth_bytes: u64,
     pub packet_drop_delta: u64,
     pub packet_error_delta: u64,
+    pub process_count_before: u32,
+    pub process_count_after: u32,
+    pub map_count_before: u32,
+    pub map_count_after: u32,
+    pub program_count_before: u32,
+    pub program_count_after: u32,
+    pub pin_count_before: u32,
+    pub pin_count_after: u32,
+    pub namespace_count_before: u32,
+    pub namespace_count_after: u32,
     pub forwarding_intact: bool,
     pub owned_cleanup_complete: bool,
     pub network_identity_restored: bool,
@@ -426,16 +440,30 @@ pub struct PerformanceEvidenceV1 {
     pub findings: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PerformanceAssessmentV1 {
+    pub medians: PerformanceMediansV1,
+    pub pass_through_baseline_ratio_permille: u16,
+    pub observe_baseline_ratio_permille: u16,
+    pub daemon_cpu_time_ns: u64,
+    pub daemon_cpu_permille: u16,
+    pub peak_resident_memory_bytes: u64,
+    pub rss_growth_bytes: u64,
+    pub result: PerformanceResultV1,
+    pub outstanding_warning_codes: Vec<String>,
+}
+
 impl PerformanceEvidenceV1 {
-    pub fn validate_for(
+    pub fn assess_for(
         &self,
         captured_at_unix_ms: u64,
         artifact: &DeploymentArtifactIdentityV1,
         host: &DeploymentHostCompatibilityV1,
-    ) -> Result<(), DeploymentContractError> {
+    ) -> Result<PerformanceAssessmentV1, DeploymentContractError> {
         artifact.validate()?;
         host.validate()?;
-        self.validate_structure(captured_at_unix_ms)?;
+        let assessment = self.assess_structure(captured_at_unix_ms)?;
         if self.artifact_commit_sha != artifact.commit_sha
             || self.package_version != artifact.package_version
             || self.architecture != host.architecture
@@ -444,10 +472,23 @@ impl PerformanceEvidenceV1 {
         {
             return Err(DeploymentContractError::InvalidPerformanceEvidence);
         }
-        Ok(())
+        Ok(assessment)
     }
 
-    fn validate_structure(&self, captured_at_unix_ms: u64) -> Result<(), DeploymentContractError> {
+    pub fn validate_for(
+        &self,
+        captured_at_unix_ms: u64,
+        artifact: &DeploymentArtifactIdentityV1,
+        host: &DeploymentHostCompatibilityV1,
+    ) -> Result<(), DeploymentContractError> {
+        self.assess_for(captured_at_unix_ms, artifact, host)
+            .map(|_| ())
+    }
+
+    fn assess_structure(
+        &self,
+        captured_at_unix_ms: u64,
+    ) -> Result<PerformanceAssessmentV1, DeploymentContractError> {
         let lifetime = self
             .expires_at_unix_ms
             .checked_sub(self.issued_at_unix_ms)
@@ -469,6 +510,7 @@ impl PerformanceEvidenceV1 {
         }
 
         let mut total_cpu_time_ns = 0_u64;
+        let mut total_duration_ns = 0_u128;
         let mut total_drop_delta = 0_u64;
         let mut total_error_delta = 0_u64;
         let mut peak_resident_memory_bytes = 0_u64;
@@ -483,6 +525,9 @@ impl PerformanceEvidenceV1 {
             }
             total_cpu_time_ns = total_cpu_time_ns
                 .checked_add(trial.daemon_cpu_time_ns)
+                .ok_or(DeploymentContractError::InvalidPerformanceEvidence)?;
+            total_duration_ns = total_duration_ns
+                .checked_add(u128::from(trial.duration_ns))
                 .ok_or(DeploymentContractError::InvalidPerformanceEvidence)?;
             total_drop_delta = total_drop_delta
                 .checked_add(trial.packet_drop_delta)
@@ -499,13 +544,25 @@ impl PerformanceEvidenceV1 {
         let observe = self.median_for(PerformanceModeV1::Observe)?;
         let pass_through_ratio = conservative_ratio_permille(pass_through, baseline)?;
         let observe_ratio = conservative_ratio_permille(observe, baseline)?;
+        let daemon_cpu_permille = u16::try_from(
+            u128::from(total_cpu_time_ns)
+                .checked_mul(1_000)
+                .ok_or(DeploymentContractError::InvalidPerformanceEvidence)?
+                / total_duration_ns,
+        )
+        .map_err(|_| DeploymentContractError::InvalidPerformanceEvidence)?;
+        let first_observe_rss = self.observe_rss_for_trial(1)?;
+        let fifth_observe_rss = self.observe_rss_for_trial(5)?;
+        let rss_growth_bytes = fifth_observe_rss.saturating_sub(first_observe_rss);
         if self.medians.baseline != baseline
             || self.medians.pass_through != pass_through
             || self.medians.observe != observe
             || self.pass_through_baseline_ratio_permille != pass_through_ratio
             || self.observe_baseline_ratio_permille != observe_ratio
             || self.daemon_cpu_time_ns != total_cpu_time_ns
+            || self.daemon_cpu_permille != daemon_cpu_permille
             || self.peak_resident_memory_bytes != peak_resident_memory_bytes
+            || self.rss_growth_bytes != rss_growth_bytes
             || self.packet_drop_delta != total_drop_delta
             || self.packet_error_delta != total_error_delta
             || !codes_are_sorted_unique(&self.findings)
@@ -519,44 +576,59 @@ impl PerformanceEvidenceV1 {
             return Err(DeploymentContractError::InvalidPerformanceEvidence);
         }
 
-        match self.result {
-            PerformanceResultV1::Passed => {
-                if self.pass_through_baseline_ratio_permille < PERFORMANCE_PASS_THROUGH_MIN_PERMILLE
-                    || self.observe_baseline_ratio_permille < PERFORMANCE_OBSERVE_MIN_PERMILLE
-                    || self.daemon_cpu_permille > PERFORMANCE_MAX_DAEMON_CPU_PERMILLE
-                    || self.peak_resident_memory_bytes > PERFORMANCE_MAX_DAEMON_RSS_BYTES
-                    || self.rss_growth_bytes > PERFORMANCE_MAX_RSS_GROWTH_BYTES
-                    || self.packet_drop_delta != 0
-                    || self.packet_error_delta != 0
-                    || !self.forwarding_intact
-                    || !self.owned_cleanup_complete
-                    || !self.network_identity_restored
-                    || !self.ebpf_identity_restored
-                    || !self.findings.is_empty()
-                {
-                    return Err(DeploymentContractError::InvalidPerformanceEvidence);
-                }
-            }
-            PerformanceResultV1::Failed => {
-                if !self
-                    .findings
-                    .iter()
-                    .any(|code| code == DG_PERFORMANCE_REGRESSION)
-                {
-                    return Err(DeploymentContractError::InvalidPerformanceEvidence);
-                }
-            }
-            PerformanceResultV1::Unavailable => {
-                if !self
-                    .findings
-                    .iter()
-                    .any(|code| code == DG_PERFORMANCE_UNAVAILABLE)
-                {
-                    return Err(DeploymentContractError::InvalidPerformanceEvidence);
-                }
-            }
+        let unavailable = !self.warm_up_complete
+            || !self.measurement_complete
+            || self.measurement_noisy
+            || !self.host_identity_stable;
+        let regression = self.pass_through_baseline_ratio_permille
+            < PERFORMANCE_PASS_THROUGH_MIN_PERMILLE
+            || self.observe_baseline_ratio_permille < PERFORMANCE_OBSERVE_MIN_PERMILLE
+            || self.daemon_cpu_permille > PERFORMANCE_MAX_DAEMON_CPU_PERMILLE
+            || self.peak_resident_memory_bytes > PERFORMANCE_MAX_DAEMON_RSS_BYTES
+            || self.rss_growth_bytes > PERFORMANCE_MAX_RSS_GROWTH_BYTES
+            || self.packet_drop_delta != 0
+            || self.packet_error_delta != 0
+            || self.process_count_before != self.process_count_after
+            || self.map_count_before != self.map_count_after
+            || self.program_count_before != self.program_count_after
+            || self.pin_count_before != self.pin_count_after
+            || self.namespace_count_before != self.namespace_count_after
+            || !self.forwarding_intact
+            || !self.owned_cleanup_complete
+            || !self.network_identity_restored
+            || !self.ebpf_identity_restored;
+        let expected_result = if unavailable {
+            PerformanceResultV1::Unavailable
+        } else if regression {
+            PerformanceResultV1::Failed
+        } else {
+            PerformanceResultV1::Passed
+        };
+        let expected_findings = match expected_result {
+            PerformanceResultV1::Passed => Vec::new(),
+            PerformanceResultV1::Failed => vec![DG_PERFORMANCE_REGRESSION.to_owned()],
+            PerformanceResultV1::Unavailable => vec![DG_PERFORMANCE_UNAVAILABLE.to_owned()],
+        };
+        if self.result != expected_result || self.findings != expected_findings {
+            return Err(DeploymentContractError::InvalidPerformanceEvidence);
         }
-        Ok(())
+        let mut outstanding_warning_codes = WARNING_CODES.map(str::to_owned).to_vec();
+        outstanding_warning_codes.sort();
+        Ok(PerformanceAssessmentV1 {
+            medians: PerformanceMediansV1 {
+                baseline,
+                pass_through,
+                observe,
+            },
+            pass_through_baseline_ratio_permille: pass_through_ratio,
+            observe_baseline_ratio_permille: observe_ratio,
+            daemon_cpu_time_ns: total_cpu_time_ns,
+            daemon_cpu_permille,
+            peak_resident_memory_bytes,
+            rss_growth_bytes,
+            result: expected_result,
+            outstanding_warning_codes,
+        })
     }
 
     fn median_for(
@@ -585,6 +657,23 @@ impl PerformanceEvidenceV1 {
             packets_per_second: packet_rates[PERFORMANCE_TRIALS_PER_MODE / 2],
             bytes_per_second: byte_rates[PERFORMANCE_TRIALS_PER_MODE / 2],
         })
+    }
+
+    fn observe_rss_for_trial(
+        &self,
+        trial_number: u8,
+    ) -> Result<u64, DeploymentContractError> {
+        let mut matches = self.trials.iter().filter(|trial| {
+            trial.trial_number == trial_number && trial.mode == PerformanceModeV1::Observe
+        });
+        let rss = matches
+            .next()
+            .map(|trial| trial.peak_resident_memory_bytes)
+            .ok_or(DeploymentContractError::InvalidPerformanceEvidence)?;
+        if matches.next().is_some() {
+            return Err(DeploymentContractError::InvalidPerformanceEvidence);
+        }
+        Ok(rss)
     }
 }
 

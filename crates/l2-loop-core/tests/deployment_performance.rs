@@ -40,11 +40,55 @@ fn accepts_exact_throughput_and_resource_boundaries() {
         PERFORMANCE_MAX_DAEMON_RSS_BYTES - PERFORMANCE_MAX_RSS_GROWTH_BYTES,
         PERFORMANCE_MAX_DAEMON_RSS_BYTES,
     );
+    for trial in value["trials"].as_array_mut().unwrap() {
+        let duration = trial["duration_ns"].clone();
+        trial["daemon_cpu_time_ns"] = duration;
+    }
     refresh_aggregates(&mut value);
 
     evidence(value)
         .assess_for(NOW_MS, &artifact(), &host())
         .unwrap();
+}
+
+#[test]
+fn rejects_actual_values_just_beyond_each_fixed_boundary() {
+    let mut pass_through = valid_evidence_value();
+    set_mode_duration(&mut pass_through, "pass_through", 206_955_790);
+    refresh_aggregates(&mut pass_through);
+    assert_invalid(pass_through);
+
+    let mut observe = valid_evidence_value();
+    set_mode_duration(&mut observe, "observe", 218_453_334);
+    refresh_aggregates(&mut observe);
+    assert_invalid(observe);
+
+    let mut cpu = valid_evidence_value();
+    for trial in cpu["trials"].as_array_mut().unwrap() {
+        let duration = trial["duration_ns"].as_u64().unwrap();
+        trial["daemon_cpu_time_ns"] = json!(duration + duration / 1_000 + 1);
+    }
+    refresh_aggregates(&mut cpu);
+    assert_invalid(cpu);
+
+    let mut rss = valid_evidence_value();
+    set_observe_rss_growth(
+        &mut rss,
+        64 * 1024 * 1024,
+        64 * 1024 * 1024 + PERFORMANCE_MAX_RSS_GROWTH_BYTES + 1,
+    );
+    refresh_aggregates(&mut rss);
+    assert_invalid(rss);
+
+    let mut drop_delta = valid_evidence_value();
+    drop_delta["trials"][0]["packet_drop_delta"] = json!(1);
+    drop_delta["packet_drop_delta"] = json!(1);
+    assert_invalid(drop_delta);
+
+    let mut error_delta = valid_evidence_value();
+    error_delta["trials"][0]["packet_error_delta"] = json!(1);
+    error_delta["packet_error_delta"] = json!(1);
+    assert_invalid(error_delta);
 }
 
 #[test]
