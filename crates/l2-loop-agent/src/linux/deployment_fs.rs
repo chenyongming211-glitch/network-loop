@@ -31,6 +31,15 @@ const MAX_CHECKSUM_BYTES: u64 = 64 * 1024;
 const MAX_BUNDLE_FILE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_EBPF_BYTES: u64 = 16 * 1024 * 1024;
 const HASH_BUFFER_BYTES: usize = 16 * 1024;
+const SERVICE_OVERRIDE_PATHS: [&str; 7] = [
+    "etc/systemd/system/l2-loop.service",
+    "run/systemd/system/l2-loop.service",
+    "usr/local/lib/systemd/system/l2-loop.service",
+    "etc/systemd/system/l2-loop.service.d",
+    "run/systemd/system/l2-loop.service.d",
+    "usr/lib/systemd/system/l2-loop.service.d",
+    "usr/local/lib/systemd/system/l2-loop.service.d",
+];
 
 pub const EXPECTED_BUNDLE_FILES: [&str; 9] = [
     "SHA256SUMS",
@@ -215,12 +224,25 @@ impl DeploymentFilesystem for LinuxDeploymentFilesystem {
 }
 
 fn inspect_service(root: &Path) -> Result<ServiceUnitSnapshotV1, DeploymentIoError> {
+    reject_service_overrides(root)?;
     let path = root.join("usr/lib/systemd/system/l2-loop.service");
     let bytes = read_bounded_no_follow(
         &path,
         u64::try_from(MAX_SERVICE_UNIT_BYTES).map_err(|_| DeploymentIoError::Unavailable)?,
     )?;
-    validate_service_unit(&bytes).map_err(|_| DeploymentIoError::Unavailable)
+    let snapshot = validate_service_unit(&bytes).map_err(|_| DeploymentIoError::Unavailable)?;
+    reject_service_overrides(root)?;
+    Ok(snapshot)
+}
+
+fn reject_service_overrides(root: &Path) -> Result<(), DeploymentIoError> {
+    for relative in SERVICE_OVERRIDE_PATHS {
+        match fs::symlink_metadata(root.join(relative)) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Ok(_) | Err(_) => return Err(DeploymentIoError::Unavailable),
+        }
+    }
+    Ok(())
 }
 
 pub fn validate_staged_layout_snapshot(
