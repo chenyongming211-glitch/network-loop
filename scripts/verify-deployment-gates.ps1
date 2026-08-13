@@ -367,7 +367,6 @@ cleanup_generated_tree() {
     cleanup_file "$root/pass-through.fifo"
     cleanup_file "$root/pass-through.out"
     cleanup_file "$root/pass-through.pid"
-    cleanup_file "$root/pass-through.strace"
     cleanup_file "$root/daemon.pid"
     cleanup_file "$root/daemon.log"
     cleanup_file "$root/trial.json"
@@ -678,19 +677,6 @@ start_pass_through() {
     tries=0
     while ! grep -Fq '"state":"ready"' "$root/pass-through.out" && test "$tries" -lt 100; do sleep 0.1; tries=$((tries + 1)); done
     if ! grep -Fq '"state":"ready"' "$root/pass-through.out"; then
-        printf 'stop\n' | strace -f -e trace=%file -o "$root/pass-through.strace" "$root/l2-loop-hostcheck" pass-through --acceptance-only pass-through-v1 --run-id "$run" --evidence-root "$evidence" --interface "$host" --ifindex "$(cat /sys/class/net/$host/ifindex)" >/dev/null 2>&1 || true
-        tail -n 80 "$root/pass-through.strace" >&2
-        "$bundle/l2-loop-hostcheck" snapshot >&2 || true
-        stat -c '%F %u:%g:%a:%h %n' "$root" "$evidence" "$root/l2-loop-hostcheck" "$root/l2-loop-ebpf.o" >&2
-        cd "$bundle"
-        ulimit -l unlimited
-        env L2_LOOP_ACCEPTANCE_EVIDENCE_ROOT="$evidence" ./l2-loopd >"$root/daemon.log" 2>&1 &
-        diagnostic_pid=$!
-        tries=0
-        while test ! -S /run/l2-loop/agent.sock && test "$tries" -lt 100; do sleep 0.1; tries=$((tries + 1)); done
-        test -S /run/l2-loop/agent.sock && "$bundle/l2-loopctl" preflight --interface "$host" --json >&2 || true
-        kill -TERM "$diagnostic_pid" 2>/dev/null || true
-        wait "$diagnostic_pid" 2>/dev/null || true
         fail "pass-through did not become ready"
     fi
 }

@@ -182,7 +182,7 @@ pub fn authorize_acceptance_pass_through(
             "PT_REQUEST_IDENTITY",
         ));
     }
-    if report.decision != PreflightDecision::Ready {
+    if report.decision == PreflightDecision::Blocked {
         return Err(HostAcceptanceError::InvalidPassThroughPredicate(
             "PT_REPORT_DECISION",
         ));

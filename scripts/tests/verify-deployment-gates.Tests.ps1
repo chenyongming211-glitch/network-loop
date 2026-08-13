@@ -162,6 +162,7 @@ foreach ($Scenario in @(
 }
 
 foreach ($Forbidden in @(
+    'strace',
     'apt-get',
     'apt ',
     'dnf ',
