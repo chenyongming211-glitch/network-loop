@@ -97,6 +97,7 @@ foreach ($Required in @(
     'CancelKeyPress',
     'TimeoutSeconds',
     'Test-IsolatedRemoteState',
+    'Get-StableIsolatedRemoteState',
     'Assert-IsolatedRemoteStateUnchanged',
     'Wait-IsolatedRemoteState',
     "[ValidateSet('snapshot', 'snapshot-prepared')] [string] `$Phase = 'snapshot'",
@@ -104,8 +105,11 @@ foreach ($Required in @(
     "snapshot-prepared)",
     'sum(1 for item in value if item.get("ifname") == excluded) != 1',
     'item for item in value if item.get("ifname") != excluded',
-    '[ValidateRange(1, 5)] [int] $MaxAttempts = 5',
-    '[ValidateRange(10, 100)] [int] $DelayMilliseconds = 100',
+    '[ValidateRange(2, 5)] [int] $RequiredConsecutive = 3',
+    '[ValidateRange(3, 120)] [int] $MaxAttempts = 40',
+    '[ValidateRange(2, 5)] [int] $RequiredConsecutive = 2',
+    '[ValidateRange(2, 240)] [int] $MaxAttempts = 120',
+    '[ValidateRange(50, 1000)] [int] $DelayMilliseconds = 250',
     "Start-Sleep -Milliseconds `$DelayMilliseconds",
     'Assert-NoSymlink',
     'Assert-GeneratedTarget',
@@ -353,14 +357,26 @@ Assert-True (-not [regex]::IsMatch($Harness, '(?m)^\s*(?:while\s+(?::|true)|for\
 Assert-True ($Harness.IndexOf('$ExitEvent = Register-IsolatedCleanup') -lt $Harness.IndexOf('$null = Invoke-IsolatedMutation')) 'cleanup is not registered before first mutation'
 Assert-True ($Harness.Contains("Where-Object { `$null -ne `$_ -and")) 'empty GitHub run queries are not rejected safely'
 Assert-True ([regex]::Matches($Harness, [regex]::Escape('Wait-IsolatedRemoteState')).Count -ge 5) 'bounded exact-state convergence is not used at every rollback boundary'
-$PreparedMarker = '$PreparedState = Test-IsolatedRemoteState'
+$PreparedMarker = '$PreparedState = Get-StableIsolatedRemoteState'
 $LinksUpMarker = '$null = Invoke-IsolatedMutation -Phase ''links-up'''
 Assert-True ($Harness.IndexOf($PreparedMarker) -ge 0 -and $Harness.IndexOf($PreparedMarker) -lt $Harness.IndexOf($LinksUpMarker)) 'generated veth is raised before the transaction completes isolated attach'
-Assert-True ($Harness.Contains("`$PreparedState = Test-IsolatedRemoteState -Phase 'snapshot-prepared'")) 'prepared state includes the generated veth volatile link record'
+Assert-True ($Harness.Contains("`$PreparedState = Get-StableIsolatedRemoteState -Phase 'snapshot-prepared'")) 'prepared state does not require a converged generated-veth snapshot'
 Assert-True ([regex]::Matches($Harness, [regex]::Escape("Wait-IsolatedRemoteState -Phase 'snapshot-prepared'")).Count -ge 2) 'transaction rollback boundaries do not use the prepared-state snapshot'
-Assert-True ([regex]::Matches($Harness, [regex]::Escape("Test-IsolatedRemoteState -Phase 'snapshot-prepared'")).Count -eq 1) 'prepared-state filtering is not limited to the generated transaction snapshot'
-Assert-True ([regex]::Matches($Harness, [regex]::Escape('$BeforeState = Test-IsolatedRemoteState -Names')).Count -eq 1) 'full host snapshot is not captured before isolated mutation'
+Assert-True ([regex]::Matches($Harness, [regex]::Escape("Get-StableIsolatedRemoteState -Phase 'snapshot-prepared'")).Count -eq 1) 'prepared-state filtering is not limited to one stable generated transaction snapshot'
+Assert-True ([regex]::Matches($Harness, [regex]::Escape('$BeforeState = Get-StableIsolatedRemoteState -Names')).Count -eq 1) 'full host baseline does not require bounded convergence before isolated mutation'
 Assert-True ([regex]::Matches($Harness, [regex]::Escape('Wait-IsolatedRemoteState -Expected $BeforeState')).Count -ge 2) 'full host state is not verified after cleanup paths'
+Assert-True (
+    [regex]::IsMatch(
+        $Harness,
+        '(?s)function Get-StableIsolatedRemoteState.*?\[ValidateRange\(2, 5\)\] \[int\] \$RequiredConsecutive = 3.*?\[ValidateRange\(3, 120\)\] \[int\] \$MaxAttempts = 40.*?Start-Sleep -Milliseconds \$DelayMilliseconds'
+    )
+) 'host baseline does not require three consecutive exact snapshots in a bounded convergence window'
+Assert-True (
+    [regex]::IsMatch(
+        $Harness,
+        '(?s)function Wait-IsolatedRemoteState.*?\[ValidateRange\(2, 5\)\] \[int\] \$RequiredConsecutive = 2.*?\[ValidateRange\(2, 240\)\] \[int\] \$MaxAttempts = 120.*?Start-Sleep -Milliseconds \$DelayMilliseconds'
+    )
+) 'post-cleanup identity does not require two consecutive exact matches in a bounded convergence window'
 Assert-True (-not $Harness.Contains("'verify-hooks-saved'")) 'hostcheck is asked to trust a non-canonical ownership journal path'
 $IdentityCanonicalVerification = "(?s)'IdentityChange' \{(?:(?!'TrafficInterruption').)*restore-journal(?:(?!'TrafficInterruption').)*-Phase 'verify-hooks'"
 Assert-True ([regex]::IsMatch($Harness, $IdentityCanonicalVerification)) 'identity-change rejection is not verified after restoring the canonical journal'
