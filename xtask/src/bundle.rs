@@ -134,7 +134,7 @@ pub enum BundleError {
     UnexpectedOutputInventory,
     #[error("bundle output directory already exists")]
     OutputExists,
-    #[error("bundle input is not a bounded single-link regular file: {path}")]
+    #[error("bundle input is not a bounded stable regular file: {path}")]
     InvalidInput { path: PathBuf },
     #[error("bundle I/O failed while {operation}: {path}")]
     Io {
@@ -249,7 +249,7 @@ fn validate_metadata(commit_sha: &str, package_version: &str) -> Result<(), Bund
 fn read_bounded_regular(path: &Path, maximum: u64) -> Result<Vec<u8>, BundleError> {
     let before = fs::symlink_metadata(path)
         .map_err(|source| io_error("reading input metadata", path, source))?;
-    if !before.file_type().is_file() || !single_link(&before) || before.len() > maximum {
+    if !before.file_type().is_file() || before.len() > maximum {
         return Err(BundleError::InvalidInput {
             path: path.to_path_buf(),
         });
