@@ -1,6 +1,19 @@
 #![cfg(target_os = "linux")]
 
-use l2_loop_agent::linux::deployment_unit::validate_service_unit;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use l2_loop_agent::{
+    DeploymentFilesystem,
+    linux::{
+        deployment_fs::LinuxDeploymentFilesystem,
+        deployment_unit::validate_service_unit,
+    },
+};
+use l2_loop_core::DeploymentArtifactIdentityV1;
 
 const EXPECTED_UNIT: &str = "[Unit]\n\
 Description=L2 Loop Detection Agent\n\
@@ -273,9 +286,76 @@ fn input_is_bounded_utf8_and_parser_source_never_executes_or_writes() {
     }
 }
 
+#[test]
+fn fixed_override_and_drop_in_paths_are_rejected_without_discovery() {
+    for relative in [
+        "etc/systemd/system/l2-loop.service",
+        "run/systemd/system/l2-loop.service",
+        "usr/local/lib/systemd/system/l2-loop.service",
+        "etc/systemd/system/l2-loop.service.d",
+        "run/systemd/system/l2-loop.service.d",
+        "usr/lib/systemd/system/l2-loop.service.d",
+        "usr/local/lib/systemd/system/l2-loop.service.d",
+    ] {
+        let root = ServiceTree::valid(relative.replace('/', "-"));
+        let occupied = root.path().join(relative);
+        if relative.ends_with(".d") {
+            fs::create_dir_all(&occupied).unwrap();
+        } else {
+            fs::create_dir_all(occupied.parent().unwrap()).unwrap();
+            fs::write(&occupied, EXPECTED_UNIT).unwrap();
+        }
+        let mut filesystem = LinuxDeploymentFilesystem::new(artifact()).unwrap();
+        assert!(
+            filesystem.inspect_staged_service(root.path()).is_err(),
+            "accepted service override: {relative}"
+        );
+    }
+}
+
 fn assert_rejected(label: &str, unit: &str) {
     assert!(
         validate_service_unit(unit.as_bytes()).is_err(),
         "accepted invalid unit: {label}"
     );
+}
+
+fn artifact() -> DeploymentArtifactIdentityV1 {
+    DeploymentArtifactIdentityV1::new(
+        "0123456789abcdef0123456789abcdef01234567",
+        "0.1.0",
+    )
+    .unwrap()
+}
+
+struct ServiceTree {
+    root: PathBuf,
+}
+
+impl ServiceTree {
+    fn valid(label: impl AsRef<str>) -> Self {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "l2-loop-unit-{}-{}-{nonce}",
+            std::process::id(),
+            label.as_ref()
+        ));
+        let unit = root.join("usr/lib/systemd/system/l2-loop.service");
+        fs::create_dir_all(unit.parent().unwrap()).unwrap();
+        fs::write(unit, EXPECTED_UNIT).unwrap();
+        Self { root }
+    }
+
+    fn path(&self) -> &Path {
+        &self.root
+    }
+}
+
+impl Drop for ServiceTree {
+    fn drop(&mut self) {
+        fs::remove_dir_all(&self.root).unwrap();
+    }
 }
