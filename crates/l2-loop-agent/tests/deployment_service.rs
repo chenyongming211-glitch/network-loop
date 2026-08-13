@@ -11,11 +11,13 @@ use l2_loop_agent::{
     LayoutSnapshotV1, ServiceUnitSnapshotV1,
 };
 use l2_loop_core::{
-    AttachmentState, BpfInspection, DG_AUTH_IDENTITY, DG_PLATFORM_BLOCKED, DG_SYSTEMD_CONTRACT,
+    AttachmentState, BpfInspection, DG_AUTH_IDENTITY, DG_INTERFACE_UNSUPPORTED,
+    DG_PLATFORM_BLOCKED, DG_SYSTEMD_CONTRACT, DG_TC_NOT_EMPTY, DG_XDP_NOT_EMPTY,
     DeploymentArtifactIdentityV1, DeploymentAuthorizationV1, DeploymentDecisionV1,
-    DeploymentFindingSeverityV1, DeploymentHostCompatibilityV1, InterfaceInspection, InterfaceKind,
-    InterfaceName, InterfaceRef, KernelInspection, MemlockInspection, PF_INTERFACE_UNSUPPORTED,
-    PF_LIVE_INTERFACE, PerformanceEvidenceV1, PinRootState, PreflightFinding, PreflightReport,
+    DeploymentFindingSeverityV1, DeploymentHostCompatibilityV1, Direction, InterfaceInspection,
+    InterfaceKind, InterfaceName, InterfaceRef, KernelInspection, MemlockInspection,
+    PF_INTERFACE_UNSUPPORTED, PF_LIVE_INTERFACE, PerformanceEvidenceV1, PinRootState,
+    PreflightFinding, PreflightReport, TcAttachment,
 };
 use serde_json::json;
 
@@ -176,6 +178,110 @@ fn inspect_accepts_live_refusal_but_rejects_reserved_port_consumers() {
 }
 
 #[test]
+fn inspect_rejects_every_unsupported_or_unstable_interface_shape() {
+    let kinds = [
+        InterfaceKind::Bond,
+        InterfaceKind::Veth,
+        InterfaceKind::Bridge,
+        InterfaceKind::OvsInternal,
+        InterfaceKind::Tap,
+        InterfaceKind::Unsupported,
+    ];
+    for kind in kinds {
+        let mut snapshot = platform_snapshot("spare0");
+        snapshot.kind = kind;
+        snapshot.preflight.interface.kind = kind;
+        assert_platform_code(snapshot, DG_INTERFACE_UNSUPPORTED);
+    }
+
+    let mutations: [fn(&mut DeploymentPlatformSnapshotV1); 3] = [
+        |snapshot| {
+            snapshot.administrative_up = false;
+            snapshot.preflight.interface.admin_up = false;
+        },
+        |snapshot| {
+            snapshot.operational_up = false;
+            snapshot.preflight.interface.oper_up = false;
+        },
+        |snapshot| {
+            snapshot.master_ifindex = Some(19);
+            snapshot.preflight.interface.master = Some(InterfaceRef {
+                name: InterfaceName::new("master0").unwrap(),
+                ifindex: 19,
+            });
+        },
+    ];
+    for mutate in mutations {
+        let mut snapshot = platform_snapshot("spare0");
+        mutate(&mut snapshot);
+        assert_platform_code(snapshot, DG_INTERFACE_UNSUPPORTED);
+    }
+}
+
+#[test]
+fn inspect_rejects_every_nonempty_or_unknown_xdp_state_without_identity_leakage() {
+    for state in [
+        AttachmentState::Occupied {
+            program_id: 987_654_321,
+        },
+        AttachmentState::Owned { program_id: 42 },
+        AttachmentState::Unknown,
+    ] {
+        for native in [true, false] {
+            let mut snapshot = platform_snapshot("spare0");
+            if native {
+                snapshot.preflight.bpf.xdp_native = state;
+            } else {
+                snapshot.preflight.bpf.xdp_generic = state;
+            }
+            let report = inspect_snapshot(snapshot);
+            let rendered = serde_json::to_string(&report).unwrap();
+            assert_eq!(report.findings[0].code, DG_XDP_NOT_EMPTY);
+            assert!(!rendered.contains("987654321"));
+            assert!(!rendered.contains("program_id"));
+        }
+    }
+}
+
+#[test]
+fn inspect_rejects_clsact_and_each_tc_filter_direction() {
+    let mut clsact = platform_snapshot("spare0");
+    clsact.tc_clsact_present = true;
+    assert_platform_code(clsact, DG_TC_NOT_EMPTY);
+
+    for direction in [Direction::Ingress, Direction::Egress] {
+        let mut snapshot = platform_snapshot("spare0");
+        let attachment = TcAttachment {
+            direction,
+            priority: 49_714,
+            handle: 0x4c32_0001,
+            program_id: 41,
+        };
+        match direction {
+            Direction::Ingress => snapshot.preflight.bpf.tc_ingress.push(attachment),
+            Direction::Egress => snapshot.preflight.bpf.tc_egress.push(attachment),
+        }
+        assert_platform_code(snapshot, DG_TC_NOT_EMPTY);
+    }
+}
+
+#[test]
+fn inspect_rejects_each_visible_reserved_port_consumer() {
+    let mutations: [fn(&mut DeploymentPlatformSnapshotV1); 5] = [
+        |snapshot| snapshot.address_present = true,
+        |snapshot| snapshot.route_present = true,
+        |snapshot| snapshot.neighbor_present = true,
+        |snapshot| snapshot.service_present = true,
+        |snapshot| snapshot.other_consumer_present = true,
+    ];
+    for mutate in mutations {
+        let mut snapshot = platform_snapshot("spare0");
+        mutate(&mut snapshot);
+        assert_platform_code(snapshot, DG_PLATFORM_BLOCKED);
+    }
+}
+
+#[test]
 fn adapter_failures_are_sanitized_bounded_reports() {
     let calls = Rc::new(RefCell::new(Vec::new()));
     let filesystem = FakeFilesystem::failing(calls, "inspect_installed_layout");
@@ -190,6 +296,21 @@ fn adapter_failures_are_sanitized_bounded_reports() {
     assert!(!rendered.contains("/secret/customer/path"));
     assert!(!rendered.contains("adapter error chain"));
     assert!(!rendered.contains("hostname"));
+}
+
+fn assert_platform_code(snapshot: DeploymentPlatformSnapshotV1, expected: &'static str) {
+    let report = inspect_snapshot(snapshot);
+    assert_eq!(report.decision, DeploymentDecisionV1::Blocked);
+    assert!(report.canary_plan.is_none());
+    assert_eq!(report.findings[0].code, expected);
+}
+
+fn inspect_snapshot(snapshot: DeploymentPlatformSnapshotV1) -> l2_loop_core::DeploymentGateReportV1 {
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let filesystem = FakeFilesystem::passing(calls.clone());
+    let platform = FakePlatform::with_snapshot(calls, snapshot);
+    let mut service = DeploymentGateService::new(filesystem, platform, FixedClock);
+    service.inspect().unwrap()
 }
 
 #[test]
