@@ -256,10 +256,11 @@ fn validate_layout_snapshot(
         {
             return Err(DeploymentIoError::Unavailable);
         }
-        if entry.kind == DeploymentEntryKindV1::Regular {
-            if entry.hard_links != 1 || !regular_identities.insert((entry.device, entry.inode)) {
-                return Err(DeploymentIoError::Unavailable);
-            }
+        if entry.kind == DeploymentEntryKindV1::Regular
+            && (entry.hard_links != 1
+                || !regular_identities.insert((entry.device, entry.inode)))
+        {
+            return Err(DeploymentIoError::Unavailable);
         }
     }
     if observed.len() != expected.len()
