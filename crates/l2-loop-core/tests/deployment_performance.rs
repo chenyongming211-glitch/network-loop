@@ -1,10 +1,8 @@
 use l2_loop_core::{
-    DG_NATIVE_XDP_UNVERIFIED, DG_REAL_JOURNALD_UNVERIFIED,
-    DG_WORKLOAD_PERFORMANCE_UNVERIFIED, DeploymentArtifactIdentityV1,
-    DeploymentHostCompatibilityV1, PERFORMANCE_FIXED_FRAME_SIZES,
+    DG_NATIVE_XDP_UNVERIFIED, DG_REAL_JOURNALD_UNVERIFIED, DG_WORKLOAD_PERFORMANCE_UNVERIFIED,
+    DeploymentArtifactIdentityV1, DeploymentHostCompatibilityV1, PERFORMANCE_FIXED_FRAME_SIZES,
     PERFORMANCE_FRAMES_PER_SIZE, PERFORMANCE_MAX_DAEMON_RSS_BYTES,
-    PERFORMANCE_MAX_RSS_GROWTH_BYTES, PerformanceEvidenceV1, PerformanceModeV1,
-    PerformanceRateV1,
+    PERFORMANCE_MAX_RSS_GROWTH_BYTES, PerformanceEvidenceV1, PerformanceModeV1, PerformanceRateV1,
 };
 use serde_json::{Value, json};
 
@@ -17,22 +15,14 @@ const SENT_BYTES: u128 = 136_970_240;
 fn derives_lower_medians_checked_rates_and_conservative_ratios() {
     let evidence = evidence(valid_evidence_value());
 
-    let assessment = evidence
-        .assess_for(NOW_MS, &artifact(), &host())
-        .unwrap();
+    let assessment = evidence.assess_for(NOW_MS, &artifact(), &host()).unwrap();
 
-    assert_eq!(
-        assessment.medians.baseline,
-        rate_for_duration(196_608_000)
-    );
+    assert_eq!(assessment.medians.baseline, rate_for_duration(196_608_000));
     assert_eq!(
         assessment.medians.pass_through,
         rate_for_duration(204_800_000)
     );
-    assert_eq!(
-        assessment.medians.observe,
-        rate_for_duration(216_052_747)
-    );
+    assert_eq!(assessment.medians.observe, rate_for_duration(216_052_747));
     assert_eq!(assessment.pass_through_baseline_ratio_permille, 960);
     assert_eq!(assessment.observe_baseline_ratio_permille, 910);
     assert_eq!(assessment.rss_growth_bytes, 1_048_576);
@@ -179,11 +169,9 @@ fn rejects_forged_aggregates_and_checked_sum_overflow() {
 #[test]
 fn binds_fresh_evidence_to_the_exact_artifact_and_host() {
     let evidence = evidence(valid_evidence_value());
-    let other_artifact = DeploymentArtifactIdentityV1::new(
-        "1123456789abcdef0123456789abcdef01234567",
-        "0.1.0",
-    )
-    .unwrap();
+    let other_artifact =
+        DeploymentArtifactIdentityV1::new("1123456789abcdef0123456789abcdef01234567", "0.1.0")
+            .unwrap();
     assert!(
         evidence
             .assess_for(NOW_MS, &other_artifact, &host())
@@ -212,9 +200,7 @@ fn binds_fresh_evidence_to_the_exact_artifact_and_host() {
 #[test]
 fn passing_isolated_evidence_keeps_non_executable_canary_warnings() {
     let evidence = evidence(valid_evidence_value());
-    let assessment = evidence
-        .assess_for(NOW_MS, &artifact(), &host())
-        .unwrap();
+    let assessment = evidence.assess_for(NOW_MS, &artifact(), &host()).unwrap();
 
     assert_eq!(
         assessment.outstanding_warning_codes,
@@ -233,11 +219,7 @@ fn passing_isolated_evidence_keeps_non_executable_canary_warnings() {
 
 fn assert_invalid(value: Value) {
     let evidence = evidence(value);
-    assert!(
-        evidence
-            .assess_for(NOW_MS, &artifact(), &host())
-            .is_err()
-    );
+    assert!(evidence.assess_for(NOW_MS, &artifact(), &host()).is_err());
 }
 
 fn evidence(value: Value) -> PerformanceEvidenceV1 {

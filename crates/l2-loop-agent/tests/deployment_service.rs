@@ -14,12 +14,11 @@ use l2_loop_core::{
     AttachmentState, BpfInspection, DG_AUTH_IDENTITY, DG_INTERFACE_UNSUPPORTED,
     DG_NATIVE_XDP_UNVERIFIED, DG_PERFORMANCE_REGRESSION, DG_PERFORMANCE_UNAVAILABLE,
     DG_PLATFORM_BLOCKED, DG_REAL_JOURNALD_UNVERIFIED, DG_SYSTEMD_CONTRACT, DG_TC_NOT_EMPTY,
-    DG_WORKLOAD_PERFORMANCE_UNVERIFIED, DG_XDP_NOT_EMPTY,
-    DeploymentArtifactIdentityV1, DeploymentAuthorizationV1, DeploymentDecisionV1,
-    DeploymentFindingSeverityV1, DeploymentHostCompatibilityV1, Direction, InterfaceInspection,
-    InterfaceKind, InterfaceName, InterfaceRef, KernelInspection, MemlockInspection,
-    PF_INTERFACE_UNSUPPORTED, PF_LIVE_INTERFACE, PerformanceEvidenceV1, PinRootState,
-    PreflightFinding, PreflightReport, TcAttachment,
+    DG_WORKLOAD_PERFORMANCE_UNVERIFIED, DG_XDP_NOT_EMPTY, DeploymentArtifactIdentityV1,
+    DeploymentAuthorizationV1, DeploymentDecisionV1, DeploymentFindingSeverityV1,
+    DeploymentHostCompatibilityV1, Direction, InterfaceInspection, InterfaceKind, InterfaceName,
+    InterfaceRef, KernelInspection, MemlockInspection, PF_INTERFACE_UNSUPPORTED, PF_LIVE_INTERFACE,
+    PerformanceEvidenceV1, PinRootState, PreflightFinding, PreflightReport, TcAttachment,
 };
 use serde_json::json;
 
