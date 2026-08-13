@@ -305,7 +305,9 @@ fn assert_platform_code(snapshot: DeploymentPlatformSnapshotV1, expected: &'stat
     assert_eq!(report.findings[0].code, expected);
 }
 
-fn inspect_snapshot(snapshot: DeploymentPlatformSnapshotV1) -> l2_loop_core::DeploymentGateReportV1 {
+fn inspect_snapshot(
+    snapshot: DeploymentPlatformSnapshotV1,
+) -> l2_loop_core::DeploymentGateReportV1 {
     let calls = Rc::new(RefCell::new(Vec::new()));
     let filesystem = FakeFilesystem::passing(calls.clone());
     let platform = FakePlatform::with_snapshot(calls, snapshot);
