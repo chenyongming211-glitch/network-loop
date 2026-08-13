@@ -1,6 +1,13 @@
-use std::time::{Instant, SystemTime};
+use std::{
+    path::Path,
+    time::{Instant, SystemTime},
+};
 
-use l2_loop_core::{HookRole, InterfaceName, PolicyRequest, PreflightReport, ProbeRequest};
+use l2_loop_core::{
+    DeploymentArtifactIdentityV1, DeploymentAuthorizationV1, DeploymentHostCompatibilityV1,
+    HookRole, InterfaceKind, InterfaceName, PerformanceEvidenceV1, PolicyRequest, PreflightReport,
+    ProbeRequest,
+};
 use thiserror::Error;
 
 #[cfg(target_os = "linux")]
@@ -52,6 +59,137 @@ impl PortError {
 
 pub trait PlatformInspector {
     fn inspect(&mut self, interface: &InterfaceName) -> Result<PreflightReport, PortError>;
+}
+
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+pub enum DeploymentIoError {
+    #[error("deployment input is unavailable")]
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BundleSnapshotV1 {
+    pub artifact: DeploymentArtifactIdentityV1,
+}
+
+impl BundleSnapshotV1 {
+    pub fn new(artifact: DeploymentArtifactIdentityV1) -> Self {
+        Self { artifact }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LayoutSnapshotV1 {
+    pub artifact: DeploymentArtifactIdentityV1,
+}
+
+impl LayoutSnapshotV1 {
+    pub fn new(artifact: DeploymentArtifactIdentityV1) -> Self {
+        Self { artifact }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ServiceUnitSnapshotV1 {
+    contract_valid: bool,
+}
+
+impl ServiceUnitSnapshotV1 {
+    pub const fn new(contract_valid: bool) -> Self {
+        Self { contract_valid }
+    }
+
+    pub const fn valid() -> Self {
+        Self::new(true)
+    }
+
+    pub const fn is_valid(self) -> bool {
+        self.contract_valid
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeploymentPrerequisitesV1 {
+    evidence_root_ready: bool,
+    runtime_contract_ready: bool,
+}
+
+impl DeploymentPrerequisitesV1 {
+    pub const fn new(evidence_root_ready: bool, runtime_contract_ready: bool) -> Self {
+        Self {
+            evidence_root_ready,
+            runtime_contract_ready,
+        }
+    }
+
+    pub const fn ready() -> Self {
+        Self::new(true, true)
+    }
+
+    pub const fn is_ready(self) -> bool {
+        self.evidence_root_ready && self.runtime_contract_ready
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeploymentPlatformSnapshotV1 {
+    pub preflight: PreflightReport,
+    pub interface_name: InterfaceName,
+    pub ifindex: u32,
+    pub kind: InterfaceKind,
+    pub administrative_up: bool,
+    pub operational_up: bool,
+    pub master_ifindex: Option<u32>,
+    pub tc_clsact_present: bool,
+    pub address_present: bool,
+    pub route_present: bool,
+    pub neighbor_present: bool,
+    pub service_present: bool,
+    pub other_consumer_present: bool,
+    pub host: DeploymentHostCompatibilityV1,
+}
+
+pub trait DeploymentFilesystem {
+    fn validate_staging_root(&mut self, root: &Path) -> Result<(), DeploymentIoError>;
+    fn inspect_bundle(&mut self, bundle: &Path) -> Result<BundleSnapshotV1, DeploymentIoError>;
+    fn inspect_staged_layout(
+        &mut self,
+        root: &Path,
+    ) -> Result<LayoutSnapshotV1, DeploymentIoError>;
+    fn inspect_staged_service(
+        &mut self,
+        root: &Path,
+    ) -> Result<ServiceUnitSnapshotV1, DeploymentIoError>;
+    fn load_staged_authorization(
+        &mut self,
+        root: &Path,
+    ) -> Result<DeploymentAuthorizationV1, DeploymentIoError>;
+    fn load_staged_performance(
+        &mut self,
+        root: &Path,
+    ) -> Result<PerformanceEvidenceV1, DeploymentIoError>;
+    fn inspect_staged_prerequisites(
+        &mut self,
+        root: &Path,
+    ) -> Result<DeploymentPrerequisitesV1, DeploymentIoError>;
+    fn inspect_installed_layout(&mut self) -> Result<LayoutSnapshotV1, DeploymentIoError>;
+    fn inspect_installed_service(
+        &mut self,
+    ) -> Result<ServiceUnitSnapshotV1, DeploymentIoError>;
+    fn load_installed_authorization(
+        &mut self,
+    ) -> Result<DeploymentAuthorizationV1, DeploymentIoError>;
+    fn load_installed_performance(&mut self) -> Result<PerformanceEvidenceV1, DeploymentIoError>;
+    fn inspect_installed_prerequisites(
+        &mut self,
+    ) -> Result<DeploymentPrerequisitesV1, DeploymentIoError>;
+}
+
+pub trait DeploymentPlatformInspector {
+    fn inspect_authorized_interface(
+        &mut self,
+        authorization: &DeploymentAuthorizationV1,
+    ) -> Result<DeploymentPlatformSnapshotV1, DeploymentIoError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

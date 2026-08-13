@@ -4,6 +4,7 @@
 mod alert;
 #[cfg(target_os = "linux")]
 mod attach;
+mod deployment;
 #[cfg(target_os = "linux")]
 pub mod daemon;
 #[cfg(target_os = "linux")]
@@ -30,6 +31,7 @@ pub mod transport;
 pub use alert::*;
 #[cfg(target_os = "linux")]
 pub use attach::*;
+pub use deployment::*;
 #[cfg(target_os = "linux")]
 pub use evidence_store::*;
 pub use incident::*;

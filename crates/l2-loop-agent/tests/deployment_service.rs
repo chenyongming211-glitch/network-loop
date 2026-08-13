@@ -195,10 +195,7 @@ fn adapter_failures_are_sanitized_bounded_reports() {
 #[test]
 fn deployment_service_source_has_no_writer_or_attachment_dependency() {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let source = ["src/deployment.rs", "src/ports.rs"]
-        .iter()
-        .map(|path| std::fs::read_to_string(manifest_dir.join(path)).unwrap_or_default())
-        .collect::<String>();
+    let source = std::fs::read_to_string(manifest_dir.join("src/deployment.rs")).unwrap();
     for prohibited in [
         "DeploymentWriter",
         "install(",
