@@ -137,7 +137,17 @@ fn bundle_reader_rejects_manifest_binding_changes_and_oversized_reads() {
             "x86_64-unknown-linux-musl",
             "x86_64-unknown-linux-gnu",
         ),
+        (
+            "package",
+            "\"package_version\": \"0.1.0\"",
+            "\"package_version\": \"9.9.9\"",
+        ),
         ("abi", "\"abi_version\": 1", "\"abi_version\": 2"),
+        (
+            "digest",
+            "f86c81f23a2cbd0cadbdf87ab6eb57eb95778d0af6e5816c5f2959b1f570fa58",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        ),
     ] {
         let bundle = BundleTree::valid(label);
         let changed = MANIFEST.replacen(before, after, 1);
@@ -198,7 +208,11 @@ fn staged_layout_snapshot_fails_closed_on_metadata_or_containment_change() {
     for (label, mutate) in [
         ("owner", mutate_owner as fn(&mut StagedLayoutInputV1)),
         ("mode", mutate_mode),
-        ("type", mutate_type),
+        ("type-symlink", mutate_type_symlink),
+        ("type-fifo", mutate_type_fifo),
+        ("type-device", mutate_type_device),
+        ("type-socket", mutate_type_socket),
+        ("type-other", mutate_type_other),
         ("hard-link", mutate_hard_link),
         ("escape", mutate_escape),
         ("socket", mutate_runtime_socket),
@@ -497,8 +511,24 @@ fn mutate_mode(input: &mut StagedLayoutInputV1) {
     entry_mut(input, "etc/l2-loop/deployment-v1.json").mode = 0o644;
 }
 
-fn mutate_type(input: &mut StagedLayoutInputV1) {
+fn mutate_type_symlink(input: &mut StagedLayoutInputV1) {
     entry_mut(input, "usr/libexec/l2-loop/l2-loopd").kind = DeploymentEntryKindV1::Symlink;
+}
+
+fn mutate_type_fifo(input: &mut StagedLayoutInputV1) {
+    entry_mut(input, "usr/libexec/l2-loop/l2-loopd").kind = DeploymentEntryKindV1::Fifo;
+}
+
+fn mutate_type_device(input: &mut StagedLayoutInputV1) {
+    entry_mut(input, "usr/libexec/l2-loop/l2-loopd").kind = DeploymentEntryKindV1::Device;
+}
+
+fn mutate_type_socket(input: &mut StagedLayoutInputV1) {
+    entry_mut(input, "usr/libexec/l2-loop/l2-loopd").kind = DeploymentEntryKindV1::Socket;
+}
+
+fn mutate_type_other(input: &mut StagedLayoutInputV1) {
+    entry_mut(input, "usr/libexec/l2-loop/l2-loopd").kind = DeploymentEntryKindV1::Other;
 }
 
 fn mutate_hard_link(input: &mut StagedLayoutInputV1) {
