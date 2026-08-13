@@ -8,10 +8,7 @@ use std::{
 
 use l2_loop_agent::{
     DeploymentFilesystem,
-    linux::{
-        deployment_fs::LinuxDeploymentFilesystem,
-        deployment_unit::validate_service_unit,
-    },
+    linux::{deployment_fs::LinuxDeploymentFilesystem, deployment_unit::validate_service_unit},
 };
 use l2_loop_core::DeploymentArtifactIdentityV1;
 
@@ -321,11 +318,7 @@ fn assert_rejected(label: &str, unit: &str) {
 }
 
 fn artifact() -> DeploymentArtifactIdentityV1 {
-    DeploymentArtifactIdentityV1::new(
-        "0123456789abcdef0123456789abcdef01234567",
-        "0.1.0",
-    )
-    .unwrap()
+    DeploymentArtifactIdentityV1::new("0123456789abcdef0123456789abcdef01234567", "0.1.0").unwrap()
 }
 
 struct ServiceTree {
