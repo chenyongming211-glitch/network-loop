@@ -1,19 +1,19 @@
 use l2_loop_core::{
-    AUTHORIZATION_MAX_LIFETIME_MS, CANARY_MAX_OBSERVATION_MS, DG_ARTIFACT_CHECKSUM,
-    DG_ARTIFACT_INVENTORY, DG_ARTIFACT_MANIFEST, DG_AUTH_ARTIFACT, DG_AUTH_EXPIRED,
-    DG_AUTH_IDENTITY, DG_AUTH_SCHEMA, DG_EVIDENCE_ROOT, DG_INTERFACE_UNSUPPORTED, DG_INTERNAL,
-    DG_LAYOUT_MODE, DG_LAYOUT_SYMLINK, DG_LAYOUT_TYPE, DG_NATIVE_XDP_UNVERIFIED,
+    AUTHORIZATION_MAX_LIFETIME_MS, CANARY_MAX_OBSERVATION_MS, DEPLOYMENT_SCHEMA_VERSION,
+    DG_ARTIFACT_CHECKSUM, DG_ARTIFACT_INVENTORY, DG_ARTIFACT_MANIFEST, DG_AUTH_ARTIFACT,
+    DG_AUTH_EXPIRED, DG_AUTH_IDENTITY, DG_AUTH_SCHEMA, DG_EVIDENCE_ROOT, DG_INTERFACE_UNSUPPORTED,
+    DG_INTERNAL, DG_LAYOUT_MODE, DG_LAYOUT_SYMLINK, DG_LAYOUT_TYPE, DG_NATIVE_XDP_UNVERIFIED,
     DG_PERFORMANCE_REGRESSION, DG_PERFORMANCE_UNAVAILABLE, DG_PLATFORM_BLOCKED,
     DG_REAL_JOURNALD_UNVERIFIED, DG_STAGING_ROOT, DG_SYSTEMD_CONTRACT, DG_TC_NOT_EMPTY,
-    DG_WORKLOAD_PERFORMANCE_UNVERIFIED, DG_XDP_NOT_EMPTY, DEPLOYMENT_SCHEMA_VERSION,
-    DeploymentArtifactIdentityV1, DeploymentAuthorizationV1, DeploymentCommandV1,
-    DeploymentDecisionV1, DeploymentFindingV1, DeploymentGateReportV1,
-    DeploymentGateSummariesV1, DeploymentHostCompatibilityV1, DeploymentInterfaceSummaryV1,
-    InterfaceKind, PERFORMANCE_EVIDENCE_MAX_LIFETIME_MS, PERFORMANCE_FIXED_FRAME_SIZES,
-    PERFORMANCE_FRAMES_PER_SIZE, PERFORMANCE_MAX_DAEMON_CPU_PERMILLE,
-    PERFORMANCE_MAX_DAEMON_RSS_BYTES, PERFORMANCE_MAX_RSS_GROWTH_BYTES,
-    PERFORMANCE_OBSERVE_MIN_PERMILLE, PERFORMANCE_PASS_THROUGH_MIN_PERMILLE,
-    PERFORMANCE_TOTAL_TRIALS, PERFORMANCE_TRIALS_PER_MODE, PerformanceEvidenceV1,
+    DG_WORKLOAD_PERFORMANCE_UNVERIFIED, DG_XDP_NOT_EMPTY, DeploymentArtifactIdentityV1,
+    DeploymentAuthorizationV1, DeploymentCommandV1, DeploymentDecisionV1, DeploymentFindingV1,
+    DeploymentGateReportV1, DeploymentGateSummariesV1, DeploymentHostCompatibilityV1,
+    DeploymentInterfaceSummaryV1, InterfaceKind, PERFORMANCE_EVIDENCE_MAX_LIFETIME_MS,
+    PERFORMANCE_FIXED_FRAME_SIZES, PERFORMANCE_FRAMES_PER_SIZE,
+    PERFORMANCE_MAX_DAEMON_CPU_PERMILLE, PERFORMANCE_MAX_DAEMON_RSS_BYTES,
+    PERFORMANCE_MAX_RSS_GROWTH_BYTES, PERFORMANCE_OBSERVE_MIN_PERMILLE,
+    PERFORMANCE_PASS_THROUGH_MIN_PERMILLE, PERFORMANCE_TOTAL_TRIALS, PERFORMANCE_TRIALS_PER_MODE,
+    PerformanceEvidenceV1,
 };
 use serde_json::{Value, json};
 
@@ -223,11 +223,9 @@ fn authorization_binds_the_exact_artifact() {
     let expected = artifact();
     authorization.validate_for(NOW_MS, &expected).unwrap();
 
-    let other = DeploymentArtifactIdentityV1::new(
-        "1123456789abcdef0123456789abcdef01234567",
-        "0.1.0",
-    )
-    .unwrap();
+    let other =
+        DeploymentArtifactIdentityV1::new("1123456789abcdef0123456789abcdef01234567", "0.1.0")
+            .unwrap();
     assert!(authorization.validate_for(NOW_MS, &other).is_err());
 }
 
@@ -282,8 +280,7 @@ fn performance_identity_and_lifetime_are_exact() {
             .is_err()
     );
 
-    let other_artifact =
-        DeploymentArtifactIdentityV1::new(COMMIT_SHA, "9.9.9").unwrap();
+    let other_artifact = DeploymentArtifactIdentityV1::new(COMMIT_SHA, "9.9.9").unwrap();
     assert!(
         evidence
             .validate_for(NOW_MS, &other_artifact, &host())
@@ -350,14 +347,9 @@ fn performance_rejects_impossible_arithmetic_inputs() {
 fn canary_plan_is_fixed_non_executable_and_sanitized() {
     let authorization = valid_authorization();
     authorization.validate_for(NOW_MS, &artifact()).unwrap();
-    let interface = DeploymentInterfaceSummaryV1::new(
-        "spare0",
-        7,
-        InterfaceKind::Physical,
-        true,
-        true,
-    )
-    .unwrap();
+    let interface =
+        DeploymentInterfaceSummaryV1::new("spare0", 7, InterfaceKind::Physical, true, true)
+            .unwrap();
     let plan = l2_loop_core::CanaryPlanV1::new(&authorization, &interface).unwrap();
     let value = serde_json::to_value(&plan).unwrap();
 
@@ -416,14 +408,9 @@ fn report_derives_staging_ready_only_from_staging_gates() {
 #[test]
 fn report_derives_candidate_only_with_a_non_executable_plan() {
     let authorization = valid_authorization();
-    let interface = DeploymentInterfaceSummaryV1::new(
-        "spare0",
-        7,
-        InterfaceKind::Physical,
-        true,
-        true,
-    )
-    .unwrap();
+    let interface =
+        DeploymentInterfaceSummaryV1::new("spare0", 7, InterfaceKind::Physical, true, true)
+            .unwrap();
     let plan = l2_loop_core::CanaryPlanV1::new(&authorization, &interface).unwrap();
     let report = DeploymentGateReportV1::derive(
         DeploymentCommandV1::Inspect,
