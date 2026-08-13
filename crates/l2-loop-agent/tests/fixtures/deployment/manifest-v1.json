@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+  "package_version": "0.1.0",
+  "userspace_target": "x86_64-unknown-linux-musl",
+  "ebpf_target": "bpfel-unknown-none",
+  "abi_version": 1,
+  "files": {
+    "daemon": "l2-loopd",
+    "cli": "l2-loopctl",
+    "deployment_checker": "l2-loop-deploycheck",
+    "host_checker": "l2-loop-hostcheck",
+    "ebpf_object": "l2-loop-ebpf.o",
+    "service_unit": "l2-loop.service",
+    "authorization_example": "deployment-v1.example.json"
+  },
+  "service_unit_sha256": "f86c81f23a2cbd0cadbdf87ab6eb57eb95778d0af6e5816c5f2959b1f570fa58",
+  "authorization_example_sha256": "092018da67ff20fe6e8bd98b1eb030b1a4baa793c08b5b66cefb5ae406a2f4c4"
+}
