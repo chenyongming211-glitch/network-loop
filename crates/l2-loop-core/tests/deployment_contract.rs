@@ -183,9 +183,8 @@ fn authorization_requires_one_empty_hook_physical_interface() {
     for (field, replacement) in cases {
         let mut value = valid_authorization_value();
         value["interface"][field] = replacement;
-        match serde_json::from_value::<DeploymentAuthorizationV1>(value) {
-            Ok(parsed) => assert!(parsed.validate_at(NOW_MS).is_err(), "accepted {field}"),
-            Err(_) => {}
+        if let Ok(parsed) = serde_json::from_value::<DeploymentAuthorizationV1>(value) {
+            assert!(parsed.validate_at(NOW_MS).is_err(), "accepted {field}");
         }
     }
 
