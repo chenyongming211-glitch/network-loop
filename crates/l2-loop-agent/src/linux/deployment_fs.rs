@@ -127,9 +127,7 @@ pub struct LinuxDeploymentFilesystem {
 }
 
 impl LinuxDeploymentFilesystem {
-    pub fn new(
-        expected_artifact: DeploymentArtifactIdentityV1,
-    ) -> Result<Self, DeploymentIoError> {
+    pub fn new(expected_artifact: DeploymentArtifactIdentityV1) -> Result<Self, DeploymentIoError> {
         expected_artifact
             .validate()
             .map_err(|_| DeploymentIoError::Unavailable)?;
@@ -909,9 +907,9 @@ impl BundleManifestV1 {
         let artifact = self.artifact()?;
         if artifact != *expected_artifact
             || files
-            .get(&self.files.service_unit)
-            .map(|identity| identity.sha256.as_str())
-            != Some(self.service_unit_sha256.as_str())
+                .get(&self.files.service_unit)
+                .map(|identity| identity.sha256.as_str())
+                != Some(self.service_unit_sha256.as_str())
             || files
                 .get(&self.files.authorization_example)
                 .map(|identity| identity.sha256.as_str())
