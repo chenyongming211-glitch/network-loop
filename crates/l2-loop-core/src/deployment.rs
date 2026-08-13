@@ -40,8 +40,7 @@ pub const DG_PERFORMANCE_REGRESSION: &str = "DG_PERFORMANCE_REGRESSION";
 pub const DG_INTERNAL: &str = "DG_INTERNAL";
 pub const DG_REAL_JOURNALD_UNVERIFIED: &str = "DG_REAL_JOURNALD_UNVERIFIED";
 pub const DG_NATIVE_XDP_UNVERIFIED: &str = "DG_NATIVE_XDP_UNVERIFIED";
-pub const DG_WORKLOAD_PERFORMANCE_UNVERIFIED: &str =
-    "DG_WORKLOAD_PERFORMANCE_UNVERIFIED";
+pub const DG_WORKLOAD_PERFORMANCE_UNVERIFIED: &str = "DG_WORKLOAD_PERFORMANCE_UNVERIFIED";
 
 const BLOCKER_CODES: [&str; 20] = [
     DG_ARTIFACT_INVENTORY,
@@ -357,9 +356,7 @@ impl PerformanceTrialV1 {
         let sent_bytes = self
             .frame_sizes
             .iter()
-            .try_fold(0_u128, |total, size| {
-                total.checked_add(u128::from(*size))
-            })
+            .try_fold(0_u128, |total, size| total.checked_add(u128::from(*size)))
             .ok_or(DeploymentContractError::InvalidPerformanceEvidence)?;
         let sent_bytes = sent_bytes
             .checked_mul(u128::from(self.frames_per_size))
@@ -450,10 +447,7 @@ impl PerformanceEvidenceV1 {
         Ok(())
     }
 
-    fn validate_structure(
-        &self,
-        captured_at_unix_ms: u64,
-    ) -> Result<(), DeploymentContractError> {
+    fn validate_structure(&self, captured_at_unix_ms: u64) -> Result<(), DeploymentContractError> {
         let lifetime = self
             .expires_at_unix_ms
             .checked_sub(self.issued_at_unix_ms)
@@ -468,8 +462,7 @@ impl PerformanceEvidenceV1 {
             || self.issued_at_unix_ms == 0
             || lifetime == 0
             || lifetime > PERFORMANCE_EVIDENCE_MAX_LIFETIME_MS
-            || !(self.issued_at_unix_ms..=self.expires_at_unix_ms)
-                .contains(&captured_at_unix_ms)
+            || !(self.issued_at_unix_ms..=self.expires_at_unix_ms).contains(&captured_at_unix_ms)
             || self.trials.len() != PERFORMANCE_TOTAL_TRIALS
         {
             return Err(DeploymentContractError::InvalidPerformanceEvidence);
@@ -528,8 +521,7 @@ impl PerformanceEvidenceV1 {
 
         match self.result {
             PerformanceResultV1::Passed => {
-                if self.pass_through_baseline_ratio_permille
-                    < PERFORMANCE_PASS_THROUGH_MIN_PERMILLE
+                if self.pass_through_baseline_ratio_permille < PERFORMANCE_PASS_THROUGH_MIN_PERMILLE
                     || self.observe_baseline_ratio_permille < PERFORMANCE_OBSERVE_MIN_PERMILLE
                     || self.daemon_cpu_permille > PERFORMANCE_MAX_DAEMON_CPU_PERMILLE
                     || self.peak_resident_memory_bytes > PERFORMANCE_MAX_DAEMON_RSS_BYTES
