@@ -181,8 +181,7 @@ pub fn create_bundle(inputs: &BundleInputs<'_>) -> Result<(), BundleError> {
 
     let daemon = read_bounded_regular(inputs.daemon, MAX_USERSPACE_BYTES)?;
     let cli = read_bounded_regular(inputs.cli, MAX_USERSPACE_BYTES)?;
-    let deployment_checker =
-        read_bounded_regular(inputs.deployment_checker, MAX_USERSPACE_BYTES)?;
+    let deployment_checker = read_bounded_regular(inputs.deployment_checker, MAX_USERSPACE_BYTES)?;
     let host_checker = read_bounded_regular(inputs.host_checker, MAX_USERSPACE_BYTES)?;
     let ebpf = read_bounded_regular(inputs.ebpf, MAX_EBPF_BYTES)?;
     let service_unit = read_bounded_regular(inputs.service_unit, MAX_GATE_ASSET_BYTES)?;
