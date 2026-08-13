@@ -202,6 +202,15 @@ Assert-True ($Harness.Contains('rebind_hardened_unit_fixture')) 'hardened-unit s
 Assert-True ([regex]::IsMatch($Harness, '(?s)authorization = \{.*?"expires_at_unix_ms": now \+ 3600000\s*\}\s*orders = \[')) 'generated authorization fixture is not closed before performance trial construction'
 Assert-True ($Harness.Contains('install -m 0755 "$bundle/l2-loop-hostcheck" "$root/l2-loop-hostcheck"')) 'pass-through hostcheck is not staged at its exact Task 9 artifact root'
 Assert-True ($Harness.Contains('install -m 0644 "$bundle/l2-loop-ebpf.o" "$root/l2-loop-ebpf.o"')) 'pass-through eBPF object is not staged at its exact Task 9 artifact root'
+$PassThroughStart = $Harness.IndexOf('start_pass_through() {')
+$PassThroughStop = $Harness.IndexOf('stop_pass_through() {', $PassThroughStart)
+Assert-True ($PassThroughStart -ge 0 -and $PassThroughStop -gt $PassThroughStart) 'pass-through lifecycle functions are missing or out of order'
+if ($PassThroughStart -ge 0 -and $PassThroughStop -gt $PassThroughStart) {
+    $PassThroughBody = $Harness.Substring($PassThroughStart, $PassThroughStop - $PassThroughStart)
+    $Memlock = $PassThroughBody.IndexOf('ulimit -l unlimited')
+    $Hostcheck = $PassThroughBody.IndexOf('"$root/l2-loop-hostcheck" pass-through')
+    Assert-True ($Memlock -ge 0 -and $Hostcheck -gt $Memlock) 'pass-through does not raise its process memlock limit before preflight'
+}
 Assert-True ($Workflow.Contains('pwsh -NoProfile -File scripts/tests/verify-deployment-gates.Tests.ps1')) 'Linux CI does not run deployment harness safety tests'
 Assert-True ($Workflow.Contains('powershell -NoProfile -File scripts/tests/verify-deployment-gates.Tests.ps1')) 'Windows CI does not run deployment harness safety tests'
 

@@ -667,6 +667,7 @@ wait_owned_exit() {
     wait "$pid"
 }
 start_pass_through() {
+    ulimit -l unlimited
     rm_fifo="$root/pass-through.fifo"
     test ! -e "$rm_fifo" && test ! -L "$rm_fifo" || fail "pass-through control path is occupied"
     mkfifo -m 0600 "$rm_fifo"
