@@ -7,6 +7,7 @@ mod attach;
 #[cfg(target_os = "linux")]
 pub mod daemon;
 mod deployment;
+mod deployment_cli;
 #[cfg(target_os = "linux")]
 mod evidence_store;
 #[cfg(target_os = "linux")]
@@ -32,6 +33,7 @@ pub use alert::*;
 #[cfg(target_os = "linux")]
 pub use attach::*;
 pub use deployment::*;
+pub use deployment_cli::*;
 #[cfg(target_os = "linux")]
 pub use evidence_store::*;
 pub use incident::*;

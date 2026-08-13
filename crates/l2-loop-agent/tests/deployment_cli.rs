@@ -3,19 +3,16 @@ use std::path::{Path, PathBuf};
 use l2_loop_agent::{
     DeploymentCliAction, DeploymentCliCommand, DeploymentCliFormat, DeploymentGateRunner,
     DeploymentServiceError, EXIT_DEPLOYMENT_BLOCKED, EXIT_DEPLOYMENT_INTERNAL,
-    EXIT_DEPLOYMENT_SUCCESS, EXIT_DEPLOYMENT_USAGE, MAX_DEPLOYMENT_OUTPUT_BYTES,
-    deployment_help, execute_deployment_command, parse_deployment_args,
-    render_deployment_report,
+    EXIT_DEPLOYMENT_SUCCESS, EXIT_DEPLOYMENT_USAGE, MAX_DEPLOYMENT_OUTPUT_BYTES, deployment_help,
+    execute_deployment_command, parse_deployment_args, render_deployment_report,
 };
 use l2_loop_core::{
     DG_PLATFORM_BLOCKED, DeploymentArtifactIdentityV1, DeploymentCommandV1,
-    DeploymentDecisionV1, DeploymentFindingV1, DeploymentGateReportV1,
-    DeploymentGateSummariesV1,
+    DeploymentFindingV1, DeploymentGateReportV1, DeploymentGateSummariesV1,
 };
 
 const COMMIT_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
-const STAGING_ROOT: &str =
-    "/run/l2-loop/accept/00112233445566778899aabbccddeeff/staging-root";
+const STAGING_ROOT: &str = "/run/l2-loop/accept/00112233445566778899aabbccddeeff/staging-root";
 
 #[test]
 fn parser_accepts_only_the_two_approved_read_only_commands() {
@@ -69,9 +66,24 @@ fn parser_rejects_aliases_overrides_mutating_verbs_and_extra_positionals() {
     let rejected: &[&[&str]] = &[
         &[],
         &["staging"],
-        &["staging", "--bundle", "/bundle", "--root", STAGING_ROOT, "extra"],
+        &[
+            "staging",
+            "--bundle",
+            "/bundle",
+            "--root",
+            STAGING_ROOT,
+            "extra",
+        ],
         &["staging", "--root", STAGING_ROOT, "--bundle", "/bundle"],
-        &["staging", "--bundle", "/bundle", "--root", STAGING_ROOT, "--json", "--json"],
+        &[
+            "staging",
+            "--bundle",
+            "/bundle",
+            "--root",
+            STAGING_ROOT,
+            "--json",
+            "--json",
+        ],
         &["inspect", "extra"],
         &["inspect", "--interface", "eth0"],
         &["inspect", "--root", STAGING_ROOT],
@@ -195,6 +207,7 @@ fn deploycheck_sources_have_no_socket_daemon_or_mutation_surface() {
         "UnixControlClient",
         "agent.sock",
         "tokio::net::UnixStream",
+        "env::var",
         "Command::new",
         "fs::write",
         "File::create",

@@ -10,7 +10,7 @@ use l2_loop_common::ABI_VERSION;
 use l2_loop_core::{
     DeploymentArtifactIdentityV1, DeploymentAuthorizationV1, PerformanceEvidenceV1,
 };
-use serde::Deserialize;
+use serde::{Deserialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -30,6 +30,7 @@ const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const MAX_CHECKSUM_BYTES: u64 = 64 * 1024;
 const MAX_BUNDLE_FILE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_EBPF_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_GATE_JSON_BYTES: u64 = 1024 * 1024;
 const HASH_BUFFER_BYTES: usize = 16 * 1024;
 const SERVICE_OVERRIDE_PATHS: [&str; 7] = [
     "etc/systemd/system/l2-loop.service",
@@ -179,23 +180,24 @@ impl DeploymentFilesystem for LinuxDeploymentFilesystem {
 
     fn load_staged_authorization(
         &mut self,
-        _root: &Path,
+        root: &Path,
     ) -> Result<DeploymentAuthorizationV1, DeploymentIoError> {
-        Err(DeploymentIoError::Unavailable)
+        read_gate_json(&root.join("etc/l2-loop/deployment-v1.json"))
     }
 
     fn load_staged_performance(
         &mut self,
-        _root: &Path,
+        root: &Path,
     ) -> Result<PerformanceEvidenceV1, DeploymentIoError> {
-        Err(DeploymentIoError::Unavailable)
+        read_gate_json(&root.join("var/lib/l2-loop/gates/performance-v1.json"))
     }
 
     fn inspect_staged_prerequisites(
         &mut self,
-        _root: &Path,
+        root: &Path,
     ) -> Result<DeploymentPrerequisitesV1, DeploymentIoError> {
-        Err(DeploymentIoError::Unavailable)
+        inspect_layout(root, true, &self.expected_artifact)?;
+        Ok(DeploymentPrerequisitesV1::ready())
     }
 
     fn inspect_installed_layout(&mut self) -> Result<LayoutSnapshotV1, DeploymentIoError> {
@@ -209,18 +211,45 @@ impl DeploymentFilesystem for LinuxDeploymentFilesystem {
     fn load_installed_authorization(
         &mut self,
     ) -> Result<DeploymentAuthorizationV1, DeploymentIoError> {
-        Err(DeploymentIoError::Unavailable)
+        read_gate_json(Path::new("/etc/l2-loop/deployment-v1.json"))
     }
 
     fn load_installed_performance(&mut self) -> Result<PerformanceEvidenceV1, DeploymentIoError> {
-        Err(DeploymentIoError::Unavailable)
+        read_gate_json(Path::new("/var/lib/l2-loop/gates/performance-v1.json"))
     }
 
     fn inspect_installed_prerequisites(
         &mut self,
     ) -> Result<DeploymentPrerequisitesV1, DeploymentIoError> {
-        Err(DeploymentIoError::Unavailable)
+        inspect_layout(Path::new(INSTALLED_ROOT), false, &self.expected_artifact)?;
+        Ok(DeploymentPrerequisitesV1::ready())
     }
+}
+
+fn read_gate_json<T>(path: &Path) -> Result<T, DeploymentIoError>
+where
+    T: DeserializeOwned,
+{
+    let metadata = fs::symlink_metadata(path).map_err(unavailable)?;
+    if !metadata.file_type().is_file()
+        || metadata.nlink() != 1
+        || metadata.permissions().mode() & 0o7777 != 0o600
+        || metadata.uid() != 0
+        || metadata.gid() != 0
+        || metadata.len() > MAX_GATE_JSON_BYTES
+    {
+        return Err(DeploymentIoError::Unavailable);
+    }
+    let bytes = read_bounded_no_follow(path, MAX_GATE_JSON_BYTES)?;
+    let after = fs::symlink_metadata(path).map_err(unavailable)?;
+    if !same_file_identity(&metadata, &after)
+        || after.permissions().mode() & 0o7777 != 0o600
+        || after.uid() != 0
+        || after.gid() != 0
+    {
+        return Err(DeploymentIoError::Unavailable);
+    }
+    serde_json::from_slice(&bytes).map_err(|_| DeploymentIoError::Unavailable)
 }
 
 fn inspect_service(root: &Path) -> Result<ServiceUnitSnapshotV1, DeploymentIoError> {
