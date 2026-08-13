@@ -502,7 +502,7 @@ impl LinkSource for SystemLinkSource {
     }
 }
 
-fn link_record(message: LinkMessage) -> Option<LinkRecord> {
+pub(crate) fn link_record(message: LinkMessage) -> Option<LinkRecord> {
     let mut name = None;
     let mut kind = None;
     let mut master_ifindex = None;
@@ -857,7 +857,7 @@ fn bpf_syscall_available() -> bool {
     result != -1 || nix::errno::Errno::last() == nix::errno::Errno::EINVAL
 }
 
-fn run_async<T, F, Fut>(operation: F) -> Result<T, InspectorError>
+pub(crate) fn run_async<T, F, Fut>(operation: F) -> Result<T, InspectorError>
 where
     T: Send + 'static,
     F: FnOnce() -> Fut + Send + 'static,

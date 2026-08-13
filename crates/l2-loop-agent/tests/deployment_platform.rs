@@ -8,9 +8,10 @@ use l2_loop_agent::{
     },
 };
 use l2_loop_core::{
-    AttachmentState, BpfInspection, DeploymentAuthorizationV1, InterfaceInspection, InterfaceKind,
-    InterfaceName, InterfaceRef, KernelInspection, MemlockInspection, PF_INTERFACE_UNSUPPORTED,
-    PF_LIVE_INTERFACE, PinRootState, PreflightFinding, PreflightReport,
+    AttachmentState, BondInspection, BondMode, BpfInspection, DeploymentAuthorizationV1,
+    Direction, InterfaceInspection, InterfaceKind, InterfaceName, InterfaceRef, KernelInspection,
+    MemlockInspection, PF_INTERFACE_UNSUPPORTED, PF_LIVE_INTERFACE, PinRootState,
+    PreflightFinding, PreflightReport, TcAttachment,
 };
 
 #[test]
@@ -135,6 +136,72 @@ fn preflight_identity_must_describe_the_same_fresh_link() {
 }
 
 #[test]
+fn unsupported_link_shapes_are_preserved_without_fallback_classification() {
+    for kind in [
+        InterfaceKind::Bond,
+        InterfaceKind::Bridge,
+        InterfaceKind::OvsInternal,
+        InterfaceKind::Tap,
+        InterfaceKind::Veth,
+        InterfaceKind::Unsupported,
+    ] {
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let mut link = physical_link();
+        link.kind = kind;
+        let mut report = physical_preflight();
+        report.interface.kind = kind;
+        if kind == InterfaceKind::Bond {
+            report.interface.bond = Some(BondInspection {
+                mode: BondMode::Unsupported,
+                slaves: Vec::new(),
+                active_slave: None,
+            });
+        }
+        let preflight = FakePreflight::new(calls.clone(), report);
+        let source = FakeCandidate::with_links(calls, link.clone(), link);
+        let mut inspector = LinuxDeploymentPlatformInspector::new(preflight, source);
+
+        let snapshot = inspector
+            .inspect_authorized_interface(&authorization())
+            .unwrap();
+
+        assert_eq!(snapshot.kind, kind);
+    }
+}
+
+#[test]
+fn stable_down_or_mastered_link_state_is_preserved_for_fail_closed_gating() {
+    let mutations: [fn(&mut DeploymentLinkSnapshotV1); 3] = [
+        |link: &mut DeploymentLinkSnapshotV1| link.administrative_up = false,
+        |link: &mut DeploymentLinkSnapshotV1| link.operational_up = false,
+        |link: &mut DeploymentLinkSnapshotV1| link.master_ifindex = Some(19),
+    ];
+    for mutate in mutations {
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let mut link = physical_link();
+        mutate(&mut link);
+        let mut report = physical_preflight();
+        report.interface.admin_up = link.administrative_up;
+        report.interface.oper_up = link.operational_up;
+        report.interface.master = link.master_ifindex.map(|ifindex| InterfaceRef {
+            name: InterfaceName::new("master0").unwrap(),
+            ifindex,
+        });
+        let preflight = FakePreflight::new(calls.clone(), report);
+        let source = FakeCandidate::with_links(calls, link.clone(), link.clone());
+        let mut inspector = LinuxDeploymentPlatformInspector::new(preflight, source);
+
+        let snapshot = inspector
+            .inspect_authorized_interface(&authorization())
+            .unwrap();
+
+        assert_eq!(snapshot.administrative_up, link.administrative_up);
+        assert_eq!(snapshot.operational_up, link.operational_up);
+        assert_eq!(snapshot.master_ifindex, link.master_ifindex);
+    }
+}
+
+#[test]
 fn every_reserved_port_consumer_is_preserved_as_a_boolean_only() {
     let mutations: [fn(&mut DeploymentConsumerSnapshotV1); 6] = [
         |facts: &mut DeploymentConsumerSnapshotV1| facts.tc_clsact_present = true,
@@ -199,6 +266,27 @@ fn hook_and_host_blockers_remain_in_the_sanitized_preflight_contract() {
         generic.bpf.xdp_generic = state;
         variants.push(generic);
     }
+    for direction in [Direction::Ingress, Direction::Egress] {
+        let mut occupied = physical_preflight();
+        let attachment = TcAttachment {
+            direction,
+            priority: 49_714,
+            handle: 0x4c32_0001,
+            program_id: 43,
+        };
+        match direction {
+            Direction::Ingress => occupied.bpf.tc_ingress.push(attachment),
+            Direction::Egress => occupied.bpf.tc_egress.push(attachment),
+        }
+        variants.push(occupied);
+    }
+    let mut unknown_tc = physical_preflight();
+    unknown_tc.bpf.relevant_objects_enumerable = false;
+    unknown_tc.findings.push(PreflightFinding::blocker(
+        "PF_TC_STATE_UNKNOWN",
+        "traffic control state is unavailable",
+    ));
+    variants.push(unknown_tc);
     let mut unsupported_host = physical_preflight();
     unsupported_host.kernel.btf_readable = false;
     unsupported_host.bpf.bpffs_mounted = false;
