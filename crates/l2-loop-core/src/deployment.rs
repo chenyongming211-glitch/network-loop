@@ -659,10 +659,7 @@ impl PerformanceEvidenceV1 {
         })
     }
 
-    fn observe_rss_for_trial(
-        &self,
-        trial_number: u8,
-    ) -> Result<u64, DeploymentContractError> {
+    fn observe_rss_for_trial(&self, trial_number: u8) -> Result<u64, DeploymentContractError> {
         let mut matches = self.trials.iter().filter(|trial| {
             trial.trial_number == trial_number && trial.mode == PerformanceModeV1::Observe
         });
