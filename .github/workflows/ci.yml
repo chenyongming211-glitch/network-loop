@@ -29,6 +29,10 @@ jobs:
         shell: pwsh
         run: pwsh -NoProfile -File scripts/tests/verify-build-supply-chain.Tests.ps1
 
+      - name: Test deployment gate harness safety
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/tests/verify-deployment-gates.Tests.ps1
+
   windows-script-tests:
     name: Windows PowerShell safety
     runs-on: windows-latest
@@ -43,6 +47,10 @@ jobs:
       - name: Test build supply-chain policy with Windows PowerShell
         shell: powershell
         run: powershell -NoProfile -File scripts/tests/verify-build-supply-chain.Tests.ps1
+
+      - name: Test deployment gate harness with Windows PowerShell
+        shell: powershell
+        run: powershell -NoProfile -File scripts/tests/verify-deployment-gates.Tests.ps1
 
   userspace:
     name: Userspace
