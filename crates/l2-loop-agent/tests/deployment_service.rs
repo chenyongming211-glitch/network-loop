@@ -12,7 +12,9 @@ use l2_loop_agent::{
 };
 use l2_loop_core::{
     AttachmentState, BpfInspection, DG_AUTH_IDENTITY, DG_INTERFACE_UNSUPPORTED,
-    DG_PLATFORM_BLOCKED, DG_SYSTEMD_CONTRACT, DG_TC_NOT_EMPTY, DG_XDP_NOT_EMPTY,
+    DG_NATIVE_XDP_UNVERIFIED, DG_PERFORMANCE_REGRESSION, DG_PERFORMANCE_UNAVAILABLE,
+    DG_PLATFORM_BLOCKED, DG_REAL_JOURNALD_UNVERIFIED, DG_SYSTEMD_CONTRACT, DG_TC_NOT_EMPTY,
+    DG_WORKLOAD_PERFORMANCE_UNVERIFIED, DG_XDP_NOT_EMPTY,
     DeploymentArtifactIdentityV1, DeploymentAuthorizationV1, DeploymentDecisionV1,
     DeploymentFindingSeverityV1, DeploymentHostCompatibilityV1, Direction, InterfaceInspection,
     InterfaceKind, InterfaceName, InterfaceRef, KernelInspection, MemlockInspection,
@@ -67,6 +69,14 @@ fn inspect_calls_fixed_layout_gates_and_builds_non_executable_plan() {
     assert_eq!(report.decision, DeploymentDecisionV1::CanaryCandidate);
     assert_eq!(report.interface.as_ref().unwrap().name, "spare0");
     assert!(!report.canary_plan.as_ref().unwrap().executable);
+    assert_eq!(
+        report.canary_plan.as_ref().unwrap().warning_codes,
+        [
+            DG_NATIVE_XDP_UNVERIFIED.to_owned(),
+            DG_REAL_JOURNALD_UNVERIFIED.to_owned(),
+            DG_WORKLOAD_PERFORMANCE_UNVERIFIED.to_owned(),
+        ]
+    );
     assert!(!report.mutations_performed);
     assert_eq!(
         calls.borrow().as_slice(),
@@ -79,6 +89,45 @@ fn inspect_calls_fixed_layout_gates_and_builds_non_executable_plan() {
             "inspect_installed_prerequisites",
         ]
     );
+}
+
+#[test]
+fn inspect_maps_noisy_or_incomplete_performance_to_unavailable() {
+    for (field, replacement) in [
+        ("warm_up_complete", json!(false)),
+        ("measurement_complete", json!(false)),
+        ("measurement_noisy", json!(true)),
+        ("host_identity_stable", json!(false)),
+    ] {
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let performance = task6_performance(field, replacement, "unavailable");
+        let filesystem = FakeFilesystem::passing(calls.clone()).with_performance(performance);
+        let platform = FakePlatform::passing(calls.clone());
+        let mut service = DeploymentGateService::new(filesystem, platform, FixedClock);
+
+        let report = service.inspect().unwrap();
+
+        assert_eq!(report.decision, DeploymentDecisionV1::Blocked);
+        assert!(report.canary_plan.is_none());
+        assert_eq!(report.findings[0].code, DG_PERFORMANCE_UNAVAILABLE);
+        assert!(!calls.borrow().contains(&"inspect_installed_prerequisites"));
+    }
+}
+
+#[test]
+fn inspect_maps_fixed_threshold_failures_to_regression() {
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let performance = task6_performance("map_count_after", json!(7), "failed");
+    let filesystem = FakeFilesystem::passing(calls.clone()).with_performance(performance);
+    let platform = FakePlatform::passing(calls.clone());
+    let mut service = DeploymentGateService::new(filesystem, platform, FixedClock);
+
+    let report = service.inspect().unwrap();
+
+    assert_eq!(report.decision, DeploymentDecisionV1::Blocked);
+    assert!(report.canary_plan.is_none());
+    assert_eq!(report.findings[0].code, DG_PERFORMANCE_REGRESSION);
+    assert!(!calls.borrow().contains(&"inspect_installed_prerequisites"));
 }
 
 #[test]
@@ -352,6 +401,7 @@ impl Clock for FixedClock {
 struct FakeFilesystem {
     calls: Rc<RefCell<Vec<&'static str>>>,
     fail_at: Option<&'static str>,
+    performance: Option<PerformanceEvidenceV1>,
 }
 
 impl FakeFilesystem {
@@ -359,6 +409,7 @@ impl FakeFilesystem {
         Self {
             calls,
             fail_at: None,
+            performance: None,
         }
     }
 
@@ -366,7 +417,13 @@ impl FakeFilesystem {
         Self {
             calls,
             fail_at: Some(fail_at),
+            performance: None,
         }
+    }
+
+    fn with_performance(mut self, performance: PerformanceEvidenceV1) -> Self {
+        self.performance = Some(performance);
+        self
     }
 
     fn call(&self, name: &'static str) -> Result<(), DeploymentIoError> {
@@ -418,7 +475,7 @@ impl DeploymentFilesystem for FakeFilesystem {
         _root: &Path,
     ) -> Result<PerformanceEvidenceV1, DeploymentIoError> {
         self.call("load_staged_performance")?;
-        Ok(performance())
+        Ok(self.performance.clone().unwrap_or_else(performance))
     }
 
     fn inspect_staged_prerequisites(
@@ -448,7 +505,7 @@ impl DeploymentFilesystem for FakeFilesystem {
 
     fn load_installed_performance(&mut self) -> Result<PerformanceEvidenceV1, DeploymentIoError> {
         self.call("load_installed_performance")?;
-        Ok(performance())
+        Ok(self.performance.clone().unwrap_or_else(performance))
     }
 
     fn inspect_installed_prerequisites(
@@ -650,4 +707,34 @@ fn performance() -> PerformanceEvidenceV1 {
         "findings": []
     }))
     .unwrap()
+}
+
+fn task6_performance(
+    field: &str,
+    replacement: serde_json::Value,
+    result: &str,
+) -> PerformanceEvidenceV1 {
+    let mut value = serde_json::to_value(performance()).unwrap();
+    value["warm_up_complete"] = json!(true);
+    value["measurement_complete"] = json!(true);
+    value["measurement_noisy"] = json!(false);
+    value["host_identity_stable"] = json!(true);
+    value["process_count_before"] = json!(1);
+    value["process_count_after"] = json!(1);
+    value["map_count_before"] = json!(6);
+    value["map_count_after"] = json!(6);
+    value["program_count_before"] = json!(2);
+    value["program_count_after"] = json!(2);
+    value["pin_count_before"] = json!(6);
+    value["pin_count_after"] = json!(6);
+    value["namespace_count_before"] = json!(1);
+    value["namespace_count_after"] = json!(1);
+    value[field] = replacement;
+    value["result"] = json!(result);
+    value["findings"] = json!([if result == "failed" {
+        DG_PERFORMANCE_REGRESSION
+    } else {
+        DG_PERFORMANCE_UNAVAILABLE
+    }]);
+    serde_json::from_value(value).unwrap()
 }
