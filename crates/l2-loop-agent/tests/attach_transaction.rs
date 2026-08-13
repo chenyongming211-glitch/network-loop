@@ -20,7 +20,7 @@ use l2_loop_agent::{
 use l2_loop_core::{
     AttachmentState, BpfInspection, InterfaceInspection, InterfaceKind, InterfaceName,
     InterfaceRef, InterfaceState, KernelInspection, MemlockInspection, PF_LIVE_INTERFACE,
-    PF_TC_STATE_UNKNOWN, PinRootState, PreflightDecision, PreflightReport,
+    PF_TC_STATE_UNKNOWN, PinRootState, PreflightDecision, PreflightFinding, PreflightReport,
 };
 
 #[test]
@@ -324,6 +324,46 @@ fn acceptance_pass_through_rejects_identity_changes_without_broad_cleanup() {
         ifindex: 17,
         journal_path: "/run/l2-loop/tests/0123456789abcdef0123456789abcdef.json".into(),
     };
+
+    let ready = pass_through_report();
+    let ready_with_warning = PreflightReport::new(
+        ready.interface,
+        ready.kernel,
+        ready.bpf,
+        vec![PreflightFinding::warning(
+            "PF_MEMLOCK_TOO_LOW",
+            "the transaction can raise the process memlock limit",
+        )],
+    );
+    assert_eq!(
+        ready_with_warning.decision,
+        PreflightDecision::ReadyWithWarnings
+    );
+    assert!(
+        authorize_acceptance_pass_through(
+            &valid,
+            &ready_with_warning,
+            &empty_pass_through_snapshot(),
+        )
+        .is_ok()
+    );
+
+    let blocked = PreflightReport::new(
+        ready_with_warning.interface.clone(),
+        ready_with_warning.kernel.clone(),
+        ready_with_warning.bpf.clone(),
+        vec![PreflightFinding::blocker(
+            PF_LIVE_INTERFACE,
+            "the target is not isolated",
+        )],
+    );
+    assert_eq!(blocked.decision, PreflightDecision::Blocked);
+    assert_eq!(
+        authorize_acceptance_pass_through(&valid, &blocked, &empty_pass_through_snapshot())
+            .unwrap_err()
+            .to_string(),
+        "isolated pass-through authorization is invalid: PT_REPORT_DECISION"
+    );
 
     let mut cases = Vec::new();
     let mut wrong_evidence = valid.clone();
