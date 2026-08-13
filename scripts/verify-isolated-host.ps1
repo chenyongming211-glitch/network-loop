@@ -1001,6 +1001,39 @@ function Test-IsolatedRemoteState {
     (Invoke-IsolatedRemotePhase -Phase $Phase -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount 1 -TimeoutSeconds $TimeoutSeconds).Stdout.Trim()
 }
 
+function Get-StableIsolatedRemoteState {
+    param(
+        [ValidateSet('snapshot', 'snapshot-prepared')] [string] $Phase = 'snapshot',
+        [Parameter(Mandatory)] [psobject] $Names,
+        [Parameter(Mandatory)] [string] $Target,
+        [Parameter(Mandatory)] [string] $KeyPath,
+        [Parameter(Mandatory)] [int] $TimeoutSeconds,
+        [ValidateRange(2, 5)] [int] $RequiredConsecutive = 3,
+        [ValidateRange(3, 120)] [int] $MaxAttempts = 40,
+        [ValidateRange(50, 1000)] [int] $DelayMilliseconds = 250
+    )
+
+    $Previous = $null
+    $Consecutive = 0
+    for ($Attempt = 1; $Attempt -le $MaxAttempts; $Attempt++) {
+        $Current = Test-IsolatedRemoteState -Phase $Phase -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+        if ($null -ne $Previous -and $Previous -ceq $Current) {
+            $Consecutive++
+        }
+        else {
+            $Previous = $Current
+            $Consecutive = 1
+        }
+        if ($Consecutive -ge $RequiredConsecutive) {
+            return $Current
+        }
+        if ($Attempt -lt $MaxAttempts) {
+            Start-Sleep -Milliseconds $DelayMilliseconds
+        }
+    }
+    throw 'existing network or eBPF identity did not converge before isolated acceptance'
+}
+
 function Assert-IsolatedRemoteStateUnchanged {
     param(
         [Parameter(Mandatory)] [string] $Before,
@@ -1020,15 +1053,23 @@ function Wait-IsolatedRemoteState {
         [Parameter(Mandatory)] [string] $Target,
         [Parameter(Mandatory)] [string] $KeyPath,
         [Parameter(Mandatory)] [int] $TimeoutSeconds,
-        [ValidateRange(1, 5)] [int] $MaxAttempts = 5,
-        [ValidateRange(10, 100)] [int] $DelayMilliseconds = 100
+        [ValidateRange(2, 5)] [int] $RequiredConsecutive = 2,
+        [ValidateRange(2, 240)] [int] $MaxAttempts = 120,
+        [ValidateRange(50, 1000)] [int] $DelayMilliseconds = 250
     )
 
     $Current = ''
+    $Consecutive = 0
     for ($Attempt = 1; $Attempt -le $MaxAttempts; $Attempt++) {
         $Current = Test-IsolatedRemoteState -Phase $Phase -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
         if ($Expected -ceq $Current) {
-            return
+            $Consecutive++
+            if ($Consecutive -ge $RequiredConsecutive) {
+                return
+            }
+        }
+        else {
+            $Consecutive = 0
         }
         if ($Attempt -lt $MaxAttempts) {
             Start-Sleep -Milliseconds $DelayMilliseconds
@@ -1900,7 +1941,7 @@ try {
     $ScpArguments = Get-ScpArguments -Target $Target -KeyPath $KeyPath -Sources $Sources -Destination "$($Names.RemoteRunRoot)/"
     $null = Invoke-ExactProcess -FilePath 'scp' -ArgumentList $ScpArguments -StandardInput $null -TimeoutSeconds $TimeoutSeconds
     $null = Invoke-IsolatedMutation -Phase 'install' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
-    $BeforeState = Test-IsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+    $BeforeState = Get-StableIsolatedRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
 
     $null = Invoke-IsolatedMutation -Phase 'prepare' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
     $null = Invoke-IsolatedMutation -Phase 'launch' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
@@ -1917,7 +1958,7 @@ try {
         throw 'daemon preflight did not approve the exact isolated veth'
     }
 
-    $PreparedState = Test-IsolatedRemoteState -Phase 'snapshot-prepared' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
+    $PreparedState = Get-StableIsolatedRemoteState -Phase 'snapshot-prepared' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
 
     if ($Scenario -ceq 'PassiveObservation') {
         $MissingObservation = Invoke-ObservationCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json -AllowFailure
