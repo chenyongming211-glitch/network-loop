@@ -22,6 +22,20 @@ const BASELINE_RECOVERY_GOOD_READS: u64 = 75;
 const BASELINE_RECOVERY_FAILED_READS: u64 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AcceptanceOnlyMode {
+    PassThrough,
+}
+
+impl AcceptanceOnlyMode {
+    pub fn parse(value: Option<&str>) -> Result<Self, AcceptanceFaultError> {
+        match value {
+            Some("pass-through-v1") => Ok(Self::PassThrough),
+            None | Some(_) => Err(AcceptanceFaultError),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AcceptanceFault {
     None,
     TcAttach,

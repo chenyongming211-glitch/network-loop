@@ -1,16 +1,37 @@
-use std::{ffi::OsStr, fs, io, path::Path};
+use std::{
+    ffi::OsStr,
+    fs, io,
+    io::{Read, Write},
+    os::unix::fs::{MetadataExt, PermissionsExt},
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use aya::maps::{Map, MapData, MapInfo, PerCpuHashMap};
-use l2_loop_common::{CounterValue, StatsKey, hook_role};
-use l2_loop_core::{AttachmentState, Direction, InterfaceName, TcAttachment};
+use aya::maps::{HashMap, Map, MapData, MapError, MapInfo, PerCpuHashMap};
+use l2_loop_common::{CounterValue, InterfaceConfig, StatsKey, hook_role};
+use l2_loop_core::{
+    AttachmentState, Direction, InterfaceKind, InterfaceName, PinRootState, PreflightDecision,
+    PreflightReport, TcAttachment,
+};
 use nix::libc;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    linux::inspector::{BpfQuery, LinkSource, SystemBpfQuery, SystemLinkSource},
+    AttachmentSession, AttachmentTransaction, PlatformInspector,
+    linux::{
+        acceptance_fault::AcceptanceOnlyMode,
+        bpf_object::AyaObjectRuntime,
+        inspector::{
+            BpfQuery, LinkSource, SystemBpfQuery, SystemLinkSource, SystemLinuxInspector,
+        },
+        limits::ProcessResourceLimits,
+        tc::{RtnetlinkTcIo, SafeTc},
+        xdp::{RtnetlinkXdpIo, SafeXdp},
+    },
     ownership::{
-        FileOwnershipRepository, JournalPath, OwnershipRecord, RunId, TcHook, XdpAttachMode,
+        FileOwnershipRepository, JournalPath, OWNED_MAP_NAMES, OwnershipRecord, RunId,
+        TEST_PIN_BASE, TcHook, XdpAttachMode,
     },
 };
 
@@ -18,6 +39,7 @@ const BPF_PROG_GET_NEXT_ID: libc::c_long = 11;
 const BPF_MAP_GET_NEXT_ID: libc::c_long = 12;
 const BPFFS_ROOT: &str = "/sys/fs/bpf";
 const HOOK_STATS: &str = "HOOK_STATS";
+const ACCEPTANCE_ROOT: &str = "/run/l2-loop/accept";
 
 #[derive(Debug, Error)]
 pub enum HostAcceptanceError {
@@ -31,6 +53,80 @@ pub enum HostAcceptanceError {
     HookMismatch,
     #[error("owned counter map is invalid")]
     CounterMap,
+    #[error("isolated pass-through authorization is invalid")]
+    InvalidPassThrough,
+    #[error("isolated pass-through attachment failed: {0}")]
+    PassThroughAttach(String),
+    #[error("isolated pass-through cleanup failed: {0}")]
+    PassThroughCleanup(String),
+    #[error("isolated pass-through control input is invalid")]
+    InvalidPassThroughControl,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AcceptancePassThroughRequest {
+    pub mode: AcceptanceOnlyMode,
+    pub run_id: RunId,
+    pub evidence_root: PathBuf,
+    pub artifact_root: PathBuf,
+    pub interface: InterfaceName,
+    pub ifindex: u32,
+    pub journal_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AcceptancePassThroughPermit {
+    run_id: RunId,
+    interface: InterfaceName,
+    ifindex: u32,
+    evidence_root: PathBuf,
+    artifact_root: PathBuf,
+    journal_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AcceptancePassThroughState<'a> {
+    pub state: &'a str,
+    pub run_id: &'a str,
+    pub interface: &'a str,
+    pub ifindex: u32,
+    pub observation_enabled: bool,
+}
+
+impl AcceptancePassThroughPermit {
+    pub(crate) fn run_id(&self) -> &RunId {
+        &self.run_id
+    }
+
+    pub(crate) fn interface(&self) -> &InterfaceName {
+        &self.interface
+    }
+
+    pub(crate) fn authorizes(&self, interface: &InterfaceName, report: &PreflightReport) -> bool {
+        interface == &self.interface
+            && report.interface.requested.name == self.interface
+            && report.interface.requested.ifindex == self.ifindex
+    }
+
+    fn matches_request(&self, request: &AcceptancePassThroughRequest) -> bool {
+        self.run_id == request.run_id
+            && self.interface == request.interface
+            && self.ifindex == request.ifindex
+            && self.evidence_root == request.evidence_root
+            && self.artifact_root == request.artifact_root
+            && self.journal_path == request.journal_path
+    }
+
+    pub(crate) fn matches_attachment(&self, attachment: &AttachmentSession) -> bool {
+        let pin_root = Path::new(TEST_PIN_BASE).join(self.run_id.as_str());
+        attachment.ownership.ifindex == self.ifindex
+            && attachment.generation == attachment.ownership.generation
+            && attachment.ownership.map_pins.len() == OWNED_MAP_NAMES.len()
+            && attachment.ownership.map_pins.iter().all(|pin| {
+                OWNED_MAP_NAMES.contains(&pin.name.as_str())
+                    && pin.path == pin_root.join(&pin.name)
+            })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +160,66 @@ pub struct HookCounters {
     pub role: u8,
     pub packets: u64,
     pub bytes: u64,
+}
+
+pub fn authorize_acceptance_pass_through(
+    request: &AcceptancePassThroughRequest,
+    report: &PreflightReport,
+    snapshot: &HostIdentitySnapshot,
+) -> Result<AcceptancePassThroughPermit, HostAcceptanceError> {
+    let expected_artifact_root = Path::new(ACCEPTANCE_ROOT).join(request.run_id.as_str());
+    let expected_evidence_root = expected_artifact_root.join("evidence/v1");
+    let expected_journal = JournalPath::new(request.run_id.clone())
+        .map_err(|_| HostAcceptanceError::InvalidPassThrough)?;
+    let expected_interface = format!("l2h{}", &request.run_id.as_str()[..10]);
+    if request.mode != AcceptanceOnlyMode::PassThrough
+        || request.artifact_root != expected_artifact_root
+        || request.evidence_root != expected_evidence_root
+        || request.journal_path != expected_journal.path()
+        || request.interface.as_str() != expected_interface
+        || request.ifindex == 0
+        || report.decision != PreflightDecision::Ready
+        || report.interface.requested.name != request.interface
+        || report.interface.requested.ifindex != request.ifindex
+        || report.interface.kind != InterfaceKind::Veth
+        || !report.interface.isolated
+        || report.interface.live_shared
+        || report.interface.master.is_some()
+        || report.interface.bond.is_some()
+        || !report.bpf.relevant_objects_enumerable
+        || report.bpf.pin_root != PinRootState::Absent
+        || report.bpf.xdp_native != AttachmentState::Empty
+        || report.bpf.xdp_generic != AttachmentState::Empty
+        || !report.bpf.tc_ingress.is_empty()
+        || !report.bpf.tc_egress.is_empty()
+    {
+        return Err(HostAcceptanceError::InvalidPassThrough);
+    }
+
+    let mut matches = snapshot.interfaces.iter().filter(|candidate| {
+        candidate.name == request.interface.as_str() && candidate.ifindex == request.ifindex
+    });
+    let observed = matches
+        .next()
+        .ok_or(HostAcceptanceError::InvalidPassThrough)?;
+    if matches.next().is_some()
+        || observed.xdp_native != AttachmentState::Empty
+        || observed.xdp_generic != AttachmentState::Empty
+        || !observed.tc_state_known
+        || !observed.tc_ingress.is_empty()
+        || !observed.tc_egress.is_empty()
+    {
+        return Err(HostAcceptanceError::InvalidPassThrough);
+    }
+
+    Ok(AcceptancePassThroughPermit {
+        run_id: request.run_id.clone(),
+        interface: request.interface.clone(),
+        ifindex: request.ifindex,
+        evidence_root: request.evidence_root.clone(),
+        artifact_root: request.artifact_root.clone(),
+        journal_path: request.journal_path.clone(),
+    })
 }
 
 pub fn capture_host_identity() -> Result<HostIdentitySnapshot, HostAcceptanceError> {
@@ -227,6 +383,175 @@ pub fn load_exact_journal(path: &Path) -> Result<OwnershipRecord, HostAcceptance
     FileOwnershipRepository
         .load(&run_id)
         .map_err(|_| HostAcceptanceError::InvalidJournal)
+}
+
+pub fn run_acceptance_pass_through<R: Read, W: Write>(
+    request: AcceptancePassThroughRequest,
+    mut control: R,
+    mut output: W,
+) -> Result<(), HostAcceptanceError> {
+    validate_acceptance_runtime(&request)?;
+    let mut inspector = SystemLinuxInspector::system();
+    let report = inspector
+        .inspect(&request.interface)
+        .map_err(|_| HostAcceptanceError::InvalidPassThrough)?;
+    let snapshot = capture_host_identity()?;
+    let permit = authorize_acceptance_pass_through(&request, &report, &snapshot)?;
+    if !permit.matches_request(&request) {
+        return Err(HostAcceptanceError::InvalidPassThrough);
+    }
+    let object_path = permit.artifact_root.join("l2-loop-ebpf.o");
+    let runtime = AyaObjectRuntime::new(object_path);
+    let mut transaction = AttachmentTransaction::new(
+        SystemLinuxInspector::system(),
+        ProcessResourceLimits,
+        runtime.loader(),
+        SafeXdp::new(RtnetlinkXdpIo),
+        SafeTc::new(RtnetlinkTcIo),
+        runtime.map_publisher(),
+        FileOwnershipRepository,
+    );
+    let created_at_unix_seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| HostAcceptanceError::InvalidPassThrough)?
+        .as_secs();
+    let session = transaction
+        .execute_acceptance_pass_through(&permit, created_at_unix_seconds)
+        .map_err(|error| HostAcceptanceError::PassThroughAttach(error.code().to_owned()))?;
+
+    let operation = (|| {
+        let committed = load_exact_journal(&permit.journal_path)?;
+        if committed != session.attachment().ownership {
+            return Err(HostAcceptanceError::InvalidPassThrough);
+        }
+        let attached = capture_host_identity()?;
+        verify_owned_hooks(&attached, &committed, &permit.interface)?;
+        verify_iface_config_unpublished(&committed)?;
+        write_pass_through_state(&mut output, "ready", &request)?;
+
+        let mut command = [0_u8; 5];
+        control
+            .read_exact(&mut command)
+            .map_err(|_| HostAcceptanceError::InvalidPassThroughControl)?;
+        if command != *b"stop\n" {
+            return Err(HostAcceptanceError::InvalidPassThroughControl);
+        }
+        Ok(())
+    })();
+
+    let cleanup = transaction.detach_acceptance_pass_through_exact(&permit, &session);
+    if let Err(error) = cleanup {
+        return Err(HostAcceptanceError::PassThroughCleanup(
+            error.code().to_owned(),
+        ));
+    }
+    write_pass_through_state(&mut output, "cleaned", &request)?;
+    operation
+}
+
+fn validate_acceptance_runtime(
+    request: &AcceptancePassThroughRequest,
+) -> Result<(), HostAcceptanceError> {
+    let root = exact_private_directory(&request.artifact_root)?;
+    let evidence = exact_private_directory(&request.evidence_root)?;
+    if root != request.artifact_root || evidence != request.evidence_root {
+        return Err(HostAcceptanceError::InvalidPassThrough);
+    }
+
+    let executable = std::env::current_exe()
+        .and_then(fs::canonicalize)
+        .map_err(|_| HostAcceptanceError::InvalidPassThrough)?;
+    if executable.parent() != Some(request.artifact_root.as_path())
+        || executable.file_name() != Some(OsStr::new("l2-loop-hostcheck"))
+    {
+        return Err(HostAcceptanceError::InvalidPassThrough);
+    }
+    exact_regular_file(&executable)?;
+    exact_regular_file(&request.artifact_root.join("l2-loop-ebpf.o"))?;
+
+    for absent in [
+        request.journal_path.clone(),
+        Path::new(TEST_PIN_BASE).join(request.run_id.as_str()),
+    ] {
+        match fs::symlink_metadata(absent) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Ok(_) | Err(_) => return Err(HostAcceptanceError::InvalidPassThrough),
+        }
+    }
+    Ok(())
+}
+
+fn exact_private_directory(path: &Path) -> Result<PathBuf, HostAcceptanceError> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_dir()
+        || metadata.permissions().mode() & 0o777 != 0o700
+        || metadata.uid() != 0
+        || metadata.nlink() < 2
+    {
+        return Err(HostAcceptanceError::InvalidPassThrough);
+    }
+    let canonical = fs::canonicalize(path)?;
+    if canonical != path {
+        return Err(HostAcceptanceError::InvalidPassThrough);
+    }
+    Ok(canonical)
+}
+
+fn exact_regular_file(path: &Path) -> Result<(), HostAcceptanceError> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.uid() != 0
+        || metadata.nlink() != 1
+    {
+        return Err(HostAcceptanceError::InvalidPassThrough);
+    }
+    Ok(())
+}
+
+fn verify_iface_config_unpublished(
+    record: &OwnershipRecord,
+) -> Result<(), HostAcceptanceError> {
+    let pin = record
+        .map_pins
+        .iter()
+        .find(|pin| pin.name == "IFACE_CONFIG")
+        .ok_or(HostAcceptanceError::InvalidPassThrough)?;
+    let info = MapInfo::from_pin(&pin.path).map_err(|_| HostAcceptanceError::InvalidPassThrough)?;
+    if info.id() != pin.map_id {
+        return Err(HostAcceptanceError::InvalidPassThrough);
+    }
+    let map = Map::HashMap(
+        MapData::from_pin(&pin.path).map_err(|_| HostAcceptanceError::InvalidPassThrough)?,
+    );
+    let configs = HashMap::<MapData, u32, InterfaceConfig>::try_from(map)
+        .map_err(|_| HostAcceptanceError::InvalidPassThrough)?;
+    match configs.get(&record.ifindex, 0) {
+        Err(MapError::KeyNotFound) => Ok(()),
+        Ok(_) | Err(_) => Err(HostAcceptanceError::InvalidPassThrough),
+    }
+}
+
+fn write_pass_through_state<W: Write>(
+    output: &mut W,
+    state: &'static str,
+    request: &AcceptancePassThroughRequest,
+) -> Result<(), HostAcceptanceError> {
+    serde_json::to_writer(
+        &mut *output,
+        &AcceptancePassThroughState {
+            state,
+            run_id: request.run_id.as_str(),
+            interface: request.interface.as_str(),
+            ifindex: request.ifindex,
+            observation_enabled: false,
+        },
+    )
+    .map_err(|_| HostAcceptanceError::InvalidPassThrough)?;
+    output.write_all(b"\n")?;
+    output.flush()?;
+    Ok(())
 }
 
 fn sort_tc(filters: &mut [TcAttachment]) {

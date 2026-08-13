@@ -1,12 +1,13 @@
 use l2_loop_common::ABI_VERSION;
 use l2_loop_core::{
     FindingSeverity, InterfaceKind, InterfaceName, InterfaceState, PF_LIVE_INTERFACE,
-    PF_MEMLOCK_TOO_LOW, PreflightDecision,
+    PF_MEMLOCK_TOO_LOW, PF_OWNERSHIP_MISMATCH, PreflightDecision,
 };
 
 use crate::{
     BpfObjectLoader, EphemeralOwnershipStore, LoadedBpfObject, MapPublisher, PlatformInspector,
     PortError, ResourceLimits, SafeTcPort, SafeXdpPort,
+    host_acceptance::AcceptancePassThroughPermit,
     ownership::{
         OWNERSHIP_SCHEMA_VERSION, OwnedTc, OwnedXdp, OwnershipRecord, RunId, TcHook, TestPinRoot,
         XdpAttachMode,
@@ -31,6 +32,21 @@ pub struct AttachmentSession {
     pub generation: u64,
     pub ownership: OwnershipRecord,
     pub loaded: LoadedBpfObject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AcceptancePassThroughSession {
+    attachment: AttachmentSession,
+}
+
+impl AcceptancePassThroughSession {
+    pub const fn observation_enabled(&self) -> bool {
+        false
+    }
+
+    pub(crate) fn attachment(&self) -> &AttachmentSession {
+        &self.attachment
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -224,6 +240,178 @@ where
         })
     }
 
+    pub fn execute_acceptance_pass_through(
+        &mut self,
+        permit: &AcceptancePassThroughPermit,
+        created_at_unix_seconds: u64,
+    ) -> Result<AcceptancePassThroughSession, AttachmentError> {
+        let interface = permit.interface();
+        let report = self
+            .preflight
+            .inspect(interface)
+            .map_err(|error| AttachmentError::without_cleanup(ATTACH_PREFLIGHT_FAILED, error))?;
+        validate_isolated_target(interface, &report)?;
+        if !permit.authorizes(interface, &report) {
+            return Err(AttachmentError::without_cleanup(
+                PF_OWNERSHIP_MISMATCH,
+                "acceptance pass-through permit identity changed",
+            ));
+        }
+
+        self.limits
+            .raise_memlock_to_infinity()
+            .map_err(|error| AttachmentError::without_cleanup(PF_MEMLOCK_TOO_LOW, error))?;
+
+        let pins = TestPinRoot::new(permit.run_id().clone())
+            .map_err(|error| AttachmentError::without_cleanup(BPF_LOAD_FAILED, error))?;
+        let loaded = self
+            .loader
+            .load_and_validate_abi(&pins)
+            .map_err(|error| AttachmentError::without_cleanup(BPF_LOAD_FAILED, error))?;
+        let mut rollback = RollbackState {
+            loaded: Some(loaded),
+            ..RollbackState::default()
+        };
+        let ifindex = report.interface.requested.ifindex;
+        let generation = self.generation.saturating_add(1).max(1);
+        let loaded = rollback.loaded.as_ref().expect("loaded object is present");
+
+        if let Err(error) = self.maps.initialize_dependent(loaded, ifindex, generation) {
+            return Err(self.rollback_pass_through(
+                MAP_INITIALIZE_FAILED,
+                error,
+                rollback,
+                ifindex,
+                generation,
+            ));
+        }
+        rollback.maps_initialized = true;
+
+        rollback.xdp = match self
+            .xdp
+            .attach_no_replace(ifindex, XdpAttachMode::Generic, loaded.xdp)
+        {
+            Ok(owned) => Some(owned),
+            Err(error) => {
+                let code = error.stable_code().unwrap_or(XDP_ATTACH_FAILED);
+                return Err(self.rollback_pass_through(
+                    code, error, rollback, ifindex, generation,
+                ));
+            }
+        };
+        if let Err(error) = self
+            .xdp
+            .verify_exact(rollback.xdp.as_ref().expect("owned XDP is present"))
+        {
+            let code = error.stable_code().unwrap_or(XDP_VERIFY_FAILED);
+            return Err(self.rollback_pass_through(
+                code, error, rollback, ifindex, generation,
+            ));
+        }
+
+        rollback.tc = match self
+            .tc
+            .attach_explicit(ifindex, TcHook::Egress, loaded.tc_egress)
+        {
+            Ok(owned) => Some(owned),
+            Err(error) => {
+                let code = error.stable_code().unwrap_or(TC_ATTACH_FAILED);
+                return Err(self.rollback_pass_through(
+                    code, error, rollback, ifindex, generation,
+                ));
+            }
+        };
+        if let Err(error) = self
+            .tc
+            .verify_exact(rollback.tc.as_ref().expect("owned TC is present"))
+        {
+            let code = error.stable_code().unwrap_or(TC_VERIFY_FAILED);
+            return Err(self.rollback_pass_through(
+                code, error, rollback, ifindex, generation,
+            ));
+        }
+
+        let record = OwnershipRecord {
+            schema_version: OWNERSHIP_SCHEMA_VERSION,
+            abi_version: ABI_VERSION,
+            generation,
+            ifindex,
+            xdp: rollback.xdp,
+            tc: vec![rollback.tc.expect("owned TC is present")],
+            map_pins: loaded.map_pins.clone(),
+            created_at_unix_seconds,
+        };
+        if let Err(error) = self.ownership.save(&record) {
+            return Err(self.rollback_pass_through(
+                OWNERSHIP_JOURNAL_FAILED,
+                error,
+                rollback,
+                ifindex,
+                generation,
+            ));
+        }
+        rollback.journal = Some(record.clone());
+
+        self.generation = generation;
+        Ok(AcceptancePassThroughSession {
+            attachment: AttachmentSession {
+                state: InterfaceState::Attaching,
+                generation,
+                ownership: record,
+                loaded: rollback.loaded.expect("loaded object is present"),
+            },
+        })
+    }
+
+    pub fn detach_acceptance_pass_through_exact(
+        &mut self,
+        permit: &AcceptancePassThroughPermit,
+        session: &AcceptancePassThroughSession,
+    ) -> Result<(), AttachmentError> {
+        let attachment = session.attachment();
+        if !permit.matches_attachment(attachment) {
+            return Err(AttachmentError::without_cleanup(
+                PF_OWNERSHIP_MISMATCH,
+                "acceptance pass-through cleanup identity changed",
+            ));
+        }
+        let mut cleanup_evidence = Vec::new();
+        collect_cleanup(
+            &mut cleanup_evidence,
+            "ephemeral ownership journal",
+            self.ownership.remove_exact(&attachment.ownership),
+        );
+        for owned in attachment.ownership.tc.iter().rev() {
+            collect_cleanup(
+                &mut cleanup_evidence,
+                "TC egress filter",
+                self.tc.detach_exact(owned),
+            );
+        }
+        if let Some(owned) = attachment.ownership.xdp.as_ref() {
+            collect_cleanup(
+                &mut cleanup_evidence,
+                "XDP link",
+                self.xdp.detach_exact(owned),
+            );
+        }
+        collect_cleanup(
+            &mut cleanup_evidence,
+            "initialized maps",
+            self.maps.rollback_initialized_exact(
+                &attachment.loaded,
+                attachment.ownership.ifindex,
+                attachment.generation,
+            ),
+        );
+        collect_cleanup(
+            &mut cleanup_evidence,
+            "loaded eBPF object",
+            self.loader.unload_exact(&attachment.loaded),
+        );
+        cleanup_result(cleanup_evidence)
+    }
+
     pub fn detach_exact(&mut self, session: &AttachmentSession) -> Result<(), AttachmentError> {
         let mut cleanup_evidence = Vec::new();
         collect_cleanup(
@@ -325,6 +513,59 @@ where
             cleanup_evidence,
         }
     }
+
+    fn rollback_pass_through(
+        &mut self,
+        code: &'static str,
+        error: PortError,
+        rollback: RollbackState,
+        ifindex: u32,
+        generation: u64,
+    ) -> AttachmentError {
+        let mut cleanup_evidence = Vec::new();
+        if let Some(record) = rollback.journal.as_ref() {
+            collect_cleanup(
+                &mut cleanup_evidence,
+                "ephemeral ownership journal",
+                self.ownership.remove_exact(record),
+            );
+        }
+        if let Some(owned) = rollback.tc.as_ref() {
+            collect_cleanup(
+                &mut cleanup_evidence,
+                "TC egress filter",
+                self.tc.detach_exact(owned),
+            );
+        }
+        if let Some(owned) = rollback.xdp.as_ref() {
+            collect_cleanup(
+                &mut cleanup_evidence,
+                "XDP link",
+                self.xdp.detach_exact(owned),
+            );
+        }
+        if rollback.maps_initialized {
+            let loaded = rollback.loaded.as_ref().expect("loaded object is present");
+            collect_cleanup(
+                &mut cleanup_evidence,
+                "initialized maps",
+                self.maps
+                    .rollback_initialized_exact(loaded, ifindex, generation),
+            );
+        }
+        if let Some(loaded) = rollback.loaded.as_ref() {
+            collect_cleanup(
+                &mut cleanup_evidence,
+                "loaded eBPF object",
+                self.loader.unload_exact(loaded),
+            );
+        }
+        AttachmentError {
+            code: code.to_owned(),
+            evidence: error.to_string(),
+            cleanup_evidence,
+        }
+    }
 }
 
 pub trait IsolatedAttachmentDriver: Send {
@@ -396,5 +637,17 @@ fn validate_isolated_target(
 fn collect_cleanup(evidence: &mut Vec<String>, resource: &str, result: Result<(), PortError>) {
     if let Err(error) = result {
         evidence.push(format!("{resource}: {error}"));
+    }
+}
+
+fn cleanup_result(cleanup_evidence: Vec<String>) -> Result<(), AttachmentError> {
+    if cleanup_evidence.is_empty() {
+        Ok(())
+    } else {
+        Err(AttachmentError {
+            code: OWNED_CLEANUP_INCOMPLETE.to_owned(),
+            evidence: "one or more exact owned cleanup steps were retained".to_owned(),
+            cleanup_evidence,
+        })
     }
 }
