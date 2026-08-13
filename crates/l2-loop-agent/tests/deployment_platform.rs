@@ -387,6 +387,8 @@ fn linux_adapter_source_is_read_only_and_never_enumerates_as_fallback() {
     }
     assert!(source.contains("match_name"));
     assert!(source.contains("MAX_PACKET_TABLE_BYTES"));
+    assert!(source.contains("ExactSystemPreflightInspector"));
+    assert!(!source.contains("SystemLinuxInspector"));
 }
 
 fn authorization() -> DeploymentAuthorizationV1 {

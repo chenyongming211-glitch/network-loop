@@ -13,11 +13,14 @@ use rtnetlink::packet_route::{
 
 use crate::{
     DeploymentIoError, DeploymentPlatformInspector, DeploymentPlatformSnapshotV1,
-    PlatformInspector, PreflightService,
+    PlatformInspector, PortError, PreflightService,
 };
 
 use super::{
-    inspector::{SystemLinuxInspector, link_record, run_async},
+    inspector::{
+        CommandSource, InspectorError, LinkSource, LinuxInspector, SystemBpfQuery,
+        SystemFileSource, link_record, run_async,
+    },
     interface::classify_interface,
 };
 
@@ -160,27 +163,10 @@ impl DeploymentCandidateSource for SystemDeploymentCandidateSource {
         &mut self,
         interface: &InterfaceName,
     ) -> Result<DeploymentLinkSnapshotV1, DeploymentIoError> {
-        let name = interface.as_str().to_owned();
-        run_async(move || async move {
-            let (connection, handle, _) =
-                rtnetlink::new_connection().map_err(|_| unavailable_inspector_error())?;
-            tokio::spawn(connection);
-            let mut messages = handle.link().get().match_name(name).execute();
-            let message = messages
-                .try_next()
-                .await
-                .map_err(|_| unavailable_inspector_error())?
-                .ok_or_else(unavailable_inspector_error)?;
-            if messages
-                .try_next()
-                .await
-                .map_err(|_| unavailable_inspector_error())?
-                .is_some()
-            {
-                return Err(unavailable_inspector_error());
-            }
-            deployment_link_snapshot(message).ok_or_else(unavailable_inspector_error)
-        })
+        query_exact_link(interface)
+            .and_then(|message| {
+                deployment_link_snapshot(message).ok_or_else(unavailable_inspector_error)
+            })
         .map_err(|_| DeploymentIoError::Unavailable)
     }
 
@@ -207,6 +193,72 @@ impl DeploymentCandidateSource for SystemDeploymentCandidateSource {
             other_consumer_present: false,
             logical_cpu_count,
         })
+    }
+}
+
+fn query_exact_link(interface: &InterfaceName) -> Result<LinkMessage, InspectorError> {
+    let name = interface.as_str().to_owned();
+    run_async(move || async move {
+        let (connection, handle, _) =
+            rtnetlink::new_connection().map_err(|_| unavailable_inspector_error())?;
+        tokio::spawn(connection);
+        let mut messages = handle.link().get().match_name(name).execute();
+        let message = messages
+            .try_next()
+            .await
+            .map_err(|_| unavailable_inspector_error())?
+            .ok_or_else(unavailable_inspector_error)?;
+        if messages
+            .try_next()
+            .await
+            .map_err(|_| unavailable_inspector_error())?
+            .is_some()
+        {
+            return Err(unavailable_inspector_error());
+        }
+        Ok(message)
+    })
+}
+
+#[derive(Debug, Clone)]
+struct ExactDeploymentLinkSource {
+    interface: InterfaceName,
+}
+
+impl LinkSource for ExactDeploymentLinkSource {
+    fn read_links(&mut self) -> Result<Vec<super::interface::LinkRecord>, InspectorError> {
+        let message = query_exact_link(&self.interface)?;
+        let link = link_record(message).ok_or_else(unavailable_inspector_error)?;
+        Ok(vec![link])
+    }
+}
+
+#[derive(Debug, Default)]
+struct NoDeploymentCommandSource;
+
+impl CommandSource for NoDeploymentCommandSource {
+    fn query_ovs_bridge(
+        &mut self,
+        _interface: &InterfaceName,
+    ) -> Result<Option<InterfaceName>, InspectorError> {
+        Err(unavailable_inspector_error())
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct ExactSystemPreflightInspector;
+
+impl PlatformInspector for ExactSystemPreflightInspector {
+    fn inspect(&mut self, requested: &InterfaceName) -> Result<PreflightReport, PortError> {
+        let mut inspector = LinuxInspector::new(
+            ExactDeploymentLinkSource {
+                interface: requested.clone(),
+            },
+            SystemFileSource,
+            SystemBpfQuery,
+            NoDeploymentCommandSource,
+        );
+        inspector.inspect(requested)
     }
 }
 
@@ -359,14 +411,19 @@ fn unavailable_inspector_error() -> super::inspector::InspectorError {
 }
 
 pub type SystemLinuxDeploymentPlatformInspector =
-    LinuxDeploymentPlatformInspector<SystemLinuxInspector, SystemDeploymentCandidateSource>;
+    LinuxDeploymentPlatformInspector<
+        ExactSystemPreflightInspector,
+        SystemDeploymentCandidateSource,
+    >;
 
-impl LinuxDeploymentPlatformInspector<SystemLinuxInspector, SystemDeploymentCandidateSource> {
+impl
+    LinuxDeploymentPlatformInspector<
+        ExactSystemPreflightInspector,
+        SystemDeploymentCandidateSource,
+    >
+{
     pub fn system() -> Self {
-        Self::new(
-            SystemLinuxInspector::system(),
-            SystemDeploymentCandidateSource,
-        )
+        Self::new(ExactSystemPreflightInspector, SystemDeploymentCandidateSource)
     }
 }
 
