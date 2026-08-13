@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "authorization_id": "00112233445566778899aabbccddeeff",
+  "artifact_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+  "mode": "read_only_canary_candidate",
+  "interface": {
+    "name": "spare0",
+    "ifindex": 7,
+    "kind": "physical",
+    "administrative_state": "up",
+    "operational_state": "up",
+    "master_ifindex": null,
+    "xdp_native": "empty",
+    "xdp_generic": "empty",
+    "tc_clsact": false,
+    "tc_ingress": [],
+    "tc_egress": []
+  },
+  "issued_at_unix_ms": 1786579200000,
+  "expires_at_unix_ms": 1786665600000
+}
