@@ -300,7 +300,8 @@ fn hook_and_host_blockers_remain_in_the_sanitized_preflight_contract() {
 
     for report in variants {
         let calls = Rc::new(RefCell::new(Vec::new()));
-        let preflight = FakePreflight::new(calls.clone(), report.clone());
+        let expected = normalized(report);
+        let preflight = FakePreflight::new(calls.clone(), expected.clone());
         let source = FakeCandidate::passing(calls);
         let mut inspector = LinuxDeploymentPlatformInspector::new(preflight, source);
 
@@ -308,7 +309,7 @@ fn hook_and_host_blockers_remain_in_the_sanitized_preflight_contract() {
             .inspect_authorized_interface(&authorization())
             .unwrap();
 
-        assert_eq!(snapshot.preflight, report);
+        assert_eq!(snapshot.preflight, expected);
     }
 }
 
@@ -327,8 +328,9 @@ fn missing_or_additional_live_refusal_is_preserved_for_the_gate_service() {
     ] {
         let calls = Rc::new(RefCell::new(Vec::new()));
         let mut report = physical_preflight();
-        report.findings = findings.clone();
-        let preflight = FakePreflight::new(calls.clone(), report);
+        report.findings = findings;
+        let expected = normalized(report);
+        let preflight = FakePreflight::new(calls.clone(), expected.clone());
         let source = FakeCandidate::passing(calls);
         let mut inspector = LinuxDeploymentPlatformInspector::new(preflight, source);
 
@@ -336,7 +338,7 @@ fn missing_or_additional_live_refusal_is_preserved_for_the_gate_service() {
             .inspect_authorized_interface(&authorization())
             .unwrap();
 
-        assert_eq!(snapshot.preflight.findings, findings);
+        assert_eq!(snapshot.preflight.findings, expected.findings);
     }
 }
 
@@ -446,6 +448,15 @@ fn physical_preflight() -> PreflightReport {
             PF_LIVE_INTERFACE,
             "live interface attachment is refused",
         )],
+    )
+}
+
+fn normalized(report: PreflightReport) -> PreflightReport {
+    PreflightReport::new(
+        report.interface,
+        report.kernel,
+        report.bpf,
+        report.findings,
     )
 }
 
