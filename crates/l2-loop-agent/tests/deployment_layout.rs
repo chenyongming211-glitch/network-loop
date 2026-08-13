@@ -381,7 +381,7 @@ fn valid_layout() -> StagedLayoutInputV1 {
             DeploymentEntryKindV1::Directory,
             0o700,
         ),
-        ("run", DeploymentEntryKindV1::Directory, 0o700),
+        ("run", DeploymentEntryKindV1::Directory, 0o755),
         ("run/l2-loop", DeploymentEntryKindV1::Directory, 0o700),
         ("usr/bin/l2-loopctl", DeploymentEntryKindV1::Regular, 0o755),
         (

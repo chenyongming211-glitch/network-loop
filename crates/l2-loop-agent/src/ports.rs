@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     path::Path,
     time::{Instant, SystemTime},
 };
@@ -70,22 +71,88 @@ pub enum DeploymentIoError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BundleSnapshotV1 {
     pub artifact: DeploymentArtifactIdentityV1,
+    pub files: BTreeMap<String, BundleFileIdentityV1>,
 }
 
 impl BundleSnapshotV1 {
     pub fn new(artifact: DeploymentArtifactIdentityV1) -> Self {
-        Self { artifact }
+        Self {
+            artifact,
+            files: BTreeMap::new(),
+        }
     }
+
+    pub fn with_files(
+        artifact: DeploymentArtifactIdentityV1,
+        files: BTreeMap<String, BundleFileIdentityV1>,
+    ) -> Self {
+        Self { artifact, files }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BundleFileIdentityV1 {
+    pub sha256: String,
+    pub size: u64,
+    pub mode: u32,
+    pub uid: u32,
+    pub gid: u32,
+    pub device: u64,
+    pub inode: u64,
+    pub hard_links: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeploymentEntryKindV1 {
+    Directory,
+    Regular,
+    Symlink,
+    Socket,
+    Fifo,
+    Device,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeploymentEntrySnapshotV1 {
+    pub relative_path: String,
+    pub canonical_path: std::path::PathBuf,
+    pub kind: DeploymentEntryKindV1,
+    pub mode: u32,
+    pub uid: u32,
+    pub gid: u32,
+    pub device: u64,
+    pub inode: u64,
+    pub hard_links: u64,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LayoutSnapshotV1 {
     pub artifact: DeploymentArtifactIdentityV1,
+    pub files: BTreeMap<String, DeploymentEntrySnapshotV1>,
+    pub runtime_occupied: bool,
 }
 
 impl LayoutSnapshotV1 {
     pub fn new(artifact: DeploymentArtifactIdentityV1) -> Self {
-        Self { artifact }
+        Self {
+            artifact,
+            files: BTreeMap::new(),
+            runtime_occupied: false,
+        }
+    }
+
+    pub fn with_files(
+        artifact: DeploymentArtifactIdentityV1,
+        files: BTreeMap<String, DeploymentEntrySnapshotV1>,
+        runtime_occupied: bool,
+    ) -> Self {
+        Self {
+            artifact,
+            files,
+            runtime_occupied,
+        }
     }
 }
 

@@ -5,6 +5,7 @@ pub mod bond;
 pub mod bpf_inventory;
 pub mod bpf_object;
 pub mod cleanup;
+pub mod deployment_fs;
 pub mod inspector;
 pub mod interface;
 pub mod limits;
