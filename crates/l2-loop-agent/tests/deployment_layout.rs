@@ -21,12 +21,12 @@ const UNIT: &[u8] = b"unit-v1\n";
 const EXAMPLE: &[u8] = b"example-v1\n";
 const PAYLOADS: [&str; 8] = [
     "deployment-v1.example.json",
-    "l2-loop.service",
-    "l2-loopctl",
-    "l2-loopd",
     "l2-loop-deploycheck",
     "l2-loop-ebpf.o",
     "l2-loop-hostcheck",
+    "l2-loop.service",
+    "l2-loopctl",
+    "l2-loopd",
     "manifest.json",
 ];
 

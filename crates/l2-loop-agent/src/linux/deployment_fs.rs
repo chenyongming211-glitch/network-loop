@@ -32,23 +32,23 @@ const MAX_EBPF_BYTES: u64 = 16 * 1024 * 1024;
 pub const EXPECTED_BUNDLE_FILES: [&str; 9] = [
     "SHA256SUMS",
     "deployment-v1.example.json",
-    "l2-loop.service",
-    "l2-loopctl",
-    "l2-loopd",
     "l2-loop-deploycheck",
     "l2-loop-ebpf.o",
     "l2-loop-hostcheck",
+    "l2-loop.service",
+    "l2-loopctl",
+    "l2-loopd",
     "manifest.json",
 ];
 
 const CHECKSUM_PAYLOADS: [&str; 8] = [
     "deployment-v1.example.json",
-    "l2-loop.service",
-    "l2-loopctl",
-    "l2-loopd",
     "l2-loop-deploycheck",
     "l2-loop-ebpf.o",
     "l2-loop-hostcheck",
+    "l2-loop.service",
+    "l2-loopctl",
+    "l2-loopd",
     "manifest.json",
 ];
 
