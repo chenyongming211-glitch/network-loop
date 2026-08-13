@@ -4,16 +4,16 @@ use std::{
 };
 
 use l2_loop_core::{
-    AttachmentState, CanaryPlanV1, DeploymentArtifactIdentityV1, DeploymentAuthorizationV1,
-    DeploymentCommandV1, DeploymentContractError, DeploymentFindingV1, DeploymentGateReportV1,
-    DeploymentGateStateV1, DeploymentGateSummariesV1, DeploymentGateSummaryV1,
-    DeploymentHostCompatibilityV1, DeploymentInterfaceSummaryV1, FindingSeverity, InterfaceKind,
-    PerformanceEvidenceV1, PerformanceResultV1, DG_ARTIFACT_INVENTORY, DG_ARTIFACT_MANIFEST,
-    DG_AUTH_ARTIFACT, DG_AUTH_EXPIRED, DG_AUTH_IDENTITY, DG_AUTH_SCHEMA, DG_EVIDENCE_ROOT,
-    DG_INTERFACE_UNSUPPORTED, DG_LAYOUT_TYPE, DG_NATIVE_XDP_UNVERIFIED,
-    DG_PERFORMANCE_REGRESSION, DG_PERFORMANCE_UNAVAILABLE, DG_PLATFORM_BLOCKED,
-    DG_REAL_JOURNALD_UNVERIFIED, DG_STAGING_ROOT, DG_SYSTEMD_CONTRACT, DG_TC_NOT_EMPTY,
-    DG_WORKLOAD_PERFORMANCE_UNVERIFIED, DG_XDP_NOT_EMPTY, PF_LIVE_INTERFACE,
+    AttachmentState, CanaryPlanV1, DG_ARTIFACT_INVENTORY, DG_ARTIFACT_MANIFEST, DG_AUTH_ARTIFACT,
+    DG_AUTH_EXPIRED, DG_AUTH_IDENTITY, DG_AUTH_SCHEMA, DG_EVIDENCE_ROOT, DG_INTERFACE_UNSUPPORTED,
+    DG_LAYOUT_TYPE, DG_NATIVE_XDP_UNVERIFIED, DG_PERFORMANCE_REGRESSION,
+    DG_PERFORMANCE_UNAVAILABLE, DG_PLATFORM_BLOCKED, DG_REAL_JOURNALD_UNVERIFIED, DG_STAGING_ROOT,
+    DG_SYSTEMD_CONTRACT, DG_TC_NOT_EMPTY, DG_WORKLOAD_PERFORMANCE_UNVERIFIED, DG_XDP_NOT_EMPTY,
+    DeploymentArtifactIdentityV1, DeploymentAuthorizationV1, DeploymentCommandV1,
+    DeploymentContractError, DeploymentFindingV1, DeploymentGateReportV1, DeploymentGateStateV1,
+    DeploymentGateSummariesV1, DeploymentGateSummaryV1, DeploymentHostCompatibilityV1,
+    DeploymentInterfaceSummaryV1, FindingSeverity, InterfaceKind, PF_LIVE_INTERFACE,
+    PerformanceEvidenceV1, PerformanceResultV1,
 };
 use thiserror::Error;
 
@@ -70,11 +70,7 @@ where
         staging_root: &Path,
     ) -> Result<DeploymentGateReportV1, DeploymentServiceError> {
         let captured_at_unix_ms = self.captured_at_unix_ms()?;
-        if self
-            .filesystem
-            .validate_staging_root(staging_root)
-            .is_err()
-        {
+        if self.filesystem.validate_staging_root(staging_root).is_err() {
             return blocked_report(
                 DeploymentCommandV1::Staging,
                 None,
@@ -185,11 +181,8 @@ where
                 );
             }
         };
-        if let Some(code) = staged_performance_failure(
-            &performance,
-            &artifact,
-            captured_at_unix_ms,
-        ) {
+        if let Some(code) = staged_performance_failure(&performance, &artifact, captured_at_unix_ms)
+        {
             return blocked_report(
                 DeploymentCommandV1::Staging,
                 Some(artifact),
@@ -199,10 +192,7 @@ where
             );
         }
 
-        let prerequisites = match self
-            .filesystem
-            .inspect_staged_prerequisites(staging_root)
-        {
+        let prerequisites = match self.filesystem.inspect_staged_prerequisites(staging_root) {
             Ok(prerequisites) => prerequisites,
             Err(_) => {
                 return blocked_report(
@@ -317,10 +307,7 @@ where
             }
         };
 
-        let platform = match self
-            .platform
-            .inspect_authorized_interface(&authorization)
-        {
+        let platform = match self.platform.inspect_authorized_interface(&authorization) {
             Ok(platform) => platform,
             Err(_) => {
                 return blocked_report(
@@ -342,12 +329,9 @@ where
             );
         }
 
-        if let Some(code) = performance_failure(
-            &performance,
-            &artifact,
-            &platform.host,
-            captured_at_unix_ms,
-        ) {
+        if let Some(code) =
+            performance_failure(&performance, &artifact, &platform.host, captured_at_unix_ms)
+        {
             return blocked_report(
                 DeploymentCommandV1::Inspect,
                 Some(artifact),
@@ -558,10 +542,9 @@ fn blocked_report(
 ) -> Result<DeploymentGateReportV1, DeploymentServiceError> {
     let artifact = match artifact {
         Some(artifact) => artifact,
-        None => DeploymentArtifactIdentityV1::new(
-            UNVERIFIED_COMMIT_SHA,
-            UNVERIFIED_PACKAGE_VERSION,
-        )?,
+        None => {
+            DeploymentArtifactIdentityV1::new(UNVERIFIED_COMMIT_SHA, UNVERIFIED_PACKAGE_VERSION)?
+        }
     };
     Ok(DeploymentGateReportV1::derive(
         command,

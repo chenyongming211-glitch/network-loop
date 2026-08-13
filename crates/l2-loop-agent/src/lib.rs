@@ -4,9 +4,9 @@
 mod alert;
 #[cfg(target_os = "linux")]
 mod attach;
-mod deployment;
 #[cfg(target_os = "linux")]
 pub mod daemon;
+mod deployment;
 #[cfg(target_os = "linux")]
 mod evidence_store;
 #[cfg(target_os = "linux")]

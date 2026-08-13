@@ -152,10 +152,8 @@ pub struct DeploymentPlatformSnapshotV1 {
 pub trait DeploymentFilesystem {
     fn validate_staging_root(&mut self, root: &Path) -> Result<(), DeploymentIoError>;
     fn inspect_bundle(&mut self, bundle: &Path) -> Result<BundleSnapshotV1, DeploymentIoError>;
-    fn inspect_staged_layout(
-        &mut self,
-        root: &Path,
-    ) -> Result<LayoutSnapshotV1, DeploymentIoError>;
+    fn inspect_staged_layout(&mut self, root: &Path)
+    -> Result<LayoutSnapshotV1, DeploymentIoError>;
     fn inspect_staged_service(
         &mut self,
         root: &Path,
@@ -173,9 +171,7 @@ pub trait DeploymentFilesystem {
         root: &Path,
     ) -> Result<DeploymentPrerequisitesV1, DeploymentIoError>;
     fn inspect_installed_layout(&mut self) -> Result<LayoutSnapshotV1, DeploymentIoError>;
-    fn inspect_installed_service(
-        &mut self,
-    ) -> Result<ServiceUnitSnapshotV1, DeploymentIoError>;
+    fn inspect_installed_service(&mut self) -> Result<ServiceUnitSnapshotV1, DeploymentIoError>;
     fn load_installed_authorization(
         &mut self,
     ) -> Result<DeploymentAuthorizationV1, DeploymentIoError>;
