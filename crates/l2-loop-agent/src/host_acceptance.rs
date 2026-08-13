@@ -22,9 +22,7 @@ use crate::{
     linux::{
         acceptance_fault::AcceptanceOnlyMode,
         bpf_object::AyaObjectRuntime,
-        inspector::{
-            BpfQuery, LinkSource, SystemBpfQuery, SystemLinkSource, SystemLinuxInspector,
-        },
+        inspector::{BpfQuery, LinkSource, SystemBpfQuery, SystemLinkSource, SystemLinuxInspector},
         limits::ProcessResourceLimits,
         tc::{RtnetlinkTcIo, SafeTc},
         xdp::{RtnetlinkXdpIo, SafeXdp},
@@ -123,8 +121,7 @@ impl AcceptancePassThroughPermit {
             && attachment.generation == attachment.ownership.generation
             && attachment.ownership.map_pins.len() == OWNED_MAP_NAMES.len()
             && attachment.ownership.map_pins.iter().all(|pin| {
-                OWNED_MAP_NAMES.contains(&pin.name.as_str())
-                    && pin.path == pin_root.join(&pin.name)
+                OWNED_MAP_NAMES.contains(&pin.name.as_str()) && pin.path == pin_root.join(&pin.name)
             })
     }
 }
@@ -510,9 +507,7 @@ fn exact_regular_file(path: &Path) -> Result<(), HostAcceptanceError> {
     Ok(())
 }
 
-fn verify_iface_config_unpublished(
-    record: &OwnershipRecord,
-) -> Result<(), HostAcceptanceError> {
+fn verify_iface_config_unpublished(record: &OwnershipRecord) -> Result<(), HostAcceptanceError> {
     let pin = record
         .map_pins
         .iter()

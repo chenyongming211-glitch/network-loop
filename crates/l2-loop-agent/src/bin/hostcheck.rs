@@ -1,8 +1,8 @@
 use std::{path::Path, process::ExitCode};
 
 use l2_loop_agent::host_acceptance::{
-    AcceptancePassThroughRequest, capture_host_identity, load_exact_journal,
-    read_owned_counters, run_acceptance_pass_through, verify_owned_hooks,
+    AcceptancePassThroughRequest, capture_host_identity, load_exact_journal, read_owned_counters,
+    run_acceptance_pass_through, verify_owned_hooks,
 };
 use l2_loop_agent::linux::acceptance_fault::AcceptanceOnlyMode;
 use l2_loop_agent::ownership::{JournalPath, RunId};
@@ -10,7 +10,10 @@ use l2_loop_core::InterfaceName;
 
 fn main() -> ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    let result = if args.first().is_some_and(|command| command == "pass-through") {
+    let result = if args
+        .first()
+        .is_some_and(|command| command == "pass-through")
+    {
         run_pass_through(args)
     } else {
         run(args).map(|output| {
@@ -29,8 +32,19 @@ fn main() -> ExitCode {
 }
 
 fn run_pass_through(args: Vec<String>) -> Result<(), String> {
-    let [command, acceptance_flag, mode, run_flag, run_id, evidence_flag, evidence_root, interface_flag, interface, ifindex_flag, ifindex] =
-        args.as_slice()
+    let [
+        command,
+        acceptance_flag,
+        mode,
+        run_flag,
+        run_id,
+        evidence_flag,
+        evidence_root,
+        interface_flag,
+        interface,
+        ifindex_flag,
+        ifindex,
+    ] = args.as_slice()
     else {
         return Err(usage());
     };
@@ -76,14 +90,16 @@ fn run(args: Vec<String>) -> Result<String, String> {
     match args.as_slice() {
         [command] if command == "snapshot" => {
             let snapshot = capture_host_identity().map_err(|error| error.to_string())?;
-            serde_json::to_string(&snapshot).map_err(|_| "failed to render host identity".to_owned())
+            serde_json::to_string(&snapshot)
+                .map_err(|_| "failed to render host identity".to_owned())
         }
         [command, journal_flag, journal, interface_flag, interface]
             if command == "verify-owned"
                 && journal_flag == "--journal"
                 && interface_flag == "--interface" =>
         {
-            let record = load_exact_journal(Path::new(journal)).map_err(|error| error.to_string())?;
+            let record =
+                load_exact_journal(Path::new(journal)).map_err(|error| error.to_string())?;
             let interface = InterfaceName::new(interface)
                 .map_err(|_| "isolated interface name is invalid".to_owned())?;
             let snapshot = capture_host_identity().map_err(|error| error.to_string())?;
@@ -94,7 +110,8 @@ fn run(args: Vec<String>) -> Result<String, String> {
         [command, journal_flag, journal]
             if command == "counters" && journal_flag == "--journal" =>
         {
-            let record = load_exact_journal(Path::new(journal)).map_err(|error| error.to_string())?;
+            let record =
+                load_exact_journal(Path::new(journal)).map_err(|error| error.to_string())?;
             let counters = read_owned_counters(&record).map_err(|error| error.to_string())?;
             Ok(counters
                 .iter()

@@ -294,9 +294,7 @@ where
             Ok(owned) => Some(owned),
             Err(error) => {
                 let code = error.stable_code().unwrap_or(XDP_ATTACH_FAILED);
-                return Err(self.rollback_pass_through(
-                    code, error, rollback, ifindex, generation,
-                ));
+                return Err(self.rollback_pass_through(code, error, rollback, ifindex, generation));
             }
         };
         if let Err(error) = self
@@ -304,9 +302,7 @@ where
             .verify_exact(rollback.xdp.as_ref().expect("owned XDP is present"))
         {
             let code = error.stable_code().unwrap_or(XDP_VERIFY_FAILED);
-            return Err(self.rollback_pass_through(
-                code, error, rollback, ifindex, generation,
-            ));
+            return Err(self.rollback_pass_through(code, error, rollback, ifindex, generation));
         }
 
         rollback.tc = match self
@@ -316,9 +312,7 @@ where
             Ok(owned) => Some(owned),
             Err(error) => {
                 let code = error.stable_code().unwrap_or(TC_ATTACH_FAILED);
-                return Err(self.rollback_pass_through(
-                    code, error, rollback, ifindex, generation,
-                ));
+                return Err(self.rollback_pass_through(code, error, rollback, ifindex, generation));
             }
         };
         if let Err(error) = self
@@ -326,9 +320,7 @@ where
             .verify_exact(rollback.tc.as_ref().expect("owned TC is present"))
         {
             let code = error.stable_code().unwrap_or(TC_VERIFY_FAILED);
-            return Err(self.rollback_pass_through(
-                code, error, rollback, ifindex, generation,
-            ));
+            return Err(self.rollback_pass_through(code, error, rollback, ifindex, generation));
         }
 
         let record = OwnershipRecord {
