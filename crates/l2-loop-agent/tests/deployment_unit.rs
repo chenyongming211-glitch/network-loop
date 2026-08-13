@@ -44,28 +44,76 @@ fn deterministic_asset_is_the_exact_valid_contract() {
 #[test]
 fn every_required_identity_and_hardening_value_is_exact() {
     for (label, before, after) in [
-        ("description", "Description=L2 Loop Detection Agent", "Description=Loop Agent"),
-        ("after", "After=network-pre.target", "After=network-online.target"),
-        ("wants", "Wants=network-pre.target", "Wants=network-online.target"),
+        (
+            "description",
+            "Description=L2 Loop Detection Agent",
+            "Description=Loop Agent",
+        ),
+        (
+            "after",
+            "After=network-pre.target",
+            "After=network-online.target",
+        ),
+        (
+            "wants",
+            "Wants=network-pre.target",
+            "Wants=network-online.target",
+        ),
         ("type", "Type=simple", "Type=notify"),
-        ("exec", "ExecStart=/usr/libexec/l2-loop/l2-loopd", "ExecStart=/usr/bin/l2-loopd"),
+        (
+            "exec",
+            "ExecStart=/usr/libexec/l2-loop/l2-loopd",
+            "ExecStart=/usr/bin/l2-loopd",
+        ),
         ("user", "User=root", "User=l2-loop"),
         ("group", "Group=root", "Group=l2-loop"),
-        ("runtime", "RuntimeDirectory=l2-loop", "RuntimeDirectory=l2-loop-other"),
-        ("runtime-mode", "RuntimeDirectoryMode=0700", "RuntimeDirectoryMode=0755"),
+        (
+            "runtime",
+            "RuntimeDirectory=l2-loop",
+            "RuntimeDirectory=l2-loop-other",
+        ),
+        (
+            "runtime-mode",
+            "RuntimeDirectoryMode=0700",
+            "RuntimeDirectoryMode=0755",
+        ),
         ("umask", "UMask=0077", "UMask=0022"),
-        ("new-privileges", "NoNewPrivileges=yes", "NoNewPrivileges=no"),
+        (
+            "new-privileges",
+            "NoNewPrivileges=yes",
+            "NoNewPrivileges=no",
+        ),
         ("private-tmp", "PrivateTmp=yes", "PrivateTmp=no"),
-        ("protect-system", "ProtectSystem=strict", "ProtectSystem=full"),
+        (
+            "protect-system",
+            "ProtectSystem=strict",
+            "ProtectSystem=full",
+        ),
         ("protect-home", "ProtectHome=yes", "ProtectHome=read-only"),
         ("private-devices", "PrivateDevices=yes", "PrivateDevices=no"),
-        ("kernel-tunables", "ProtectKernelTunables=yes", "ProtectKernelTunables=no"),
-        ("kernel-modules", "ProtectKernelModules=yes", "ProtectKernelModules=no"),
-        ("control-groups", "ProtectControlGroups=yes", "ProtectControlGroups=no"),
+        (
+            "kernel-tunables",
+            "ProtectKernelTunables=yes",
+            "ProtectKernelTunables=no",
+        ),
+        (
+            "kernel-modules",
+            "ProtectKernelModules=yes",
+            "ProtectKernelModules=no",
+        ),
+        (
+            "control-groups",
+            "ProtectControlGroups=yes",
+            "ProtectControlGroups=no",
+        ),
         ("suid-sgid", "RestrictSUIDSGID=yes", "RestrictSUIDSGID=no"),
         ("realtime", "RestrictRealtime=yes", "RestrictRealtime=no"),
         ("personality", "LockPersonality=yes", "LockPersonality=no"),
-        ("w-x", "MemoryDenyWriteExecute=yes", "MemoryDenyWriteExecute=no"),
+        (
+            "w-x",
+            "MemoryDenyWriteExecute=yes",
+            "MemoryDenyWriteExecute=no",
+        ),
         ("stop-timeout", "TimeoutStopSec=10s", "TimeoutStopSec=30s"),
         ("restart", "Restart=no", "Restart=on-failure"),
     ] {
@@ -92,8 +140,16 @@ fn capability_and_address_family_sets_are_exact_and_ordered() {
             "CAP_NET_ADMIN CAP_BPF CAP_PERFMON CAP_SYS_RESOURCE",
         ),
         ("missing-family", "AF_UNIX AF_NETLINK", "AF_UNIX"),
-        ("added-family", "AF_UNIX AF_NETLINK", "AF_UNIX AF_NETLINK AF_INET"),
-        ("reordered-family", "AF_UNIX AF_NETLINK", "AF_NETLINK AF_UNIX"),
+        (
+            "added-family",
+            "AF_UNIX AF_NETLINK",
+            "AF_UNIX AF_NETLINK AF_INET",
+        ),
+        (
+            "reordered-family",
+            "AF_UNIX AF_NETLINK",
+            "AF_NETLINK AF_UNIX",
+        ),
     ] {
         assert_rejected(label, &EXPECTED_UNIT.replacen(before, after, 1));
     }
@@ -114,11 +170,7 @@ fn writable_paths_are_exact_and_never_broadened() {
     ] {
         assert_rejected(
             label,
-            &EXPECTED_UNIT.replacen(
-                "/run/l2-loop /var/lib/l2-loop/evidence/v1",
-                replacement,
-                1,
-            ),
+            &EXPECTED_UNIT.replacen("/run/l2-loop /var/lib/l2-loop/evidence/v1", replacement, 1),
         );
     }
 }
@@ -162,11 +214,26 @@ fn shell_expansion_continuation_and_noncanonical_syntax_are_rejected() {
 
     for (label, changed) in [
         ("crlf", EXPECTED_UNIT.replace('\n', "\r\n")),
-        ("continuation", EXPECTED_UNIT.replacen("Restart=no", "Restart=\\\nno", 1)),
-        ("leading-space", EXPECTED_UNIT.replacen("Restart=no", " Restart=no", 1)),
-        ("tab", EXPECTED_UNIT.replacen("Restart=no", "Restart\t=no", 1)),
-        ("comment", EXPECTED_UNIT.replacen("[Service]", "# comment\n[Service]", 1)),
-        ("install", format!("{EXPECTED_UNIT}\n[Install]\nWantedBy=multi-user.target\n")),
+        (
+            "continuation",
+            EXPECTED_UNIT.replacen("Restart=no", "Restart=\\\nno", 1),
+        ),
+        (
+            "leading-space",
+            EXPECTED_UNIT.replacen("Restart=no", " Restart=no", 1),
+        ),
+        (
+            "tab",
+            EXPECTED_UNIT.replacen("Restart=no", "Restart\t=no", 1),
+        ),
+        (
+            "comment",
+            EXPECTED_UNIT.replacen("[Service]", "# comment\n[Service]", 1),
+        ),
+        (
+            "install",
+            format!("{EXPECTED_UNIT}\n[Install]\nWantedBy=multi-user.target\n"),
+        ),
     ] {
         assert_rejected(label, &changed);
     }
@@ -175,7 +242,10 @@ fn shell_expansion_continuation_and_noncanonical_syntax_are_rejected() {
 #[test]
 fn installer_sysctl_module_and_offload_commands_are_rejected() {
     for (label, command) in [
-        ("install", "/usr/bin/install -d /var/lib/l2-loop/evidence/v1"),
+        (
+            "install",
+            "/usr/bin/install -d /var/lib/l2-loop/evidence/v1",
+        ),
         ("mkdir", "/usr/bin/mkdir -p /var/lib/l2-loop/evidence/v1"),
         ("sysctl", "/usr/sbin/sysctl -w net.core.bpf_jit_enable=1"),
         ("module", "/usr/sbin/modprobe cls_bpf"),
@@ -208,7 +278,10 @@ fn input_is_bounded_utf8_and_parser_source_never_executes_or_writes() {
         "File::create",
         ".write(true)",
     ] {
-        assert!(!source.contains(prohibited), "unsafe primitive present: {prohibited}");
+        assert!(
+            !source.contains(prohibited),
+            "unsafe primitive present: {prohibited}"
+        );
     }
 }
 
