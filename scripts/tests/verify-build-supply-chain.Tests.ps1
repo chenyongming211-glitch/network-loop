@@ -65,9 +65,32 @@ foreach ($Required in @(
     'cargo test --locked',
     'cargo check --locked',
     'cargo install bpf-linker --version 0.10.4 --locked',
-    'cargo build --locked --release --target x86_64-unknown-linux-musl'
+    'cargo build --locked --release --target x86_64-unknown-linux-musl',
+    'L2_LOOP_BUILD_COMMIT_SHA: ${{ github.sha }}',
+    '--deploy-checker target/x86_64-unknown-linux-musl/release/l2-loop-deploycheck',
+    '--service-unit packaging/l2-loop.service',
+    '--authorization-example packaging/deployment-v1.example.json',
+    '--commit-sha "${{ github.sha }}"',
+    'sha256sum --check SHA256SUMS',
+    'retention-days: 14'
 )) {
     Assert-True ($Ci.Contains($Required)) "CI is missing fixed build marker: $Required"
+}
+
+foreach ($Prohibited in @(
+    'git rev-parse',
+    'git describe',
+    'curl ',
+    'wget ',
+    'apt-get',
+    'dnf ',
+    'yum ',
+    'apk add',
+    'echo ${{ secrets',
+    'printenv',
+    'set -x'
+)) {
+    Assert-True (-not $Ci.Contains($Prohibited)) "CI contains prohibited supply-chain marker: $Prohibited"
 }
 
 Assert-True ($Toolchain.Contains('channel = "1.97.1"')) 'rust-toolchain.toml does not select stable Rust 1.97.1'
