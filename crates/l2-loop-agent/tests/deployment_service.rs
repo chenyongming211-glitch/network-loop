@@ -11,12 +11,11 @@ use l2_loop_agent::{
     LayoutSnapshotV1, ServiceUnitSnapshotV1,
 };
 use l2_loop_core::{
-    AttachmentState, BpfInspection, DeploymentArtifactIdentityV1, DeploymentAuthorizationV1,
-    DeploymentDecisionV1, DeploymentFindingSeverityV1, DeploymentHostCompatibilityV1,
-    DG_AUTH_IDENTITY, DG_PLATFORM_BLOCKED, DG_SYSTEMD_CONTRACT, InterfaceInspection,
-    InterfaceKind, InterfaceName, InterfaceRef, KernelInspection, MemlockInspection,
-    PF_INTERFACE_UNSUPPORTED, PF_LIVE_INTERFACE, PerformanceEvidenceV1, PinRootState,
-    PreflightFinding, PreflightReport,
+    AttachmentState, BpfInspection, DG_AUTH_IDENTITY, DG_PLATFORM_BLOCKED, DG_SYSTEMD_CONTRACT,
+    DeploymentArtifactIdentityV1, DeploymentAuthorizationV1, DeploymentDecisionV1,
+    DeploymentFindingSeverityV1, DeploymentHostCompatibilityV1, InterfaceInspection, InterfaceKind,
+    InterfaceName, InterfaceRef, KernelInspection, MemlockInspection, PF_INTERFACE_UNSUPPORTED,
+    PF_LIVE_INTERFACE, PerformanceEvidenceV1, PinRootState, PreflightFinding, PreflightReport,
 };
 use serde_json::json;
 
@@ -32,9 +31,7 @@ fn staging_calls_read_only_gates_in_exact_order() {
     let clock = FixedClock;
     let mut service = DeploymentGateService::new(filesystem, platform, clock);
     let bundle = PathBuf::from("/tmp/exact-bundle");
-    let root = PathBuf::from(
-        "/run/l2-loop/accept/00112233445566778899aabbccddeeff/staging-root",
-    );
+    let root = PathBuf::from("/run/l2-loop/accept/00112233445566778899aabbccddeeff/staging-root");
 
     let report = service.staging(&bundle, &root).unwrap();
 
@@ -92,9 +89,7 @@ fn staging_short_circuits_after_the_first_untrusted_stage() {
     let report = service
         .staging(
             Path::new("/tmp/exact-bundle"),
-            Path::new(
-                "/run/l2-loop/accept/00112233445566778899aabbccddeeff/staging-root",
-            ),
+            Path::new("/run/l2-loop/accept/00112233445566778899aabbccddeeff/staging-root"),
         )
         .unwrap();
 
@@ -367,9 +362,7 @@ impl DeploymentPlatformInspector for FakePlatform {
         &mut self,
         _authorization: &DeploymentAuthorizationV1,
     ) -> Result<DeploymentPlatformSnapshotV1, DeploymentIoError> {
-        self.calls
-            .borrow_mut()
-            .push("inspect_authorized_interface");
+        self.calls.borrow_mut().push("inspect_authorized_interface");
         Ok(self.snapshot.clone())
     }
 }
