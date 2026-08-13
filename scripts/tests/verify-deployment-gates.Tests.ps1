@@ -196,6 +196,7 @@ Assert-True (-not [regex]::IsMatch($Harness, '(?m)^\s*(?:install|cp|mv|mkdir|chm
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)ssh[^\r\n]*\$\(')) 'deployment harness SSH command uses command substitution'
 Assert-True (-not [regex]::IsMatch($Harness, '\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')) 'deployment harness contains a hard-coded IPv4 target'
 Assert-True (-not $Harness.Contains('.ssh')) 'deployment harness contains a hard-coded key path'
+Assert-True ($Harness.Contains('cleanup_file "$root/checker.err"')) 'negative checker stderr is not included in failure-path cleanup'
 Assert-True ($Workflow.Contains('pwsh -NoProfile -File scripts/tests/verify-deployment-gates.Tests.ps1')) 'Linux CI does not run deployment harness safety tests'
 Assert-True ($Workflow.Contains('powershell -NoProfile -File scripts/tests/verify-deployment-gates.Tests.ps1')) 'Windows CI does not run deployment harness safety tests'
 

@@ -370,6 +370,7 @@ cleanup_generated_tree() {
     cleanup_file "$root/daemon.pid"
     cleanup_file "$root/daemon.log"
     cleanup_file "$root/trial.json"
+    cleanup_file "$root/checker.err"
     cleanup_dir "$root/evidence/v1"
     cleanup_dir "$root/evidence"
     for name in deployment-v1.example.json l2-loop-deploycheck l2-loop-ebpf.o l2-loop-hostcheck l2-loop.service l2-loopctl l2-loopd manifest.json SHA256SUMS; do
