@@ -13,11 +13,11 @@ use l2_loop_core::{
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-pub use crate::{DeploymentEntryKindV1, DeploymentEntrySnapshotV1};
 use crate::{
     BundleFileIdentityV1, BundleSnapshotV1, DeploymentFilesystem, DeploymentIoError,
     DeploymentPrerequisitesV1, LayoutSnapshotV1, ServiceUnitSnapshotV1,
 };
+pub use crate::{DeploymentEntryKindV1, DeploymentEntrySnapshotV1};
 
 const ACCEPTANCE_ROOT_PREFIX: &str = "/run/l2-loop/accept/";
 const STAGING_ROOT_SUFFIX: &str = "/staging-root";
@@ -91,10 +91,7 @@ const LAYOUT_ENTRIES: [ExpectedLayoutEntry; EXPECTED_LAYOUT_ENTRIES] = [
     expected_file("usr/libexec/l2-loop/manifest.json", 0o644),
     expected_file("usr/libexec/l2-loop/SHA256SUMS", 0o644),
     expected_file("usr/lib/systemd/system/l2-loop.service", 0o644),
-    expected_file(
-        "usr/share/doc/l2-loop/deployment-v1.example.json",
-        0o644,
-    ),
+    expected_file("usr/share/doc/l2-loop/deployment-v1.example.json", 0o644),
     expected_file("etc/l2-loop/deployment-v1.json", 0o600),
     expected_file("var/lib/l2-loop/gates/performance-v1.json", 0o600),
 ];
@@ -260,9 +257,7 @@ fn validate_layout_snapshot(
             return Err(DeploymentIoError::Unavailable);
         }
         if entry.kind == DeploymentEntryKindV1::Regular {
-            if entry.hard_links != 1
-                || !regular_identities.insert((entry.device, entry.inode))
-            {
+            if entry.hard_links != 1 || !regular_identities.insert((entry.device, entry.inode)) {
                 return Err(DeploymentIoError::Unavailable);
             }
         }
@@ -342,17 +337,11 @@ fn inspect_bundle_path(bundle: &Path) -> Result<BundleSnapshotV1, DeploymentIoEr
         files.insert(name.to_owned(), identity);
     }
 
-    let manifest_bytes = read_bounded_no_follow(
-        &bundle.join("manifest.json"),
-        MAX_MANIFEST_BYTES,
-    )?;
+    let manifest_bytes = read_bounded_no_follow(&bundle.join("manifest.json"), MAX_MANIFEST_BYTES)?;
     let manifest: BundleManifestV1 =
         serde_json::from_slice(&manifest_bytes).map_err(|_| DeploymentIoError::Unavailable)?;
     let artifact = manifest.validate(&files)?;
-    let checksum_bytes = read_bounded_no_follow(
-        &bundle.join("SHA256SUMS"),
-        MAX_CHECKSUM_BYTES,
-    )?;
+    let checksum_bytes = read_bounded_no_follow(&bundle.join("SHA256SUMS"), MAX_CHECKSUM_BYTES)?;
     validate_checksums(&checksum_bytes, &files)?;
     Ok(BundleSnapshotV1::with_files(artifact, files))
 }
@@ -549,7 +538,11 @@ fn inspect_runtime_entry(
         .map_err(|_| DeploymentIoError::Unavailable)?
         .to_str()
         .ok_or(DeploymentIoError::Unavailable)?;
-    Ok(snapshot_from_metadata(relative, path.to_path_buf(), &metadata))
+    Ok(snapshot_from_metadata(
+        relative,
+        path.to_path_buf(),
+        &metadata,
+    ))
 }
 
 fn snapshot_from_metadata(
@@ -780,9 +773,9 @@ fn expected_layout_map(staging: bool) -> BTreeMap<&'static str, ExpectedLayoutEn
 fn relative_path_is_fixed(relative: &str) -> bool {
     relative == "."
         || (!relative.is_empty()
-            && Path::new(relative).components().all(|component| {
-                matches!(component, Component::Normal(_))
-            }))
+            && Path::new(relative)
+                .components()
+                .all(|component| matches!(component, Component::Normal(_))))
 }
 
 fn maximum_bundle_size(name: &str) -> u64 {
