@@ -118,7 +118,11 @@ foreach ($Required in @(
     'isolated-attach',
     'isolated-detach',
     'warm-up',
+    'performance trial $TrialNumber mode: $Mode',
+    'remote phase failed: phase=%s scenario=%s line=%s status=%s',
+    'clock-ms) date +%s%3N',
     'lower-median-of-five',
+    'performance result: $($Evidence.result)',
     'packets_per_second',
     'bytes_per_second',
     'daemon_cpu_time_ns',
@@ -131,6 +135,7 @@ foreach ($Required in @(
     'pin_count_before',
     'namespace_count_before',
     'forwarding_intact',
+    'b"\x08\x06"+arp+marker',
     'owned_cleanup_complete',
     'network_identity_restored',
     'ebpf_identity_restored',
@@ -196,13 +201,22 @@ Assert-True (-not [regex]::IsMatch($Harness, '(?m)\b(?:Remove-Item|rm|unlink)\b[
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)^\s*unlink\s+"[^"]+"\s+"')) 'deployment harness passes multiple paths to non-portable unlink'
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)^\s*(?:install|cp|mv|mkdir|chmod|chown)\b[^\r\n]*(?:\s|=)/(?:etc|usr|var)(?:/|\s|$)')) 'deployment harness writes a real production path'
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)ssh[^\r\n]*\$\(')) 'deployment harness SSH command uses command substitution'
+Assert-True ($Harness.Contains('set -Eeuo pipefail')) 'remote deployment program does not propagate function ERR traps'
+Assert-True (-not $Harness.Contains('set +e')) 'remote deployment program globally disables fail-fast around expected failures'
 Assert-True (-not [regex]::IsMatch($Harness, '\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')) 'deployment harness contains a hard-coded IPv4 target'
 Assert-True (-not $Harness.Contains('.ssh')) 'deployment harness contains a hard-coded key path'
+Assert-True (-not $Harness.Contains('b"\x88\xb5"')) 'deployment traffic uses an unhandled EtherType that inflates RX drops'
 Assert-True ($Harness.Contains('cleanup_file "$root/checker.err"')) 'negative checker stderr is not included in failure-path cleanup'
 Assert-True ($Harness.Contains('rebind_hardened_unit_fixture')) 'hardened-unit scenario does not preserve the preceding artifact/layout identities'
 Assert-True ([regex]::IsMatch($Harness, '(?s)authorization = \{.*?"expires_at_unix_ms": now \+ 3600000\s*\}\s*orders = \[')) 'generated authorization fixture is not closed before performance trial construction'
 Assert-True ($Harness.Contains('install -m 0755 "$bundle/l2-loop-hostcheck" "$root/l2-loop-hostcheck"')) 'pass-through hostcheck is not staged at its exact Task 9 artifact root'
 Assert-True ($Harness.Contains('install -m 0644 "$bundle/l2-loop-ebpf.o" "$root/l2-loop-ebpf.o"')) 'pass-through eBPF object is not staged at its exact Task 9 artifact root'
+Assert-True ($Harness.Contains('if ! attach_output=$("$bundle/l2-loopctl" isolated-attach')) 'observe attach failure output is not captured'
+Assert-True ($Harness.Contains('if ! detach_output=$("$bundle/l2-loopctl" isolated-detach')) 'observe detach failure output is not captured'
+Assert-True ($Harness.Contains('if output=$("$checker" staging')) 'negative checker status is not captured as an expected conditional failure'
+Assert-True ($Harness.Contains('positive checker blocked: decision=')) 'positive checker failure does not emit bounded gate diagnostics'
+Assert-True ($Harness.Contains("-Phase 'clock-ms'")) 'performance evidence does not use the checker host clock domain'
+Assert-True (-not $Harness.Contains('[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()')) 'performance evidence uses the controller clock domain'
 $PassThroughStart = $Harness.IndexOf('start_pass_through() {')
 $PassThroughStop = $Harness.IndexOf('stop_pass_through() {', $PassThroughStart)
 Assert-True ($PassThroughStart -ge 0 -and $PassThroughStop -gt $PassThroughStart) 'pass-through lifecycle functions are missing or out of order'

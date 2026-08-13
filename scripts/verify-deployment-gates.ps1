@@ -210,7 +210,7 @@ function Get-ExactGreenDeploymentBundle {
 }
 
 $RemoteProgram = @'
-set -eu
+set -Eeuo pipefail
 
 phase=$1
 run=$2
@@ -222,6 +222,7 @@ bundle=$7
 staging=$8
 commit=$9
 scenario=${10}
+trap 'status=$?; printf "remote phase failed: phase=%s scenario=%s line=%s status=%s\n" "$phase" "$scenario" "$LINENO" "$status" >&2; exit "$status"' ERR
 journal="/run/l2-loop/tests/$run.json"
 pins="/sys/fs/bpf/l2-loop/test/$run"
 evidence="$root/evidence/v1"
@@ -506,19 +507,29 @@ PY
 }
 
 run_checker_positive() {
-    output=$("$checker" staging --bundle "$bundle" --root "$staging" --json)
+    if output=$("$checker" staging --bundle "$bundle" --root "$staging" --json 2>"$root/checker.err"); then
+        status=0
+    else
+        status=$?
+    fi
     test "${#output}" -le 1048576 || fail "checker output exceeded the fixed bound"
+    if test "$status" -ne 0; then
+        printf '%s' "$output" | python3 -c 'import json,sys; value=json.load(sys.stdin); codes=sorted(str(item.get("code")) for item in value.get("findings",[])); print("positive checker blocked: decision=%s codes=%s"%(value.get("decision"),",".join(codes)),file=sys.stderr)'
+        fail "positive checker rejected generated evidence"
+    fi
     printf '%s' "$output" | python3 -c 'import json,sys; value=json.load(sys.stdin); value.get("decision")!="staging_ready" and sys.exit("staging decision was not positive"); value.get("mutations_performed") is not False and sys.exit("checker reported a mutation")'
     "$checker" staging --bundle "$bundle" --root "$staging" >/dev/null
+    unlink "$root/checker.err"
 }
 
 run_checker_blocked() {
     selected_bundle=$1
     expected=$2
-    set +e
-    output=$("$checker" staging --bundle "$selected_bundle" --root "$staging" --json 2>"$root/checker.err")
-    status=$?
-    set -e
+    if output=$("$checker" staging --bundle "$selected_bundle" --root "$staging" --json 2>"$root/checker.err"); then
+        status=0
+    else
+        status=$?
+    fi
     test "$status" -eq 4 || fail "negative checker scenario did not return exit code 4"
     test "${#output}" -le 1048576 || fail "negative checker output exceeded the fixed bound"
     printf '%s' "$output" | python3 -c 'import json,sys; expected=sys.argv[1]; scenario=sys.argv[2]; value=json.load(sys.stdin); codes=[item.get("code") for item in value.get("findings",[])]; value.get("decision")!="blocked" and sys.exit("negative scenario was not blocked: "+scenario); codes!=[expected] and sys.exit("negative scenario finding changed: %s expected %s got %s"%(scenario,expected,",".join(str(code) for code in codes)))' "$expected" "$scenario"
@@ -603,7 +614,7 @@ send_frames() {
     size=$4
     destination=$5
     direction=$6
-    sender='import socket,sys; interface=sys.argv[1]; count=int(sys.argv[2]); size=int(sys.argv[3]); destination=bytes.fromhex(sys.argv[4].replace(":","")); source=bytes.fromhex(open("/sys/class/net/%s/address"%interface,"r",encoding="ascii").read().strip().replace(":","")); marker=bytes([int(sys.argv[5])]); frame=destination+source+b"\x88\xb5"+marker+bytes(size-15); channel=socket.socket(socket.AF_PACKET,socket.SOCK_RAW); channel.bind((interface,0)); [channel.send(frame) for _ in range(count)]; channel.close()'
+    sender='import socket,sys; interface=sys.argv[1]; count=int(sys.argv[2]); size=int(sys.argv[3]); destination=bytes.fromhex(sys.argv[4].replace(":","")); source=bytes.fromhex(open("/sys/class/net/%s/address"%interface,"r",encoding="ascii").read().strip().replace(":","")); marker=bytes([int(sys.argv[5])]); arp=b"\x00\x01\x08\x00\x06\x04\x00\x01"+source+bytes(4)+destination+bytes(4); frame=destination+source+b"\x08\x06"+arp+marker+bytes(size-43); channel=socket.socket(socket.AF_PACKET,socket.SOCK_RAW); channel.bind((interface,0)); [channel.send(frame) for _ in range(count)]; channel.close()'
     if test "$location" = root; then python3 -c "$sender" "$interface" "$count" "$size" "$destination" "$direction"; else ip netns exec "$ns" python3 -c "$sender" "$interface" "$count" "$size" "$destination" "$direction"; fi
 }
 measure_traffic() {
@@ -699,10 +710,18 @@ start_observe() {
     tries=0
     while test ! -S /run/l2-loop/agent.sock && test "$tries" -lt 100; do sleep 0.1; tries=$((tries + 1)); done
     test -S /run/l2-loop/agent.sock || fail "observe daemon socket was not created"
-    "$bundle/l2-loopctl" isolated-attach --interface "$host" --run-id "$run" >/dev/null
+    if ! attach_output=$("$bundle/l2-loopctl" isolated-attach --interface "$host" --run-id "$run" 2>&1); then
+        printf '%s\n' "$attach_output" >&2
+        fail "observe attach was rejected"
+    fi
+    test "$attach_output" = accepted || fail "observe attach acknowledgement changed"
 }
 stop_observe() {
-    "$bundle/l2-loopctl" isolated-detach --run-id "$run" >/dev/null
+    if ! detach_output=$("$bundle/l2-loopctl" isolated-detach --run-id "$run" 2>&1); then
+        printf '%s\n' "$detach_output" >&2
+        fail "observe detach was rejected"
+    fi
+    test "$detach_output" = accepted || fail "observe detach acknowledgement changed"
     kill -TERM "$daemon_pid"
     wait_owned_exit "$daemon_pid"
     unlink "$root/daemon.pid"
@@ -776,6 +795,7 @@ PY
     staging-negative) stage_negative ;;
     snapshot) snapshot ;;
     snapshot-prepared) snapshot_prepared ;;
+    clock-ms) date +%s%3N ;;
     host-info)
         python3 - "$(uname -m)" "$(uname -r)" "$(nproc)" <<'PY'
 import json,sys
@@ -1205,6 +1225,7 @@ try {
     $Trials = [Collections.Generic.List[object]]::new()
     for ($TrialNumber = 1; $TrialNumber -le $PERFORMANCE_TRIAL_COUNT; $TrialNumber++) {
         foreach ($Mode in $PERFORMANCE_TRIAL_ORDERS[$TrialNumber - 1]) {
+            Write-Host "performance trial $TrialNumber mode: $Mode"
             $Measurement = (Invoke-DeploymentRemotePhase -Phase 'measure' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds -Scenario $Mode).Stdout | ConvertFrom-Json
             $Trial = [ordered]@{
                 trial_number = [byte]$TrialNumber
@@ -1230,8 +1251,11 @@ try {
     $AfterState = Get-StableDeploymentRemoteState -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
     Assert-DeploymentRemoteStateUnchanged -Before $BeforeState -After $AfterState
     $ResourceAfter = (Invoke-DeploymentRemotePhase -Phase 'resource-counts' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds).Stdout | ConvertFrom-Json
-    $IssuedAt = [uint64][DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $IssuedAtText = (Invoke-DeploymentRemotePhase -Phase 'clock-ms' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds).Stdout.Trim()
+    if ($IssuedAtText -cnotmatch '^[0-9]{13}$') { throw 'remote evidence clock is invalid' }
+    $IssuedAt = [uint64]$IssuedAtText
     $Evidence = New-PerformanceEvidence -Trials $Trials.ToArray() -HostInfo $HostInfo -ResourceBefore $ResourceBefore -ResourceAfter $ResourceAfter -PackageVersion $Artifact.PackageVersion -EvidenceId $EvidenceId -IssuedAt $IssuedAt -IdentityRestored $true
+    Write-Host "performance result: $($Evidence.result) pass-through=$($Evidence.pass_through_baseline_ratio_permille) observe=$($Evidence.observe_baseline_ratio_permille) cpu=$($Evidence.daemon_cpu_permille) drops=$($Evidence.packet_drop_delta) errors=$($Evidence.packet_error_delta) noisy=$($Evidence.measurement_noisy)"
     Write-StrictJsonFile -Value $Evidence -Path $LocalEvidencePath
     Send-GeneratedFile -LocalPath $LocalEvidencePath -RemotePath $Names.PerformancePath -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
     $null = Invoke-DeploymentRemotePhase -Phase 'checker-positive' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds
