@@ -167,7 +167,7 @@ impl DeploymentCandidateSource for SystemDeploymentCandidateSource {
             .and_then(|message| {
                 deployment_link_snapshot(message).ok_or_else(unavailable_inspector_error)
             })
-        .map_err(|_| DeploymentIoError::Unavailable)
+            .map_err(|_| DeploymentIoError::Unavailable)
     }
 
     fn inspect_consumers(
@@ -410,20 +410,19 @@ fn unavailable_inspector_error() -> super::inspector::InspectorError {
     super::inspector::InspectorError::new("deployment platform input is unavailable")
 }
 
-pub type SystemLinuxDeploymentPlatformInspector =
-    LinuxDeploymentPlatformInspector<
-        ExactSystemPreflightInspector,
-        SystemDeploymentCandidateSource,
-    >;
+pub type SystemLinuxDeploymentPlatformInspector = LinuxDeploymentPlatformInspector<
+    ExactSystemPreflightInspector,
+    SystemDeploymentCandidateSource,
+>;
 
 impl
-    LinuxDeploymentPlatformInspector<
-        ExactSystemPreflightInspector,
-        SystemDeploymentCandidateSource,
-    >
+    LinuxDeploymentPlatformInspector<ExactSystemPreflightInspector, SystemDeploymentCandidateSource>
 {
     pub fn system() -> Self {
-        Self::new(ExactSystemPreflightInspector, SystemDeploymentCandidateSource)
+        Self::new(
+            ExactSystemPreflightInspector,
+            SystemDeploymentCandidateSource,
+        )
     }
 }
 
