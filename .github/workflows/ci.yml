@@ -121,6 +121,8 @@ jobs:
           targets: x86_64-unknown-linux-musl
 
       - name: Build MUSL userspace binaries
+        env:
+          L2_LOOP_BUILD_COMMIT_SHA: ${{ github.sha }}
         run: >-
           cargo build --locked --release --target x86_64-unknown-linux-musl
           --package l2-loop-agent --package l2-loop-cli
@@ -137,13 +139,24 @@ jobs:
           --commit-sha "${{ github.sha }}"
           --daemon target/x86_64-unknown-linux-musl/release/l2-loopd
           --cli target/x86_64-unknown-linux-musl/release/l2-loopctl
+          --deploy-checker target/x86_64-unknown-linux-musl/release/l2-loop-deploycheck
           --host-check target/x86_64-unknown-linux-musl/release/l2-loop-hostcheck
           --ebpf .artifacts/ebpf/l2-loop-ebpf
+          --service-unit packaging/l2-loop.service
+          --authorization-example packaging/deployment-v1.example.json
           --output .artifacts/bundle
 
       - name: Verify bundle checksums
         working-directory: .artifacts/bundle
         run: sha256sum --check SHA256SUMS
+
+      - name: Verify bundle inventory
+        working-directory: .artifacts/bundle
+        run: |
+          test "$(find . -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 9
+          test "$(find . -mindepth 1 -maxdepth 1 ! -type f | wc -l)" -eq 0
+          test "$(find . -mindepth 2 | wc -l)" -eq 0
+          test "$(wc -l < SHA256SUMS)" -eq 8
 
       - name: Upload release bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

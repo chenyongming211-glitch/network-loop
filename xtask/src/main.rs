@@ -41,10 +41,16 @@ fn build_bundle(args: &[String]) -> ExitCode {
         daemon,
         cli_flag,
         cli,
+        deployment_checker_flag,
+        deployment_checker,
         host_check_flag,
         host_check,
         ebpf_flag,
         ebpf,
+        service_unit_flag,
+        service_unit,
+        authorization_example_flag,
+        authorization_example,
         output_flag,
         output,
     ] = args
@@ -55,8 +61,11 @@ fn build_bundle(args: &[String]) -> ExitCode {
     if commit_flag != "--commit-sha"
         || daemon_flag != "--daemon"
         || cli_flag != "--cli"
+        || deployment_checker_flag != "--deploy-checker"
         || host_check_flag != "--host-check"
         || ebpf_flag != "--ebpf"
+        || service_unit_flag != "--service-unit"
+        || authorization_example_flag != "--authorization-example"
         || output_flag != "--output"
     {
         print_usage();
@@ -68,8 +77,11 @@ fn build_bundle(args: &[String]) -> ExitCode {
         package_version: env!("CARGO_PKG_VERSION"),
         daemon: Path::new(daemon),
         cli: Path::new(cli),
-        host_check: Path::new(host_check),
+        deployment_checker: Path::new(deployment_checker),
+        host_checker: Path::new(host_check),
         ebpf: Path::new(ebpf),
+        service_unit: Path::new(service_unit),
+        authorization_example: Path::new(authorization_example),
         output_dir: Path::new(output),
     };
     match create_bundle(&inputs) {
@@ -84,6 +96,6 @@ fn build_bundle(args: &[String]) -> ExitCode {
 fn print_usage() {
     eprintln!("usage: cargo xtask build-ebpf");
     eprintln!(
-        "       cargo xtask bundle --commit-sha <SHA> --daemon <PATH> --cli <PATH> --host-check <PATH> --ebpf <PATH> --output <DIR>"
+        "       cargo xtask bundle --commit-sha <SHA> --daemon <PATH> --cli <PATH> --deploy-checker <PATH> --host-check <PATH> --ebpf <PATH> --service-unit <PATH> --authorization-example <PATH> --output <DIR>"
     );
 }

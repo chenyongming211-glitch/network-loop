@@ -1011,6 +1011,7 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "l2-loop-common",
  "serde",
  "serde_json",
  "sha2",

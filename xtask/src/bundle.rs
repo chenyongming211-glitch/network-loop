@@ -1,10 +1,14 @@
 use std::{
     collections::BTreeMap,
-    fs::{self, File},
+    fs::{self, File, Metadata},
     io::{self, Read},
     path::{Path, PathBuf},
 };
 
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+use l2_loop_common::ABI_VERSION;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -13,14 +17,37 @@ pub const USERSPACE_TARGET: &str = "x86_64-unknown-linux-musl";
 pub const EBPF_TARGET: &str = "bpfel-unknown-none";
 pub const DAEMON_FILENAME: &str = "l2-loopd";
 pub const CLI_FILENAME: &str = "l2-loopctl";
-pub const HOST_CHECK_FILENAME: &str = "l2-loop-hostcheck";
+pub const DEPLOYMENT_CHECKER_FILENAME: &str = "l2-loop-deploycheck";
+pub const HOST_CHECKER_FILENAME: &str = "l2-loop-hostcheck";
 pub const EBPF_FILENAME: &str = "l2-loop-ebpf.o";
+pub const SERVICE_UNIT_FILENAME: &str = "l2-loop.service";
+pub const AUTHORIZATION_EXAMPLE_FILENAME: &str = "deployment-v1.example.json";
 pub const MANIFEST_FILENAME: &str = "manifest.json";
 pub const CHECKSUMS_FILENAME: &str = "SHA256SUMS";
 
-const CHECKSUM_FILES: [&str; 5] = [
+const MAX_USERSPACE_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_EBPF_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_GATE_ASSET_BYTES: u64 = 1024 * 1024;
+const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
+
+const CHECKSUM_FILES: [&str; 8] = [
+    AUTHORIZATION_EXAMPLE_FILENAME,
+    DEPLOYMENT_CHECKER_FILENAME,
     EBPF_FILENAME,
-    HOST_CHECK_FILENAME,
+    HOST_CHECKER_FILENAME,
+    SERVICE_UNIT_FILENAME,
+    CLI_FILENAME,
+    DAEMON_FILENAME,
+    MANIFEST_FILENAME,
+];
+
+const OUTPUT_FILES: [&str; 9] = [
+    CHECKSUMS_FILENAME,
+    AUTHORIZATION_EXAMPLE_FILENAME,
+    DEPLOYMENT_CHECKER_FILENAME,
+    EBPF_FILENAME,
+    HOST_CHECKER_FILENAME,
+    SERVICE_UNIT_FILENAME,
     CLI_FILENAME,
     DAEMON_FILENAME,
     MANIFEST_FILENAME,
@@ -28,26 +55,42 @@ const CHECKSUM_FILES: [&str; 5] = [
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BundleManifest {
+    schema_version: u16,
     commit_sha: String,
     package_version: String,
     userspace_target: &'static str,
     ebpf_target: &'static str,
+    abi_version: u16,
     files: BundleFiles,
+    service_unit_sha256: String,
+    authorization_example_sha256: String,
 }
 
 impl BundleManifest {
-    pub fn new(commit_sha: impl Into<String>, package_version: impl Into<String>) -> Self {
+    pub fn new(
+        commit_sha: impl Into<String>,
+        package_version: impl Into<String>,
+        service_unit_sha256: impl Into<String>,
+        authorization_example_sha256: impl Into<String>,
+    ) -> Self {
         Self {
+            schema_version: 1,
             commit_sha: commit_sha.into(),
             package_version: package_version.into(),
             userspace_target: USERSPACE_TARGET,
             ebpf_target: EBPF_TARGET,
+            abi_version: ABI_VERSION,
             files: BundleFiles {
                 daemon: DAEMON_FILENAME,
                 cli: CLI_FILENAME,
-                host_check: HOST_CHECK_FILENAME,
-                ebpf: EBPF_FILENAME,
+                deployment_checker: DEPLOYMENT_CHECKER_FILENAME,
+                host_checker: HOST_CHECKER_FILENAME,
+                ebpf_object: EBPF_FILENAME,
+                service_unit: SERVICE_UNIT_FILENAME,
+                authorization_example: AUTHORIZATION_EXAMPLE_FILENAME,
             },
+            service_unit_sha256: service_unit_sha256.into(),
+            authorization_example_sha256: authorization_example_sha256.into(),
         }
     }
 }
@@ -56,8 +99,11 @@ impl BundleManifest {
 struct BundleFiles {
     daemon: &'static str,
     cli: &'static str,
-    host_check: &'static str,
-    ebpf: &'static str,
+    deployment_checker: &'static str,
+    host_checker: &'static str,
+    ebpf_object: &'static str,
+    service_unit: &'static str,
+    authorization_example: &'static str,
 }
 
 #[derive(Debug)]
@@ -66,8 +112,11 @@ pub struct BundleInputs<'a> {
     pub package_version: &'a str,
     pub daemon: &'a Path,
     pub cli: &'a Path,
-    pub host_check: &'a Path,
+    pub deployment_checker: &'a Path,
+    pub host_checker: &'a Path,
     pub ebpf: &'a Path,
+    pub service_unit: &'a Path,
+    pub authorization_example: &'a Path,
     pub output_dir: &'a Path,
 }
 
@@ -81,9 +130,11 @@ pub enum BundleError {
     UnexpectedChecksumFiles,
     #[error("invalid SHA-256 checksum for {filename}")]
     InvalidChecksum { filename: String },
+    #[error("bundle output inventory differs from the approved files")]
+    UnexpectedOutputInventory,
     #[error("bundle output directory already exists")]
     OutputExists,
-    #[error("bundle input is not a regular file: {path}")]
+    #[error("bundle input is not a bounded single-link regular file: {path}")]
     InvalidInput { path: PathBuf },
     #[error("bundle I/O failed while {operation}: {path}")]
     Io {
@@ -124,40 +175,66 @@ pub fn render_sha256sums(checksums: &BTreeMap<String, String>) -> Result<String,
 
 pub fn create_bundle(inputs: &BundleInputs<'_>) -> Result<(), BundleError> {
     validate_metadata(inputs.commit_sha, inputs.package_version)?;
-    validate_input(inputs.daemon)?;
-    validate_input(inputs.cli)?;
-    validate_input(inputs.host_check)?;
-    validate_input(inputs.ebpf)?;
-
     if inputs.output_dir.exists() {
         return Err(BundleError::OutputExists);
     }
-    fs::create_dir_all(inputs.output_dir)
-        .map_err(|source| io_error("creating output directory", inputs.output_dir, source))?;
 
-    copy_file(inputs.daemon, &inputs.output_dir.join(DAEMON_FILENAME))?;
-    copy_file(inputs.cli, &inputs.output_dir.join(CLI_FILENAME))?;
-    copy_file(
-        inputs.host_check,
-        &inputs.output_dir.join(HOST_CHECK_FILENAME),
-    )?;
-    copy_file(inputs.ebpf, &inputs.output_dir.join(EBPF_FILENAME))?;
+    let daemon = read_bounded_regular(inputs.daemon, MAX_USERSPACE_BYTES)?;
+    let cli = read_bounded_regular(inputs.cli, MAX_USERSPACE_BYTES)?;
+    let deployment_checker =
+        read_bounded_regular(inputs.deployment_checker, MAX_USERSPACE_BYTES)?;
+    let host_checker = read_bounded_regular(inputs.host_checker, MAX_USERSPACE_BYTES)?;
+    let ebpf = read_bounded_regular(inputs.ebpf, MAX_EBPF_BYTES)?;
+    let service_unit = read_bounded_regular(inputs.service_unit, MAX_GATE_ASSET_BYTES)?;
+    let authorization_example =
+        read_bounded_regular(inputs.authorization_example, MAX_GATE_ASSET_BYTES)?;
 
-    let manifest = BundleManifest::new(inputs.commit_sha, inputs.package_version);
-    let manifest_path = inputs.output_dir.join(MANIFEST_FILENAME);
-    fs::write(&manifest_path, render_manifest(&manifest)?)
-        .map_err(|source| io_error("writing manifest", &manifest_path, source))?;
-
-    let mut checksums = BTreeMap::new();
-    for filename in CHECKSUM_FILES {
-        let path = inputs.output_dir.join(filename);
-        checksums.insert(filename.to_owned(), sha256_file(&path)?);
+    let manifest = BundleManifest::new(
+        inputs.commit_sha,
+        inputs.package_version,
+        sha256_bytes(&service_unit),
+        sha256_bytes(&authorization_example),
+    );
+    let manifest = render_manifest(&manifest)?.into_bytes();
+    if manifest.len() > MAX_MANIFEST_BYTES {
+        return Err(BundleError::UnexpectedOutputInventory);
     }
-    let checksums_path = inputs.output_dir.join(CHECKSUMS_FILENAME);
-    fs::write(&checksums_path, render_sha256sums(&checksums)?)
-        .map_err(|source| io_error("writing checksums", &checksums_path, source))?;
 
-    Ok(())
+    let payloads = BTreeMap::from([
+        (AUTHORIZATION_EXAMPLE_FILENAME, authorization_example),
+        (DEPLOYMENT_CHECKER_FILENAME, deployment_checker),
+        (EBPF_FILENAME, ebpf),
+        (HOST_CHECKER_FILENAME, host_checker),
+        (SERVICE_UNIT_FILENAME, service_unit),
+        (CLI_FILENAME, cli),
+        (DAEMON_FILENAME, daemon),
+        (MANIFEST_FILENAME, manifest),
+    ]);
+    if payloads.keys().copied().ne(CHECKSUM_FILES) {
+        return Err(BundleError::UnexpectedOutputInventory);
+    }
+
+    fs::create_dir(inputs.output_dir)
+        .map_err(|source| io_error("creating output directory", inputs.output_dir, source))?;
+    for (filename, bytes) in &payloads {
+        write_payload(
+            &inputs.output_dir.join(filename),
+            bytes,
+            payload_mode(filename),
+        )?;
+    }
+
+    let checksums = payloads
+        .iter()
+        .map(|(filename, bytes)| (filename.to_string(), sha256_bytes(bytes)))
+        .collect::<BTreeMap<_, _>>();
+    let rendered = render_sha256sums(&checksums)?;
+    write_payload(
+        &inputs.output_dir.join(CHECKSUMS_FILENAME),
+        rendered.as_bytes(),
+        0o644,
+    )?;
+    validate_output_inventory(inputs.output_dir)
 }
 
 fn validate_metadata(commit_sha: &str, package_version: &str) -> Result<(), BundleError> {
@@ -170,39 +247,133 @@ fn validate_metadata(commit_sha: &str, package_version: &str) -> Result<(), Bund
     Ok(())
 }
 
-fn validate_input(path: &Path) -> Result<(), BundleError> {
-    let metadata = fs::symlink_metadata(path)
+fn read_bounded_regular(path: &Path, maximum: u64) -> Result<Vec<u8>, BundleError> {
+    let before = fs::symlink_metadata(path)
         .map_err(|source| io_error("reading input metadata", path, source))?;
-    if !metadata.file_type().is_file() {
+    if !before.file_type().is_file() || !single_link(&before) || before.len() > maximum {
         return Err(BundleError::InvalidInput {
             path: path.to_path_buf(),
         });
     }
+    let file = File::open(path).map_err(|source| io_error("opening input", path, source))?;
+    let opened = file
+        .metadata()
+        .map_err(|source| io_error("reading opened input metadata", path, source))?;
+    if !same_file_identity(&before, &opened) {
+        return Err(BundleError::InvalidInput {
+            path: path.to_path_buf(),
+        });
+    }
+
+    let mut bytes = Vec::new();
+    (&file)
+        .take(maximum + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|source| io_error("reading bounded input", path, source))?;
+    let after = file
+        .metadata()
+        .map_err(|source| io_error("re-reading input metadata", path, source))?;
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > maximum
+        || after.len() != u64::try_from(bytes.len()).unwrap_or(u64::MAX)
+        || !same_file_identity(&before, &after)
+    {
+        return Err(BundleError::InvalidInput {
+            path: path.to_path_buf(),
+        });
+    }
+    Ok(bytes)
+}
+
+fn write_payload(path: &Path, bytes: &[u8], mode: u32) -> Result<(), BundleError> {
+    fs::write(path, bytes).map_err(|source| io_error("writing bundle payload", path, source))?;
+    set_mode(path, mode)?;
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|source| io_error("reading output metadata", path, source))?;
+    if !metadata.file_type().is_file()
+        || !single_link(&metadata)
+        || metadata.len() != u64::try_from(bytes.len()).unwrap_or(u64::MAX)
+    {
+        return Err(BundleError::UnexpectedOutputInventory);
+    }
     Ok(())
 }
 
-fn copy_file(source: &Path, destination: &Path) -> Result<(), BundleError> {
-    fs::copy(source, destination)
-        .map(|_| ())
-        .map_err(|error| io_error("copying bundle input", source, error))
+fn validate_output_inventory(output: &Path) -> Result<(), BundleError> {
+    let mut names = fs::read_dir(output)
+        .map_err(|source| io_error("reading output inventory", output, source))?
+        .map(|entry| {
+            entry
+                .map_err(|source| io_error("reading output entry", output, source))?
+                .file_name()
+                .into_string()
+                .map_err(|_| BundleError::UnexpectedOutputInventory)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    names.sort();
+    if names.iter().map(String::as_str).ne(OUTPUT_FILES) {
+        return Err(BundleError::UnexpectedOutputInventory);
+    }
+    for name in OUTPUT_FILES {
+        let metadata = fs::symlink_metadata(output.join(name))
+            .map_err(|_| BundleError::UnexpectedOutputInventory)?;
+        if !metadata.file_type().is_file() || !single_link(&metadata) {
+            return Err(BundleError::UnexpectedOutputInventory);
+        }
+    }
+    Ok(())
 }
 
-fn sha256_file(path: &Path) -> Result<String, BundleError> {
-    let mut file =
-        File::open(path).map_err(|source| io_error("opening bundle file", path, source))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .map_err(|source| io_error("reading bundle file", path, source))?;
-        if read == 0 {
-            break;
+fn payload_mode(filename: &str) -> u32 {
+    match filename {
+        DAEMON_FILENAME | CLI_FILENAME | DEPLOYMENT_CHECKER_FILENAME | HOST_CHECKER_FILENAME => {
+            0o755
         }
-        hasher.update(&buffer[..read]);
+        _ => 0o644,
     }
-    let digest = hasher.finalize();
-    Ok(format!("{digest:x}"))
+}
+
+fn sha256_bytes(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+#[cfg(unix)]
+fn single_link(metadata: &Metadata) -> bool {
+    metadata.nlink() == 1
+}
+
+#[cfg(not(unix))]
+fn single_link(_: &Metadata) -> bool {
+    true
+}
+
+#[cfg(unix)]
+fn same_file_identity(left: &Metadata, right: &Metadata) -> bool {
+    left.file_type().is_file()
+        && right.file_type().is_file()
+        && left.dev() == right.dev()
+        && left.ino() == right.ino()
+        && left.nlink() == right.nlink()
+        && left.len() == right.len()
+        && left.mtime() == right.mtime()
+        && left.mtime_nsec() == right.mtime_nsec()
+        && left.ctime() == right.ctime()
+        && left.ctime_nsec() == right.ctime_nsec()
+}
+
+#[cfg(not(unix))]
+fn same_file_identity(left: &Metadata, right: &Metadata) -> bool {
+    left.file_type().is_file() && right.file_type().is_file() && left.len() == right.len()
+}
+
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: u32) -> Result<(), BundleError> {
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .map_err(|source| io_error("setting payload mode", path, source))
+}
+
+#[cfg(not(unix))]
+fn set_mode(_: &Path, _: u32) -> Result<(), BundleError> {
+    Ok(())
 }
 
 fn is_lower_hexadecimal(byte: u8) -> bool {
