@@ -160,17 +160,10 @@ fn service_apply_durably_records_each_action_before_the_next() {
 fn apply_stops_before_state_or_writer_on_artifact_identity_mismatch() {
     let shared = Shared::default();
     let mut mismatched = source(InstallOperationV1::Install);
-    mismatched.artifact = DeploymentArtifactIdentityV1::new(
-        "1123456789abcdef0123456789abcdef01234567",
-        "0.1.0",
-    )
-    .unwrap();
-    let mut service = service(
-        shared.clone(),
-        mismatched,
-        default_destinations(),
-        None,
-    );
+    mismatched.artifact =
+        DeploymentArtifactIdentityV1::new("1123456789abcdef0123456789abcdef01234567", "0.1.0")
+            .unwrap();
+    let mut service = service(shared.clone(), mismatched, default_destinations(), None);
 
     let report = service.apply().unwrap();
 
@@ -195,10 +188,7 @@ fn apply_stops_before_state_or_writer_on_host_identity_mismatch() {
 
     assert_eq!(report.decision, InstallDecisionV1::Blocked);
     assert_eq!(report.findings[0].code, GI_AUTH_HOST);
-    assert_eq!(
-        shared.calls(),
-        ["load_source", "host_identity_sha256"]
-    );
+    assert_eq!(shared.calls(), ["load_source", "host_identity_sha256"]);
     assert!(shared.applied().is_empty());
 }
 
@@ -360,10 +350,7 @@ fn default_destinations() -> Vec<InstallDestinationSnapshotV1> {
             InstallRoleV1::EvidenceRoot,
             InstallDestinationStateV1::AbsentDirectory,
         ),
-        destination(
-            InstallRoleV1::Daemon,
-            InstallDestinationStateV1::AbsentFile,
-        ),
+        destination(InstallRoleV1::Daemon, InstallDestinationStateV1::AbsentFile),
     ]
 }
 
