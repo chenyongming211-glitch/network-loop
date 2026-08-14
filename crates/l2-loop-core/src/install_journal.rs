@@ -1,9 +1,7 @@
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use thiserror::Error;
 
-use crate::{
-    DeploymentArtifactIdentityV1, InstallFindingV1,
-};
+use crate::{DeploymentArtifactIdentityV1, InstallFindingV1};
 
 pub const INSTALL_JOURNAL_SCHEMA_VERSION: u16 = 1;
 
@@ -15,9 +13,7 @@ pub enum InstallJournalError {
     InvalidTransition,
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InstallRoleV1 {
     EvidenceRoot,
@@ -427,11 +423,7 @@ impl InstallJournalEntryV1 {
             if self.sibling_basename.is_some() || self.prior_state != InstallPriorStateV1::Absent {
                 return Err(InstallJournalError::InvalidJournal);
             }
-        } else if !self
-            .sibling_basename
-            .as_deref()
-            .is_some_and(safe_basename)
-        {
+        } else if !self.sibling_basename.as_deref().is_some_and(safe_basename) {
             return Err(InstallJournalError::InvalidJournal);
         }
 
@@ -673,13 +665,11 @@ impl InstallJournalV1 {
                 durable_step,
                 role: entry.role,
             }),
-            InstallJournalEntryPhaseV1::Applied => {
-                Some(InstallJournalForwardActionV1::Verify {
-                    durable_step,
-                    role: entry.role,
-                    expected_identity: entry.current_identity.clone()?,
-                })
-            }
+            InstallJournalEntryPhaseV1::Applied => Some(InstallJournalForwardActionV1::Verify {
+                durable_step,
+                role: entry.role,
+                expected_identity: entry.current_identity.clone()?,
+            }),
             InstallJournalEntryPhaseV1::Verified | InstallJournalEntryPhaseV1::RolledBack => None,
         }
     }
@@ -858,8 +848,7 @@ impl InstallJournalV1 {
     }
 
     pub fn mark_rolled_back(&mut self) -> Result<(), InstallJournalError> {
-        if self.state != InstallJournalStateV1::RollingBack
-            || self.next_rollback_action().is_some()
+        if self.state != InstallJournalStateV1::RollingBack || self.next_rollback_action().is_some()
         {
             return Err(InstallJournalError::InvalidTransition);
         }
@@ -992,7 +981,9 @@ fn validate_entries_for_state(journal: &InstallJournalV1) -> Result<(), InstallJ
     match journal.state {
         InstallJournalStateV1::Prepared => {
             if journal.durable_step != 1
-                || phases.iter().any(|phase| *phase != InstallJournalEntryPhaseV1::Pending)
+                || phases
+                    .iter()
+                    .any(|phase| *phase != InstallJournalEntryPhaseV1::Pending)
                 || journal.failure_code.is_some()
             {
                 return Err(InstallJournalError::InvalidJournal);
@@ -1009,7 +1000,9 @@ fn validate_entries_for_state(journal: &InstallJournalV1) -> Result<(), InstallJ
                 .checked_add(2_u64.saturating_mul(journal.entries.len() as u64))
                 .ok_or(InstallJournalError::InvalidJournal)?;
             if journal.durable_step != expected
-                || phases.iter().any(|phase| *phase != InstallJournalEntryPhaseV1::Verified)
+                || phases
+                    .iter()
+                    .any(|phase| *phase != InstallJournalEntryPhaseV1::Verified)
                 || journal.failure_code.is_some()
             {
                 return Err(InstallJournalError::InvalidJournal);
@@ -1038,7 +1031,9 @@ fn validate_entries_for_state(journal: &InstallJournalV1) -> Result<(), InstallJ
     Ok(())
 }
 
-fn validate_forward_prefix(phases: &[InstallJournalEntryPhaseV1]) -> Result<u64, InstallJournalError> {
+fn validate_forward_prefix(
+    phases: &[InstallJournalEntryPhaseV1],
+) -> Result<u64, InstallJournalError> {
     let mut progress = 0_u64;
     let mut saw_applied = false;
     let mut saw_pending = false;

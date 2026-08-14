@@ -1,12 +1,12 @@
 use std::time::{SystemTimeError, UNIX_EPOCH};
 
+pub use l2_loop_core::InstallRoleV1;
 use l2_loop_core::{
     DeploymentArtifactIdentityV1, GI_AUTH_ARTIFACT, GI_AUTH_EXPIRED, GI_AUTH_HOST,
     GI_DESTINATION_FOREIGN, GI_ROLLBACK_IDENTITY, GI_TRANSACTION_CONFLICT, GI_WRITE_FAILED,
     InstallAuthorizationV1, InstallCommandV1, InstallContractError, InstallFindingV1,
     InstallOperationV1, InstallReportV1,
 };
-pub use l2_loop_core::InstallRoleV1;
 use thiserror::Error;
 
 use crate::{
