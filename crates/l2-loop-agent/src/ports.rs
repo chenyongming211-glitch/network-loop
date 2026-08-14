@@ -11,6 +11,11 @@ use l2_loop_core::{
 };
 use thiserror::Error;
 
+use crate::{
+    InstallActionV1, InstallDestinationSnapshotV1, InstallJournalSnapshotV1, InstallPlanV1,
+    InstallSourceSnapshotV1,
+};
+
 #[cfg(target_os = "linux")]
 use crate::{
     linux::{tc::LoadedTc, xdp::LoadedXdp},
@@ -253,6 +258,49 @@ pub trait DeploymentPlatformInspector {
         &mut self,
         authorization: &DeploymentAuthorizationV1,
     ) -> Result<DeploymentPlatformSnapshotV1, DeploymentIoError>;
+}
+
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+pub enum InstallIoError {
+    #[error("installation adapter input is unavailable")]
+    Unavailable,
+}
+
+pub trait InstallSourceReader {
+    fn load_source(&mut self) -> Result<InstallSourceSnapshotV1, InstallIoError>;
+}
+
+pub trait HostIdentityReader {
+    fn host_identity_sha256(&mut self) -> Result<String, InstallIoError>;
+}
+
+pub trait InstallStateReader {
+    fn inspect_destinations(
+        &mut self,
+        source: &InstallSourceSnapshotV1,
+    ) -> Result<Vec<InstallDestinationSnapshotV1>, InstallIoError>;
+
+    fn inspect_prior_journal(
+        &mut self,
+        transaction_id: &str,
+    ) -> Result<Option<InstallJournalSnapshotV1>, InstallIoError>;
+}
+
+pub trait InstallTransactionWriter {
+    fn begin_transaction(&mut self, plan: &InstallPlanV1) -> Result<(), InstallIoError>;
+    fn apply_action(&mut self, action: &InstallActionV1) -> Result<(), InstallIoError>;
+    fn record_completed(&mut self, action: &InstallActionV1) -> Result<(), InstallIoError>;
+    fn complete_transaction(&mut self, plan: &InstallPlanV1) -> Result<(), InstallIoError>;
+    fn begin_rollback(
+        &mut self,
+        journal: &InstallJournalSnapshotV1,
+    ) -> Result<(), InstallIoError>;
+    fn rollback_action(&mut self, action: &InstallActionV1) -> Result<(), InstallIoError>;
+    fn record_rolled_back(&mut self, action: &InstallActionV1) -> Result<(), InstallIoError>;
+    fn complete_rollback(
+        &mut self,
+        journal: &InstallJournalSnapshotV1,
+    ) -> Result<(), InstallIoError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
