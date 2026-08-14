@@ -7,8 +7,7 @@ use l2_loop_agent::{
 use l2_loop_core::DeploymentArtifactIdentityV1;
 
 const COMMIT_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
-const AUTHORIZATION: &[u8] =
-    include_bytes!("fixtures/installation/install-authorization-v1.json");
+const AUTHORIZATION: &[u8] = include_bytes!("fixtures/installation/install-authorization-v1.json");
 const DEPLOYMENT_AUTHORIZATION: &[u8] = b"deployment-authorization-v1\n";
 const PERFORMANCE_EVIDENCE: &[u8] = b"performance-evidence-v1\n";
 const RAW_HOST_IDENTITY: &[u8] = b"stable-host-identity-v1\n";
@@ -29,7 +28,10 @@ fn fixed_layout_has_only_reviewed_absolute_destinations_and_modes() {
     let entries = InstallLayoutV1::entries();
     assert_eq!(entries.len(), 31);
     assert_eq!(entries[0].destination, "/usr");
-    assert_eq!(entries.last().unwrap().destination, "/var/lib/l2-loop/gates/performance-v1.json");
+    assert_eq!(
+        entries.last().unwrap().destination,
+        "/var/lib/l2-loop/gates/performance-v1.json"
+    );
 
     let mut destinations = BTreeSet::new();
     for entry in entries {
@@ -39,13 +41,19 @@ fn fixed_layout_has_only_reviewed_absolute_destinations_and_modes() {
         assert!(destinations.insert(entry.destination));
         match entry.kind {
             InstallLayoutEntryKindV1::Directory => assert!(matches!(entry.mode, 0o700 | 0o755)),
-            InstallLayoutEntryKindV1::Regular => assert!(matches!(entry.mode, 0o600 | 0o644 | 0o755)),
+            InstallLayoutEntryKindV1::Regular => {
+                assert!(matches!(entry.mode, 0o600 | 0o644 | 0o755))
+            }
         }
     }
 
     for (role, destination, mode) in [
         (InstallRoleV1::Cli, "/usr/bin/l2-loopctl", 0o755),
-        (InstallRoleV1::Daemon, "/usr/libexec/l2-loop/l2-loopd", 0o755),
+        (
+            InstallRoleV1::Daemon,
+            "/usr/libexec/l2-loop/l2-loopd",
+            0o755,
+        ),
         (
             InstallRoleV1::DeploymentChecker,
             "/usr/libexec/l2-loop/l2-loop-deploycheck",
@@ -107,8 +115,16 @@ fn fixed_layout_has_only_reviewed_absolute_destinations_and_modes() {
         assert_eq!(entry.mode, mode);
     }
 
-    assert!(entries.iter().all(|entry| entry.destination != "/run/l2-loop"));
-    assert!(entries.iter().all(|entry| !entry.destination.contains("l2-loop-install")));
+    assert!(
+        entries
+            .iter()
+            .all(|entry| entry.destination != "/run/l2-loop")
+    );
+    assert!(
+        entries
+            .iter()
+            .all(|entry| !entry.destination.contains("l2-loop-install"))
+    );
 }
 
 #[test]
@@ -129,7 +145,10 @@ fn validator_binds_exact_bundle_documents_and_hashed_host_identity() {
     .unwrap();
 
     assert_eq!(validated.source.artifact, artifact());
-    assert_eq!(validated.source.authorization.authorization_id, "00112233445566778899aabbccddeeff");
+    assert_eq!(
+        validated.source.authorization.authorization_id,
+        "00112233445566778899aabbccddeeff"
+    );
     assert_eq!(
         validated.host_identity_sha256,
         "0e7be8257845d4a459a0204f2de5401abb0afa7d92d11deb144e84639c938cb4"
@@ -149,26 +168,49 @@ fn validator_rejects_non_exact_bundle_inventory_metadata_and_identity() {
     ] {
         let mut bundle = valid_bundle();
         mutate(&mut bundle);
-        assert_rejected(&bundle, private_document(AUTHORIZATION), RAW_HOST_IDENTITY, label);
+        assert_rejected(
+            &bundle,
+            private_document(AUTHORIZATION),
+            RAW_HOST_IDENTITY,
+            label,
+        );
     }
 
     let mut bundle = valid_bundle();
-    bundle.artifact = DeploymentArtifactIdentityV1::new(
-        "fedcba9876543210fedcba9876543210fedcba98",
-        "0.1.0",
-    )
-    .unwrap();
-    assert_rejected(&bundle, private_document(AUTHORIZATION), RAW_HOST_IDENTITY, "artifact");
+    bundle.artifact =
+        DeploymentArtifactIdentityV1::new("fedcba9876543210fedcba9876543210fedcba98", "0.1.0")
+            .unwrap();
+    assert_rejected(
+        &bundle,
+        private_document(AUTHORIZATION),
+        RAW_HOST_IDENTITY,
+        "artifact",
+    );
 }
 
 #[test]
 fn validator_rejects_unsafe_private_inputs_and_never_retains_raw_host_identity() {
     for (label, document) in [
-        ("mode", InstallInputDocumentV1::new(AUTHORIZATION.to_vec(), true, 0o644, 0, 0, 1)),
-        ("owner", InstallInputDocumentV1::new(AUTHORIZATION.to_vec(), true, 0o600, 1000, 0, 1)),
-        ("group", InstallInputDocumentV1::new(AUTHORIZATION.to_vec(), true, 0o600, 0, 1000, 1)),
-        ("link", InstallInputDocumentV1::new(AUTHORIZATION.to_vec(), true, 0o600, 0, 0, 2)),
-        ("special", InstallInputDocumentV1::new(AUTHORIZATION.to_vec(), false, 0o600, 0, 0, 1)),
+        (
+            "mode",
+            InstallInputDocumentV1::new(AUTHORIZATION.to_vec(), true, 0o644, 0, 0, 1),
+        ),
+        (
+            "owner",
+            InstallInputDocumentV1::new(AUTHORIZATION.to_vec(), true, 0o600, 1000, 0, 1),
+        ),
+        (
+            "group",
+            InstallInputDocumentV1::new(AUTHORIZATION.to_vec(), true, 0o600, 0, 1000, 1),
+        ),
+        (
+            "link",
+            InstallInputDocumentV1::new(AUTHORIZATION.to_vec(), true, 0o600, 0, 0, 2),
+        ),
+        (
+            "special",
+            InstallInputDocumentV1::new(AUTHORIZATION.to_vec(), false, 0o600, 0, 0, 1),
+        ),
     ] {
         assert_rejected(&valid_bundle(), document, RAW_HOST_IDENTITY, label);
     }
@@ -198,8 +240,16 @@ fn validator_rejects_unsafe_private_inputs_and_never_retains_raw_host_identity()
 #[test]
 fn installation_validation_source_is_bounded_read_only_and_has_no_destination_override() {
     let source = include_str!("../src/installation_layout.rs");
-    for required in ["O_NOFOLLOW", "MAX_INSTALL_DOCUMENT_BYTES", "fill(0)", "InstallLayoutV1"] {
-        assert!(source.contains(required), "missing safety primitive: {required}");
+    for required in [
+        "O_NOFOLLOW",
+        "MAX_INSTALL_DOCUMENT_BYTES",
+        "fill(0)",
+        "InstallLayoutV1",
+    ] {
+        assert!(
+            source.contains(required),
+            "missing safety primitive: {required}"
+        );
     }
     for prohibited in [
         "std::env",
@@ -219,7 +269,10 @@ fn installation_validation_source_is_bounded_read_only_and_has_no_destination_ov
         "destination: PathBuf",
         "prefix: PathBuf",
     ] {
-        assert!(!source.contains(prohibited), "prohibited surface present: {prohibited}");
+        assert!(
+            !source.contains(prohibited),
+            "prohibited surface present: {prohibited}"
+        );
     }
 }
 
@@ -237,7 +290,11 @@ fn valid_bundle() -> BundleSnapshotV1 {
         files.insert(
             name.to_owned(),
             BundleFileIdentityV1 {
-                sha256: if name == "manifest.json" { "1".repeat(64) } else { format!("{index:064x}") },
+                sha256: if name == "manifest.json" {
+                    "1".repeat(64)
+                } else {
+                    format!("{index:064x}")
+                },
                 size: 16,
                 mode,
                 uid: 0,
