@@ -199,6 +199,57 @@ fn bootstrap_journal_moves_once_to_the_fixed_transaction_directory() {
     assert!(filesystem.publish_journal(&journal).is_err());
 }
 
+#[test]
+fn bootstrap_journal_can_advance_before_the_final_hierarchy_exists() {
+    let Some(root) = TestRoot::new_if_privileged("bootstrap-persist") else {
+        return;
+    };
+    root.create_dir("var", 0o755);
+    root.create_dir("var/lib", 0o755);
+    let mut journal = prepared_journal();
+    let mut filesystem = LinuxInstallationFilesystem::new(root.clone(), NoInstallFaults);
+
+    filesystem.bootstrap_journal(&journal).unwrap();
+    journal.start_applying().unwrap();
+    filesystem.persist_journal(&journal).unwrap();
+
+    let path = root.path.join(format!(
+        "var/lib/.l2-loop-install-{TRANSACTION_ID}/journal-v1.json"
+    ));
+    let decoded: InstallJournalV1 = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert_eq!(decoded, journal);
+}
+
+#[test]
+fn existing_final_transaction_blocks_bootstrap_without_creating_residue() {
+    let Some(root) = TestRoot::new_if_privileged("final-conflict") else {
+        return;
+    };
+    for (path, mode) in [
+        ("var", 0o755),
+        ("var/lib", 0o755),
+        ("var/lib/l2-loop", 0o700),
+        ("var/lib/l2-loop/install", 0o700),
+        ("var/lib/l2-loop/install/transactions", 0o700),
+        (
+            "var/lib/l2-loop/install/transactions/ffeeddccbbaa99887766554433221100",
+            0o700,
+        ),
+    ] {
+        root.create_dir(path, mode);
+    }
+    let journal = prepared_journal();
+    let mut filesystem = LinuxInstallationFilesystem::new(root.clone(), NoInstallFaults);
+
+    assert!(filesystem.bootstrap_journal(&journal).is_err());
+    assert!(
+        !root
+            .path
+            .join(format!("var/lib/.l2-loop-install-{TRANSACTION_ID}"))
+            .exists()
+    );
+}
+
 #[derive(Clone)]
 struct TestRoot {
     path: Arc<PathBuf>,
