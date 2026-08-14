@@ -356,7 +356,7 @@ fn collector_errors_never_escape_the_single_sanitized_error_variant() {
     assert_eq!(error, DeploymentIoError::Unavailable);
     let rendered = error.to_string();
     for prohibited in [
-        "10.58.159.4",
+        "192.0.2.4",
         "aa:bb:cc:dd:ee:ff",
         "/secret/pin",
         "program_id",
@@ -474,7 +474,7 @@ impl FakePreflight {
         Self {
             calls,
             report: Err(PortError::Adapter(
-                "10.58.159.4 aa:bb:cc:dd:ee:ff /secret/pin program_id machine-id".into(),
+                "192.0.2.4 aa:bb:cc:dd:ee:ff /secret/pin program_id machine-id".into(),
             )),
         }
     }
