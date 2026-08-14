@@ -133,6 +133,7 @@ impl InstallAuthorizationV1 {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn validate_for(
         &self,
         captured_at_unix_ms: u64,
