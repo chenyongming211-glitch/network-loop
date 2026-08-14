@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "authorization_id": "00112233445566778899aabbccddeeff",
+  "transaction_id": "ffeeddccbbaa99887766554433221100",
+  "operation": "install",
+  "artifact_commit_sha": "0123456789abcdef0123456789abcdef01234567",
+  "bundle_manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "host_identity_sha256": "0e7be8257845d4a459a0204f2de5401abb0afa7d92d11deb144e84639c938cb4",
+  "deployment_authorization_sha256": "7726c86195df3b5e4babbd6bcca4a34d58a3eb5cfe026a4d60d79687c5342120",
+  "performance_evidence_sha256": "b681b777e2663b6c7b2d45cd408e974dd31ccc22fe3f95962d435e2db15b7bbd",
+  "issued_at_unix_ms": 1786579200000,
+  "expires_at_unix_ms": 1786582800000,
+  "service_enable": false,
+  "service_start": false,
+  "physical_attach": false
+}
