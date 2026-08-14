@@ -4,7 +4,7 @@ use std::{
     io::{self, Read, Seek, SeekFrom, Write},
     os::{
         fd::{AsRawFd, FromRawFd, RawFd},
-        unix::{ffi::OsStrExt, fs::OpenOptionsExt},
+        unix::fs::OpenOptionsExt,
     },
     path::Path,
 };
@@ -600,7 +600,7 @@ fn inspect_open_file(file: &File) -> Result<InstallObjectIdentityV1, InstallIoEr
 }
 
 fn validate_directory(file: &File, expected_mode: u32) -> Result<(), InstallIoError> {
-    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    use std::os::unix::fs::MetadataExt;
 
     let metadata = file.metadata().map_err(unavailable)?;
     if !metadata.file_type().is_dir()
