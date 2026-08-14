@@ -291,6 +291,7 @@ foreach ($Required in @(
     '[System.Diagnostics.Stopwatch]::StartNew()',
     'for ($RateIteration = 1; $RateIteration -le 65; $RateIteration++)',
     "Assert-DetailedRateWindows -Snapshot `$InitialRateSnapshot -ExpectedStates @('ready', 'warming_up', 'warming_up')",
+    '-RequireTraffic:($RequireTraffic -and [uint64]$Window.window_ms -ge 10000)',
     'Start-Sleep -Milliseconds $RemainingMilliseconds',
     '[uint64](65 * 9)',
     'Start-Sleep -Seconds 4',

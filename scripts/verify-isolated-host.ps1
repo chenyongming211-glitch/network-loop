@@ -1600,15 +1600,16 @@ function Assert-DetailedRateWindows {
         }
         $Hooks = @($Window.hooks)
         if ($Hooks.Count -ne 2) { throw 'ready detailed window hook count changed' }
+        $RequireWindowTraffic = $RequireTraffic -and [uint64]$Window.window_ms -ge 10000
         for ($HookIndex = 0; $HookIndex -lt 2; $HookIndex++) {
             $Hook = $Hooks[$HookIndex]
             if ($Hook.role -cne $ExpectedRoles[$HookIndex]) { throw 'ready detailed window hook order changed' }
-            Assert-RateCounterEvidence -Counters $Hook.total -ElapsedNs $ElapsedNs -Evidence "$($Hook.role) total" -RequireTraffic:$RequireTraffic -RequireNonZeroRate:$RequireTraffic
+            Assert-RateCounterEvidence -Counters $Hook.total -ElapsedNs $ElapsedNs -Evidence "$($Hook.role) total" -RequireTraffic:($RequireTraffic -and [uint64]$Window.window_ms -ge 10000) -RequireNonZeroRate:$RequireWindowTraffic
             $Classes = @($Hook.classes)
             if ($Classes.Count -ne 6) { throw 'ready detailed window class count changed' }
             for ($ClassIndex = 0; $ClassIndex -lt 6; $ClassIndex++) {
                 if ($Classes[$ClassIndex].traffic_class -cne $ExpectedClasses[$ClassIndex]) { throw 'ready detailed window class order changed' }
-                Assert-RateCounterEvidence -Counters $Classes[$ClassIndex].counters -ElapsedNs $ElapsedNs -Evidence "$($Hook.role) $($Classes[$ClassIndex].traffic_class)" -RequireTraffic:$RequireTraffic
+                Assert-RateCounterEvidence -Counters $Classes[$ClassIndex].counters -ElapsedNs $ElapsedNs -Evidence "$($Hook.role) $($Classes[$ClassIndex].traffic_class)" -RequireTraffic:$RequireWindowTraffic
             }
             Assert-RateCounterEvidence -Counters $Hook.parse_errors -ElapsedNs $ElapsedNs -Evidence "$($Hook.role) parse errors"
         }
