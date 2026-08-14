@@ -4,9 +4,7 @@ use l2_loop_core::InstallAuthorizationV1;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::{
-    BundleSnapshotV1, InstallPlanningError, InstallRoleV1, InstallSourceSnapshotV1,
-};
+use crate::{BundleSnapshotV1, InstallPlanningError, InstallRoleV1, InstallSourceSnapshotV1};
 
 #[cfg(target_os = "linux")]
 use std::{
@@ -121,22 +119,14 @@ const INSTALL_LAYOUT: [InstallLayoutEntryV1; 31] = [
         "/usr/libexec/l2-loop",
         0o755,
     ),
-    directory(
-        InstallRoleV1::UsrLibSystemdRoot,
-        "/usr/lib/systemd",
-        0o755,
-    ),
+    directory(InstallRoleV1::UsrLibSystemdRoot, "/usr/lib/systemd", 0o755),
     directory(
         InstallRoleV1::SystemdUnitRoot,
         "/usr/lib/systemd/system",
         0o755,
     ),
     directory(InstallRoleV1::UsrShareRoot, "/usr/share", 0o755),
-    directory(
-        InstallRoleV1::UsrShareDocRoot,
-        "/usr/share/doc",
-        0o755,
-    ),
+    directory(InstallRoleV1::UsrShareDocRoot, "/usr/share/doc", 0o755),
     directory(
         InstallRoleV1::ProductDocRoot,
         "/usr/share/doc/l2-loop",
@@ -147,11 +137,7 @@ const INSTALL_LAYOUT: [InstallLayoutEntryV1; 31] = [
     directory(InstallRoleV1::VarRoot, "/var", 0o755),
     directory(InstallRoleV1::VarLibRoot, "/var/lib", 0o755),
     directory(InstallRoleV1::StateRoot, "/var/lib/l2-loop", 0o700),
-    directory(
-        InstallRoleV1::GatesRoot,
-        "/var/lib/l2-loop/gates",
-        0o700,
-    ),
+    directory(InstallRoleV1::GatesRoot, "/var/lib/l2-loop/gates", 0o700),
     directory(
         InstallRoleV1::EvidenceParent,
         "/var/lib/l2-loop/evidence",
@@ -433,7 +419,9 @@ fn hash_and_zero_host_identity(
 ) -> Result<String, InstallValidationError> {
     let valid = !raw_host_identity.is_empty()
         && raw_host_identity.len() <= MAX_HOST_IDENTITY_BYTES
-        && raw_host_identity.iter().any(|byte| !byte.is_ascii_whitespace());
+        && raw_host_identity
+            .iter()
+            .any(|byte| !byte.is_ascii_whitespace());
     let digest = valid.then(|| format!("{:x}", Sha256::digest(&*raw_host_identity)));
     raw_host_identity.fill(0);
     digest.ok_or(InstallValidationError::InvalidInput)
@@ -471,8 +459,8 @@ impl LinuxInstallSourceReaderV1 {
         paths: InstallSourcePathsV1,
         expected_artifact: l2_loop_core::DeploymentArtifactIdentityV1,
     ) -> Result<Self, InstallIoError> {
-        let bundle_reader =
-            LinuxDeploymentFilesystem::new(expected_artifact).map_err(|_| InstallIoError::Unavailable)?;
+        let bundle_reader = LinuxDeploymentFilesystem::new(expected_artifact)
+            .map_err(|_| InstallIoError::Unavailable)?;
         Ok(Self {
             paths,
             bundle_reader,
