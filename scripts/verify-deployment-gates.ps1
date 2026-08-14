@@ -227,6 +227,8 @@ journal="/run/l2-loop/tests/$run.json"
 pins="/sys/fs/bpf/l2-loop/test/$run"
 evidence="$root/evidence/v1"
 checker="$bundle/l2-loop-deploycheck"
+runtime_marker="$root/.owned-runtime-parent"
+accept_marker="$root/.owned-accept-parent"
 
 fail() { printf '%s\n' "$1" >&2; exit 1; }
 assert_no_symlink() { test ! -L "$1" || fail "owned path is a symbolic link"; }
@@ -353,6 +355,23 @@ cleanup_staging_tree() {
     cleanup_dir "$staging"
 }
 cleanup_generated_tree() {
+    owned_runtime_parent=0
+    owned_accept_parent=0
+    if test -e "$runtime_marker" || test -L "$runtime_marker"; then
+        assert_no_symlink "$runtime_marker"
+        test -f "$runtime_marker" || fail "runtime parent ownership marker is not a regular file"
+        test "$(stat -c '%u:%g:%a:%s' "$runtime_marker")" = '0:0:600:0' || fail "runtime parent ownership marker identity changed"
+        owned_runtime_parent=1
+    fi
+    if test -e "$accept_marker" || test -L "$accept_marker"; then
+        assert_no_symlink "$accept_marker"
+        test -f "$accept_marker" || fail "accept parent ownership marker is not a regular file"
+        test "$(stat -c '%u:%g:%a:%s' "$accept_marker")" = '0:0:600:0' || fail "accept parent ownership marker identity changed"
+        owned_accept_parent=1
+    fi
+    if test "$owned_runtime_parent" -eq 1 && test "$owned_accept_parent" -ne 1; then
+        fail "runtime parent ownership is incomplete"
+    fi
     stop_owned_process "$root/daemon.pid" "$bundle/l2-loopd"
     stop_owned_process "$root/pass-through.pid" "$root/l2-loop-hostcheck"
     if ip link show dev "$host" >/dev/null 2>&1; then
@@ -374,6 +393,8 @@ cleanup_generated_tree() {
     cleanup_file "$root/checker.err"
     cleanup_file "$root/l2-loop-hostcheck"
     cleanup_file "$root/l2-loop-ebpf.o"
+    cleanup_file "$runtime_marker"
+    cleanup_file "$accept_marker"
     cleanup_dir "$root/evidence/v1"
     cleanup_dir "$root/evidence"
     for name in deployment-v1.example.json l2-loop-deploycheck l2-loop-ebpf.o l2-loop-hostcheck l2-loop.service l2-loopctl l2-loopd manifest.json SHA256SUMS; do
@@ -381,6 +402,8 @@ cleanup_generated_tree() {
     done
     cleanup_dir "$bundle"
     cleanup_dir "$root"
+    if test "$owned_accept_parent" -eq 1; then rmdir /run/l2-loop/accept; fi
+    if test "$owned_runtime_parent" -eq 1; then rmdir /run/l2-loop; fi
     printf '%s\n' "$final_state"
 }
 
@@ -757,7 +780,7 @@ run_measurement() {
 case "$phase" in
     precheck)
         test "$(id -u)" -eq 0 || fail "deployment acceptance requires root"
-        for command_name in ip python3 sha256sum awk grep install chmod readlink kill sleep cat unlink env date mkfifo nproc uname; do command -v "$command_name" >/dev/null || fail "required acceptance command is unavailable"; done
+        for command_name in ip python3 sha256sum awk grep install chmod readlink kill sleep cat unlink env date mkfifo nproc uname stat mkdir rmdir; do command -v "$command_name" >/dev/null || fail "required acceptance command is unavailable"; done
         test ! -e "$root" && test ! -L "$root" || fail "generated run root already exists"
         test ! -e "$journal" && test ! -L "$journal" || fail "generated journal already exists"
         test ! -e "$pins" && test ! -L "$pins" || fail "generated pin root already exists"
@@ -766,9 +789,29 @@ case "$phase" in
         ! ip netns list | awk '{print $1}' | grep -Fqx -- "$ns" || fail "generated namespace already exists"
         ;;
     create-root)
-        install -d -m 0700 /run/l2-loop
-        install -d -m 0700 /run/l2-loop/accept
+        runtime_created=0
+        accept_created=0
+        trap 'status=$?; if test "$status" -ne 0; then if test -f "$runtime_marker" && test ! -L "$runtime_marker"; then unlink "$runtime_marker"; fi; if test -f "$accept_marker" && test ! -L "$accept_marker"; then unlink "$accept_marker"; fi; rmdir "$evidence" "$root/evidence" "$bundle" "$root" 2>/dev/null || true; if test "$accept_created" -eq 1; then rmdir /run/l2-loop/accept 2>/dev/null || true; fi; if test "$runtime_created" -eq 1; then rmdir /run/l2-loop 2>/dev/null || true; fi; fi; exit "$status"' EXIT
+        if test -e /run/l2-loop || test -L /run/l2-loop; then
+            assert_no_symlink /run/l2-loop
+            test -d /run/l2-loop || fail "runtime parent is not a directory"
+            test "$(stat -c '%u:%g:%a' /run/l2-loop)" = '0:0:700' || fail "runtime parent metadata is unsafe"
+        else
+            mkdir -m 0700 /run/l2-loop
+            runtime_created=1
+        fi
+        if test -e /run/l2-loop/accept || test -L /run/l2-loop/accept; then
+            assert_no_symlink /run/l2-loop/accept
+            test -d /run/l2-loop/accept || fail "accept parent is not a directory"
+            test "$(stat -c '%u:%g:%a' /run/l2-loop/accept)" = '0:0:700' || fail "accept parent metadata is unsafe"
+        else
+            mkdir -m 0700 /run/l2-loop/accept
+            accept_created=1
+        fi
         install -d -m 0700 "$root" "$bundle" "$root/evidence" "$evidence"
+        if test "$runtime_created" -eq 1; then install -m 0600 /dev/null "$runtime_marker"; fi
+        if test "$accept_created" -eq 1; then install -m 0600 /dev/null "$accept_marker"; fi
+        trap - EXIT
         ;;
     verify-bundle)
         cd "$bundle"

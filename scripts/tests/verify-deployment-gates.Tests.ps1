@@ -101,6 +101,12 @@ foreach ($Required in @(
     'resolved-prefix',
     'identity-before-cleanup',
     'cleanup-generated-tree',
+    'runtime_marker="$root/.owned-runtime-parent"',
+    'accept_marker="$root/.owned-accept-parent"',
+    'cleanup_file "$runtime_marker"',
+    'cleanup_file "$accept_marker"',
+    'rmdir /run/l2-loop/accept',
+    'rmdir /run/l2-loop',
     'l2-loop-deploycheck',
     "'staging'",
     "'--bundle'",
@@ -203,6 +209,7 @@ Assert-True (-not [regex]::IsMatch($Harness, '(?m)^\s*(?:install|cp|mv|mkdir|chm
 Assert-True (-not [regex]::IsMatch($Harness, '(?m)ssh[^\r\n]*\$\(')) 'deployment harness SSH command uses command substitution'
 Assert-True ($Harness.Contains('set -Eeuo pipefail')) 'remote deployment program does not propagate function ERR traps'
 Assert-True (-not $Harness.Contains('set +e')) 'remote deployment program globally disables fail-fast around expected failures'
+Assert-True (-not $Harness.Contains('install -d -m 0700 /run/l2-loop')) 'deployment harness mutates pre-existing runtime parent metadata'
 Assert-True (-not [regex]::IsMatch($Harness, '\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')) 'deployment harness contains a hard-coded IPv4 target'
 Assert-True (-not $Harness.Contains('.ssh')) 'deployment harness contains a hard-coded key path'
 Assert-True (-not $Harness.Contains('b"\x88\xb5"')) 'deployment traffic uses an unhandled EtherType that inflates RX drops'

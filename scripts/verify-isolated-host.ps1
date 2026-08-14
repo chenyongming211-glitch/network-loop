@@ -1931,8 +1931,13 @@ $Names = New-IsolatedNames -RunId $RunId
 Assert-GeneratedTarget -Names $Names
 
 $CleanupComplete = $false
+$script:IsolatedMutationStarted = $false
 $CleanupAction = {
     if (-not $CleanupComplete) {
+        if (-not $script:IsolatedMutationStarted) {
+            $CleanupComplete = $true
+            return
+        }
         $Result = Invoke-IsolatedRemotePhase -Phase 'cleanup' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds -AllowFailure
         if ($Result.ExitCode -ne 0) {
             throw "exact isolated cleanup failed and requires manual review: $($Result.Stderr.Trim())"
@@ -1950,6 +1955,7 @@ $CancelHandler = [ConsoleCancelEventHandler]{
 
 try {
     $null = Invoke-IsolatedRemotePhase -Phase 'precheck' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
+    $script:IsolatedMutationStarted = $true
     $null = Invoke-IsolatedMutation -Phase 'stage' -Names $Names -Target $Target -KeyPath $KeyPath -FrameCount $FrameCount -TimeoutSeconds $TimeoutSeconds
     $Sources = $ExpectedBundleFiles | ForEach-Object { Join-Path $ArtifactRoot $_ }
     $ScpArguments = Get-ScpArguments -Target $Target -KeyPath $KeyPath -Sources $Sources -Destination "$($Names.RemoteRunRoot)/"
