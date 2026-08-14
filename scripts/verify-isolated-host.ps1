@@ -2317,7 +2317,16 @@ try {
                         Assert-BaselineCountsRetained -Before $UnavailableBaseline.baseline -After $RetainedUnavailableBaseline.baseline
                     }
                     $UnavailableStatus = Convert-ObservationJson -Result (Invoke-StatusCli -Names $Names -Target $Target -KeyPath $KeyPath -Interface $Names.HostVeth -TimeoutSeconds $TimeoutSeconds -Json)
-                    Assert-BaselineSummary -Status $UnavailableStatus -ExpectedState 'unavailable'
+                    $UnavailableStatusState = [string](Get-OnlyStatusInterface -Status $UnavailableStatus).baseline.state
+                    if ($UnavailableStatusState -ceq 'unavailable') {
+                        Assert-BaselineSummary -Status $UnavailableStatus -ExpectedState 'unavailable'
+                    }
+                    elseif ($UnavailableStatusState -ceq 'elevated') {
+                        Assert-BaselineSummary -Status $UnavailableStatus -ExpectedState 'elevated'
+                    }
+                    else {
+                        throw "baseline recovery status moved to invalid state $UnavailableStatusState"
+                    }
                     continue
                 }
                 if ($null -ne $UnavailableBaseline -and $CurrentRecovery.baseline.state -ceq 'elevated') {

@@ -333,6 +333,8 @@ foreach ($Required in @(
     '[uint64]$Subject.latest_accepted_at_unix_ms -ge $SourceEnd',
     '[uint64]$Subject.latest_accepted_at_unix_ms -eq $SourceEnd',
     'Assert-BaselineCountsRetained',
+    "if (`$UnavailableStatusState -ceq 'unavailable')",
+    "elseif (`$UnavailableStatusState -ceq 'elevated')",
     'Assert-CompareBeforeAcceptRecovery',
     'baseline-sampling-map-read-recovery',
     "-ExpectedState 'learning'",
