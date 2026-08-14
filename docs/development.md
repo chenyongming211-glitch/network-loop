@@ -24,10 +24,10 @@ This job covers ABI layout, fixed numeric values, domain validation, lifecycle t
 
 ### Script safety jobs
 
-The isolated-host harness has self-contained static safety tests on both Linux
-PowerShell 7 and Windows PowerShell. They verify deterministic generated names,
+The isolated-host and deployment-gate harnesses have self-contained static safety tests on both Linux
+PowerShell 7 and Windows PowerShell. They verify cryptographic generated names,
 exact SSH argument arrays, bounded cleanup convergence, canonical ownership checks,
-and the absence of broad or wildcard cleanup. Both jobs also enforce the build
+finite generated-root cleanup, fixed performance trials, and the absence of broad or wildcard cleanup. Both jobs also enforce the build
 supply-chain contract: a tracked format-v4 root lock, immutable Action SHAs,
 read-only workflow permissions, exact tool versions, and locked build commands.
 These jobs never contact a target host.
@@ -51,7 +51,7 @@ The resulting object targets `bpfel-unknown-none`. This job proves that all decl
 
 ### Bundle job
 
-After Userspace and eBPF both pass, the Bundle job builds `l2-loopd`, `l2-loopctl`, and `l2-loop-hostcheck` for `x86_64-unknown-linux-musl`, combines them with the exact eBPF object from the same workflow run, and publishes:
+After Userspace and eBPF both pass, the Bundle job builds `l2-loopd`, `l2-loopctl`, `l2-loop-deploycheck`, and `l2-loop-hostcheck` for `x86_64-unknown-linux-musl`, combines them with the exact eBPF object and deterministic deployment assets from the same workflow run, and publishes:
 
 ```text
 cargo build --locked --release --target x86_64-unknown-linux-musl
@@ -59,15 +59,18 @@ cargo build --locked --release --target x86_64-unknown-linux-musl
 
 ```text
 l2-loop-linux-x86_64-<full-commit-sha>
-├── l2-loopd
-├── l2-loopctl
-├── l2-loop-hostcheck
+├── deployment-v1.example.json
+├── l2-loop-deploycheck
 ├── l2-loop-ebpf.o
+├── l2-loop-hostcheck
+├── l2-loop.service
+├── l2-loopctl
+├── l2-loopd
 ├── manifest.json
 └── SHA256SUMS
 ```
 
-`manifest.json` records the full commit SHA, workspace package version, both target triples, and the four executable/object filenames. `SHA256SUMS` is lexically ordered and covers the other five files. The workflow runs `sha256sum --check SHA256SUMS` before upload.
+`manifest.json` records the full commit SHA, workspace package version, both target triples, public ABI, the seven executable/object/asset roles, and deterministic service/example digests. `SHA256SUMS` is lexically ordered and covers the other eight files. The workflow requires exactly nine top-level regular files, no nested content, and runs `sha256sum --check SHA256SUMS` before upload.
 
 Download an artifact without compiling locally:
 
@@ -78,13 +81,55 @@ gh run download $L2LoopRun --name "l2-loop-linux-x86_64-$L2LoopCommit" --dir ".a
 Get-ChildItem ".artifacts/$L2LoopCommit"
 ```
 
-Keep `.artifacts/` local and ignored. After transfer to Linux, verify `SHA256SUMS` before setting mode `0755` on `l2-loopd`, `l2-loopctl`, and `l2-loop-hostcheck`; GitHub artifact extraction does not preserve executable permission bits.
+Keep `.artifacts/` local and ignored. After transfer to Linux, verify `SHA256SUMS` before setting mode `0755` on `l2-loopd`, `l2-loopctl`, `l2-loop-deploycheck`, and `l2-loop-hostcheck`; GitHub artifact extraction does not preserve executable permission bits.
 
 ## Build input update policy
 
 The tracked root `Cargo.lock` is generated only by an explicitly added, temporary GitHub workflow with `contents: read`; the local authoring workspace does not resolve dependencies. Dependency, stable/nightly Rust, `bpf-linker`, and Action-SHA updates are selected manually and committed atomically. The maintainer reviews the lock and workflow diffs, removes the temporary workflow, then requires all five CI jobs and exact-artifact host acceptance again. No dependency updater, bot write, scheduled update, or automatic pull request is enabled.
 
 The repository locks inputs it controls, but the GitHub-hosted runner image is still moving. This is not a byte-for-byte reproducible-build claim: the exact successful artifact, its full commit SHA, manifest, and `SHA256SUMS` remain authoritative for deployment and acceptance.
+
+## Deployment gate development and acceptance
+
+The standalone checker has exactly two operations:
+
+```text
+l2-loop-deploycheck staging --bundle <DIR> --root /run/l2-loop/accept/<32-lower-hex>/staging-root [--json]
+l2-loop-deploycheck inspect [--json]
+```
+
+It has no install, repair, permission-changing, service-manager, attach/detach, pin/unpin, cleanup, interface override, threshold override, socket, or output-path option. `staging` is reachable only through an explicit bundle and exact generated root. `inspect` accepts no path or interface argument and reads only the fixed installed contract. Both commands render the same Schema 1 report in text or JSON and keep output below 1 MiB. Exit `0` means `staging_ready` or fixture-proven `canary_candidate`, `1` means bounded I/O/internal failure prevented a report, `2` means invalid CLI/local input, and `4` means a completed blocked report.
+
+The generated staging root mirrors these fixed production paths without writing them on the host:
+
+```text
+/usr/bin/l2-loopctl                                      0755
+/usr/libexec/l2-loop/{l2-loopd,l2-loop-deploycheck,l2-loop-hostcheck} 0755
+/usr/libexec/l2-loop/{l2-loop-ebpf.o,manifest.json,SHA256SUMS}         0644
+/usr/lib/systemd/system/l2-loop.service                  0644
+/usr/share/doc/l2-loop/deployment-v1.example.json        0644
+/etc/l2-loop/deployment-v1.json                          0600
+/var/lib/l2-loop/gates/performance-v1.json               0600
+/var/lib/l2-loop/evidence/v1                             0700 directory
+/run/l2-loop                                             0700 empty directory
+```
+
+Public `/usr` parents are `0755`; generated roots and restricted `/etc/l2-loop`, gate, evidence, and runtime directories are root-owned `0700`. Every expected path is walked from a finite table with no-follow metadata checks. The checker rejects extra bundle objects, symlinks, hard links, special files, canonical escapes, wrong ownership/modes, occupied runtime, unknown schema fields, identity drift, occupied/unknown hooks, or incomplete evidence. It never repairs a failure.
+
+Authorization Schema 1 binds one exact commit and one physical interface identity for no more than 24 hours. It is planning input only. Performance Schema 1 is bound to the same commit, package, architecture, kernel release, and logical CPU count. It contains one warm-up and exactly five rotating `baseline`/`pass_through`/`observe` trials, each with fixed 64/512/1514-byte frames and 65,536 frames per size. Validation uses lower medians, fixed 950/900 permille throughput gates, zero drop/error deltas, 1,000 permille CPU, 256 MiB peak RSS, 16 MiB RSS growth, forwarding, bounded object counts, exact cleanup, and stable network/eBPF restoration. Missing, noisy, stale, mismatched, or incomplete evidence is unavailable rather than passing.
+
+Run the deployment harness only with task-scoped environment inputs and the exact green artifact:
+
+```powershell
+$env:L2_LOOP_TEST_TARGET = '<user>@<authorized-test-target>'
+$env:L2_LOOP_TEST_KEY = '<task-scoped-private-key-path>'
+$L2LoopCommit = git rev-parse HEAD
+pwsh -NoProfile -File scripts/verify-deployment-gates.ps1 -Commit $L2LoopCommit
+```
+
+It exercises ten staging cases, six deterministic rejected performance fixtures, and fifteen real traffic trials on one random namespace/veth only. The pass-through helper deliberately leaves observation configuration unpublished but still uses the same no-replace hooks, six-Map ABI, ownership journal, and exact reverse cleanup. The harness never calls real `inspect`, never selects a physical interface, and never invokes systemd or journald. It compares stable pre/post host network/eBPF identities and requires zero generated residue.
+
+The accepted boundary is packaging-ready plus fixture-proven Canary candidacy. Real installation, service lifecycle, journald delivery, production evidence-root creation, physical/native-XDP attachment, and representative workload performance remain separately authorized work.
 
 ## Current safety boundary
 

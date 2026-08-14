@@ -9,6 +9,22 @@
 
 动态基线本身仍只表达同一 generation 内的相对速率偏离，不表达“安全”或“环路”；可信 elevated 不会把观测健康降级。被动检测器在基线之上增加固定自适应路径，并用 1 秒绝对阈值路径覆盖约 69～70 秒学习盲区。相同 storm candidate 连续 3 tick 才确认，弱化/清除需要 10 tick，清除后保留最后异常并冷却 30 秒；状态最高只到 `external_loop_high_confidence`，不能确认因果。瞬时采样故障保留有界历史并在恢复时先比较后接纳；身份、generation、时钟、计数器或完整性失败清空历史；detach/shutdown 销毁历史。
 
+## 当前已实现的 Delivery G 部署门禁
+
+Delivery G 只补齐“进入一次单接口只读 Canary 之前”的部署基础设施，不开放生产接口挂载。发布物现在是绑定单一 GitHub commit SHA 的九文件 MUSL 包：四个静态用户态二进制、eBPF 对象、固定 systemd unit、授权示例、manifest 和覆盖其余八个文件的 `SHA256SUMS`。
+
+独立的 `l2-loop-deploycheck` 只有两个只读入口：`staging --bundle <DIR> --root /run/l2-loop/accept/<32位小写十六进制>/staging-root [--json]` 和无参数路径覆盖的 `inspect [--json]`。`staging` 只验证生成根下的生产形态镜像；`inspect` 只读取固定安装路径，并且只能从严格授权文档取得唯一接口。checker 不连接 daemon，也没有安装、修复、权限修改、服务启停、挂载、卸载、pin、清理、接口覆盖、路径覆盖或阈值覆盖能力。
+
+部署报告 Schema 1 的决定只有 `blocked`、`staging_ready` 和 `canary_candidate`。`staging_ready` 只证明包、布局、权限、unit、授权和性能证据的结构满足约束。`canary_candidate` 当前只由 GitHub 中注入的空 hook、非共享物理接口 fixture 证明；其 `CanaryPlanV1` 永远是 `executable: false`，没有 action token、执行端点或 daemon/CLI consumer，因此它不是实际挂载授权。
+
+授权文档最多有效 24 小时，绑定一个随机 128-bit 小写 ID、精确 artifact SHA，以及一个 name/ifindex/state/topology/hook 全部匹配的物理接口。任何 master/member、bond、bridge、OVS、tap、veth、namespace 关系，任何 L3/route/neighbor/service consumer，或 native/generic XDP、TC 的 occupied/foreign/unknown 状态都会失败关闭。已有 eBPF 只进入前后身份快照，不会被替换、接管或宽泛清理。
+
+固定 unit 以 root 运行，但 capability 上限仅为 `CAP_BPF CAP_NET_ADMIN CAP_PERFMON CAP_SYS_RESOURCE`，配合 `NoNewPrivileges`、`ProtectSystem=strict`、`PrivateDevices`、内核/控制组保护、`AF_UNIX AF_NETLINK` 地址族限制、仅 `/run/l2-loop` 与 `/var/lib/l2-loop/evidence/v1` 可写、`TimeoutStopSec=10s` 和 `Restart=no`。Delivery G 只解析并校验该 unit，从不在测试节点调用 systemd 或 journald。
+
+性能门禁只在随机 network namespace/veth 中运行。一次 warm-up 后固定执行五轮旋转顺序的 `baseline`、`pass_through`、`observe`，每种模式使用 64/512/1514 字节和每尺寸 65,536 帧；取下中位数，不选最好成绩。pass-through 和 observe 必须分别达到 baseline 的 95% 和 90%，同时要求零新增 drop/error、CPU/RSS 有界、转发正常、精确 owned cleanup，以及原有网络/eBPF 身份完全恢复。
+
+因此 Delivery G 的最强结论只是“生成根 staging 已就绪，且 fixture 证明具备只读 Canary 候选资格”。真实 `/usr`、`/etc`、`/var`、生产 `/run` 写入，真实 systemd/journald，生产 evidence root 创建，物理接口检查/挂载，native-driver 与代表性业务负载性能，主动探针、丢包、policing 和自动处置均未实现或未授权。字段、布局、unit、性能和失败语义以[生产只读部署门禁规格](superpowers/specs/2026-08-13-production-read-only-deployment-gates-design.md)为准。
+
 ## 1. 设计结论
 
 二层环路检测 Agent 将实现为常驻 Rust 服务。管理员显式指定物理接口后，Agent 持续观察物理入口、物理出口、NIC/内核资源和本地二层拓扑。
