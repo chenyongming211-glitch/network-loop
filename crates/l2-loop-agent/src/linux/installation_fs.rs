@@ -131,7 +131,7 @@ where
             InstallObjectKindV1::RegularFile => 0,
         };
         unlinkat_name(parent.as_raw_fd(), basename, flags)?;
-        sync_directory(&mut self.faults, &parent)?
+        sync_directory(&mut self.faults, &parent)
     }
 
     pub fn rollback_restore_exact(
@@ -701,7 +701,7 @@ fn hash_open_file(file: &File) -> Result<String, InstallIoError> {
         }
         hasher.update(&buffer[..count]);
     }
-    Ok(format!("{hasher:x}"))
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn matches_intended(
