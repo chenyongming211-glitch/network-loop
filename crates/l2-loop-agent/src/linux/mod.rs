@@ -9,6 +9,7 @@ pub mod deployment_fs;
 pub mod deployment_platform;
 pub mod deployment_unit;
 pub mod inspector;
+pub mod installation_fs;
 pub mod interface;
 pub mod limits;
 pub mod maps;

@@ -204,6 +204,26 @@ impl InstallIntendedIdentityV1 {
         }
         Ok(())
     }
+
+    pub const fn kind(&self) -> InstallObjectKindV1 {
+        self.kind
+    }
+
+    pub fn sha256(&self) -> Option<&str> {
+        self.sha256.as_deref()
+    }
+
+    pub const fn mode(&self) -> u32 {
+        self.mode
+    }
+
+    pub const fn uid(&self) -> u32 {
+        self.uid
+    }
+
+    pub const fn gid(&self) -> u32 {
+        self.gid
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -278,6 +298,26 @@ impl InstallObjectIdentityV1 {
             return Err(InstallJournalError::InvalidJournal);
         }
         Ok(())
+    }
+
+    pub const fn kind(&self) -> InstallObjectKindV1 {
+        self.kind
+    }
+
+    pub fn sha256(&self) -> Option<&str> {
+        self.sha256.as_deref()
+    }
+
+    pub const fn mode(&self) -> u32 {
+        self.mode
+    }
+
+    pub const fn uid(&self) -> u32 {
+        self.uid
+    }
+
+    pub const fn gid(&self) -> u32 {
+        self.gid
     }
 
     fn matches_intended(&self, intended: &InstallIntendedIdentityV1) -> bool {
@@ -386,6 +426,10 @@ impl InstallJournalEntryV1 {
 
     pub fn fixed_path(&self) -> &str {
         &self.fixed_path
+    }
+
+    pub const fn intended_identity(&self) -> &InstallIntendedIdentityV1 {
+        &self.intended
     }
 
     pub const fn prior_state(&self) -> &InstallPriorStateV1 {
@@ -607,6 +651,10 @@ impl InstallJournalV1 {
 
     pub const fn state(&self) -> InstallJournalStateV1 {
         self.state
+    }
+
+    pub fn transaction_id(&self) -> &str {
+        &self.transaction_id
     }
 
     pub const fn durable_step(&self) -> u64 {

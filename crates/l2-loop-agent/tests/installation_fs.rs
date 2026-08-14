@@ -5,7 +5,10 @@ use std::{
     io::Cursor,
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use l2_loop_agent::{
@@ -154,10 +157,12 @@ fn nonempty_created_directory_and_unsupported_xattr_are_never_removed() {
         b"keep"
     );
 
-    root.write_file("usr-placeholder", b"metadata", 0o600);
-    let xattr_path = root.path.join("usr-placeholder");
+    root.create_dir("usr", 0o755);
+    root.create_dir("usr/bin", 0o755);
+    root.write_file("usr/bin/l2-loopctl", b"metadata", 0o755);
+    let xattr_path = root.path.join("usr/bin/l2-loopctl");
     set_user_xattr(&xattr_path);
-    assert!(filesystem.inspect_path_exact(&xattr_path).is_err());
+    assert!(filesystem.inspect_exact(InstallRoleV1::Cli).is_err());
 }
 
 #[test]
@@ -196,7 +201,7 @@ fn bootstrap_journal_moves_once_to_the_fixed_transaction_directory() {
 
 #[derive(Clone)]
 struct TestRoot {
-    path: PathBuf,
+    path: Arc<PathBuf>,
 }
 
 impl TestRoot {
@@ -212,7 +217,9 @@ impl TestRoot {
         ));
         fs::create_dir(&path).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
-        Some(Self { path })
+        Some(Self {
+            path: Arc::new(path),
+        })
     }
 
     fn create_dir(&self, relative: &str, mode: u32) {
@@ -232,13 +239,16 @@ impl InstallRootDirectory for TestRoot {
         OpenOptions::new()
             .read(true)
             .custom_flags(nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC)
-            .open(&self.path)
+            .open(self.path.as_path())
             .map_err(|_| InstallIoError::Unavailable)
     }
 }
 
 impl Drop for TestRoot {
     fn drop(&mut self) {
+        if Arc::strong_count(&self.path) != 1 {
+            return;
+        }
         let expected_prefix = format!("l2-loop-installation-{}-", "");
         let safe = self
             .path
@@ -247,7 +257,7 @@ impl Drop for TestRoot {
             .is_some_and(|name| name.starts_with(expected_prefix.trim_end_matches('-')))
             && self.path.parent() == Some(std::env::temp_dir().as_path());
         if safe && self.path.exists() {
-            fs::remove_dir_all(&self.path).unwrap();
+            fs::remove_dir_all(self.path.as_path()).unwrap();
         }
     }
 }

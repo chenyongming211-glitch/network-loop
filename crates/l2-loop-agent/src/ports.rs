@@ -11,6 +11,9 @@ use l2_loop_core::{
 };
 use thiserror::Error;
 
+#[cfg(target_os = "linux")]
+use std::fs::File;
+
 use crate::{
     InstallActionV1, InstallDestinationSnapshotV1, InstallJournalSnapshotV1, InstallPlanV1,
     InstallSourceSnapshotV1,
@@ -264,6 +267,50 @@ pub trait DeploymentPlatformInspector {
 pub enum InstallIoError {
     #[error("installation adapter input is unavailable")]
     Unavailable,
+    #[cfg(target_os = "linux")]
+    #[error("installation adapter rejected an unsafe filesystem object")]
+    UnsafeObject,
+    #[cfg(target_os = "linux")]
+    #[error("installation filesystem identity changed")]
+    IdentityChanged,
+    #[cfg(target_os = "linux")]
+    #[error("installation filesystem metadata is unsupported")]
+    UnsupportedMetadata,
+    #[cfg(target_os = "linux")]
+    #[error("installation fault injected at {0:?}")]
+    FaultInjected(InstallFaultPointV1),
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallFaultPointV1 {
+    DirectoryCreate,
+    SiblingCreate,
+    PayloadWrite,
+    Ownership,
+    Mode,
+    Hash,
+    FileSync,
+    BackupRename,
+    FinalRename,
+    DirectorySync,
+    JournalSync,
+    JournalMove,
+    Verify,
+    Rollback,
+}
+
+#[cfg(target_os = "linux")]
+pub trait InstallFaultInjector {
+    fn check(&mut self, point: InstallFaultPointV1) -> Result<(), InstallIoError>;
+}
+
+/// Supplies an already opened installation namespace root. Production uses
+/// `/`; generated-root acceptance injects a different directory descriptor
+/// without adding a destination override to the installer command surface.
+#[cfg(target_os = "linux")]
+pub trait InstallRootDirectory {
+    fn open_root(&self) -> Result<File, InstallIoError>;
 }
 
 pub trait InstallSourceReader {

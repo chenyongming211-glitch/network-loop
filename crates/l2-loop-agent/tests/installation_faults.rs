@@ -5,7 +5,10 @@ use std::{
     io::Cursor,
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use l2_loop_agent::{
@@ -158,7 +161,7 @@ impl InstallFaultInjector for FailOnce {
 
 #[derive(Clone)]
 struct FaultRoot {
-    path: PathBuf,
+    path: Arc<PathBuf>,
 }
 
 impl FaultRoot {
@@ -174,7 +177,9 @@ impl FaultRoot {
         ));
         fs::create_dir(&path).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
-        let root = Self { path };
+        let root = Self {
+            path: Arc::new(path),
+        };
         root.create_dir("usr", 0o755);
         root.create_dir("usr/bin", 0o755);
         root.write_file("sentinel", b"unchanged", 0o600);
@@ -198,13 +203,16 @@ impl InstallRootDirectory for FaultRoot {
         OpenOptions::new()
             .read(true)
             .custom_flags(nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC)
-            .open(&self.path)
+            .open(self.path.as_path())
             .map_err(|_| InstallIoError::Unavailable)
     }
 }
 
 impl Drop for FaultRoot {
     fn drop(&mut self) {
+        if Arc::strong_count(&self.path) != 1 {
+            return;
+        }
         let safe = self
             .path
             .file_name()
@@ -212,7 +220,7 @@ impl Drop for FaultRoot {
             .is_some_and(|name| name.starts_with("l2-loop-install-fault-"))
             && self.path.parent() == Some(std::env::temp_dir().as_path());
         if safe && self.path.exists() {
-            fs::remove_dir_all(&self.path).unwrap();
+            fs::remove_dir_all(self.path.as_path()).unwrap();
         }
     }
 }

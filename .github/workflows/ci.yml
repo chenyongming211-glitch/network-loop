@@ -80,6 +80,14 @@ jobs:
       - name: Check default workspace members
         run: cargo check --locked
 
+      - name: Run privileged generated-root installation tests
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/l2-loop-install-tests
+        run: >-
+          sudo --preserve-env=CARGO_HOME,RUSTUP_HOME,PATH,CARGO_TARGET_DIR
+          cargo test --locked --package l2-loop-agent
+          --test installation_fs --test installation_faults
+
   ebpf:
     name: eBPF
     runs-on: ubuntu-latest
