@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-14
 **Delivery:** G.1
-**Status:** Proposed design, implementation not started
+**Status:** Approved design, implementation started
 
 ## 1. Objective
 
