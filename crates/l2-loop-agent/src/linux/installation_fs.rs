@@ -171,6 +171,12 @@ where
         if entry_exists_at(var_lib.as_raw_fd(), &bootstrap)? {
             return Err(InstallIoError::UnsafeObject);
         }
+        if let Some(final_parent) = self.open_static_directory_optional(
+            InstallRoleV1::TransactionsRoot.fixed_destination(),
+        )? && entry_exists_at(final_parent.as_raw_fd(), journal.transaction_id())?
+        {
+            return Err(InstallIoError::UnsafeObject);
+        }
         self.faults.check(InstallFaultPointV1::DirectoryCreate)?;
         mkdirat_name(var_lib.as_raw_fd(), &bootstrap, 0o700)?;
         let directory = openat_directory(var_lib.as_raw_fd(), &bootstrap)?;
@@ -384,54 +390,60 @@ where
     }
 
     fn open_static_directory(&self, absolute: &str) -> Result<File, InstallIoError> {
+        self.open_static_directory_optional(absolute)?
+            .ok_or(InstallIoError::Unavailable)
+    }
+
+    fn open_static_directory_optional(
+        &self,
+        absolute: &str,
+    ) -> Result<Option<File>, InstallIoError> {
         if !absolute.starts_with('/') {
             return Err(InstallIoError::UnsafeObject);
         }
         let mut current = self.root.open_root()?;
+        let mut prefix = String::new();
         for component in absolute
             .split('/')
             .filter(|component| !component.is_empty())
         {
             ensure_safe_basename(component)?;
-            let next = openat_directory(current.as_raw_fd(), component)?;
+            let Some(next) = openat_directory_optional(current.as_raw_fd(), component)? else {
+                return Ok(None);
+            };
+            prefix.push('/');
+            prefix.push_str(component);
             let expected_mode = InstallLayoutV1::entries()
                 .iter()
-                .find(|entry| entry.destination == prefix_for(absolute, component))
+                .find(|entry| entry.destination == prefix)
                 .map(|entry| entry.mode)
                 .ok_or(InstallIoError::UnsafeObject)?;
             validate_directory(&next, expected_mode)?;
             current = next;
         }
-        Ok(current)
+        Ok(Some(current))
     }
 
     fn open_transaction_directory(&self, transaction_id: &str) -> Result<File, InstallIoError> {
         ensure_transaction_id(transaction_id)?;
-        let final_parent =
-            self.open_static_directory(InstallRoleV1::TransactionsRoot.fixed_destination())?;
-        if let Ok(directory) = openat_directory(final_parent.as_raw_fd(), transaction_id) {
+        let var_lib = self.open_static_directory("/var/lib")?;
+        let bootstrap = bootstrap_basename(transaction_id)?;
+        if entry_exists_at(var_lib.as_raw_fd(), &bootstrap)? {
+            let directory = openat_directory(var_lib.as_raw_fd(), &bootstrap)?;
             validate_directory(&directory, 0o700)?;
             return Ok(directory);
         }
-        let var_lib = self.open_static_directory("/var/lib")?;
-        let bootstrap = bootstrap_basename(transaction_id)?;
-        let directory = openat_directory(var_lib.as_raw_fd(), &bootstrap)?;
+
+        let final_parent = self
+            .open_static_directory_optional(InstallRoleV1::TransactionsRoot.fixed_destination())?
+            .ok_or(InstallIoError::Unavailable)?;
+        if !entry_exists_at(final_parent.as_raw_fd(), transaction_id)? {
+            return Err(InstallIoError::Unavailable);
+        }
+        let directory = openat_directory(final_parent.as_raw_fd(), transaction_id)?;
         validate_directory(&directory, 0o700)?;
         Ok(directory)
     }
-}
-
-fn prefix_for<'a>(absolute: &'a str, component: &str) -> &'a str {
-    let component_end = absolute
-        .match_indices(component)
-        .find_map(|(start, value)| {
-            let end = start + value.len();
-            (absolute.as_bytes().get(start.wrapping_sub(1)) == Some(&b'/')
-                && matches!(absolute.as_bytes().get(end), None | Some(b'/')))
-            .then_some(end)
-        })
-        .unwrap_or(absolute.len());
-    &absolute[..component_end]
 }
 
 fn role_basename(role: InstallRoleV1) -> Result<&'static str, InstallIoError> {
@@ -461,6 +473,10 @@ fn openat_existing(parent: RawFd, name: &str) -> Result<File, InstallIoError> {
 }
 
 fn openat_directory(parent: RawFd, name: &str) -> Result<File, InstallIoError> {
+    openat_directory_optional(parent, name)?.ok_or(InstallIoError::Unavailable)
+}
+
+fn openat_directory_optional(parent: RawFd, name: &str) -> Result<Option<File>, InstallIoError> {
     let name = safe_cstring(name)?;
     let fd = unsafe {
         nix::libc::openat(
@@ -472,7 +488,14 @@ fn openat_directory(parent: RawFd, name: &str) -> Result<File, InstallIoError> {
                 | nix::libc::O_CLOEXEC,
         )
     };
-    file_from_fd(fd)
+    if fd >= 0 {
+        return Ok(Some(unsafe { File::from_raw_fd(fd) }));
+    }
+    match io::Error::last_os_error().raw_os_error() {
+        Some(nix::libc::ENOENT) => Ok(None),
+        Some(nix::libc::ELOOP | nix::libc::ENOTDIR) => Err(InstallIoError::UnsafeObject),
+        _ => Err(InstallIoError::Unavailable),
+    }
 }
 
 fn createat_file(parent: RawFd, name: &str, mode: u32) -> Result<File, InstallIoError> {
