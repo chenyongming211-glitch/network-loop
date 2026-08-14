@@ -1,11 +1,10 @@
 use l2_loop_core::{
-    DeploymentArtifactIdentityV1, GI_AUTH_ARTIFACT, GI_AUTH_EXPIRED, GI_AUTH_HOST,
-    GI_AUTH_SCHEMA, GI_BUNDLE_INVALID, GI_DESTINATION_FOREIGN, GI_INTERNAL, GI_LAYOUT_VERIFY,
-    GI_METADATA_UNSAFE, GI_PHYSICAL_BLOCKED, GI_ROLLBACK_IDENTITY, GI_SERVICE_LIFECYCLE,
-    GI_SERVICE_STATE, GI_TRANSACTION_CONFLICT, GI_WRITE_FAILED,
-    INSTALL_AUTHORIZATION_MAX_LIFETIME_MS, INSTALLATION_SCHEMA_VERSION, InstallAuthorizationV1,
-    InstallCommandV1, InstallDecisionV1, InstallFindingSeverityV1, InstallFindingV1,
-    InstallOperationV1, InstallReportV1,
+    DeploymentArtifactIdentityV1, GI_AUTH_ARTIFACT, GI_AUTH_EXPIRED, GI_AUTH_HOST, GI_AUTH_SCHEMA,
+    GI_BUNDLE_INVALID, GI_DESTINATION_FOREIGN, GI_INTERNAL, GI_LAYOUT_VERIFY, GI_METADATA_UNSAFE,
+    GI_PHYSICAL_BLOCKED, GI_ROLLBACK_IDENTITY, GI_SERVICE_LIFECYCLE, GI_SERVICE_STATE,
+    GI_TRANSACTION_CONFLICT, GI_WRITE_FAILED, INSTALL_AUTHORIZATION_MAX_LIFETIME_MS,
+    INSTALLATION_SCHEMA_VERSION, InstallAuthorizationV1, InstallCommandV1, InstallDecisionV1,
+    InstallFindingSeverityV1, InstallFindingV1, InstallOperationV1, InstallReportV1,
 };
 use serde_json::{Value, json};
 
@@ -14,10 +13,8 @@ const EXPIRES_MS: u64 = NOW_MS + INSTALL_AUTHORIZATION_MAX_LIFETIME_MS;
 const AUTHORIZATION_ID: &str = "00112233445566778899aabbccddeeff";
 const TRANSACTION_ID: &str = "ffeeddccbbaa99887766554433221100";
 const COMMIT_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
-const MANIFEST_SHA256: &str =
-    "1111111111111111111111111111111111111111111111111111111111111111";
-const HOST_SHA256: &str =
-    "2222222222222222222222222222222222222222222222222222222222222222";
+const MANIFEST_SHA256: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+const HOST_SHA256: &str = "2222222222222222222222222222222222222222222222222222222222222222";
 const DEPLOYMENT_AUTHORIZATION_SHA256: &str =
     "3333333333333333333333333333333333333333333333333333333333333333";
 const PERFORMANCE_EVIDENCE_SHA256: &str =
@@ -210,8 +207,7 @@ fn authorization_binds_every_exact_installation_input() {
             .is_err()
     );
 
-    let wrong_digest =
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let wrong_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     for digests in [
         (
             wrong_digest,
@@ -397,16 +393,8 @@ fn report_blocks_on_any_blocker_and_rejects_shape_mismatches() {
 
     for (command, operation, mutations) in [
         (InstallCommandV1::Plan, InstallOperationV1::Install, true),
-        (
-            InstallCommandV1::Apply,
-            InstallOperationV1::Install,
-            false,
-        ),
-        (
-            InstallCommandV1::Status,
-            InstallOperationV1::Install,
-            true,
-        ),
+        (InstallCommandV1::Apply, InstallOperationV1::Install, false),
+        (InstallCommandV1::Status, InstallOperationV1::Install, true),
         (
             InstallCommandV1::Rollback,
             InstallOperationV1::Install,
@@ -464,7 +452,10 @@ fn installation_contract_is_bounded_and_cannot_grant_service_or_network_authorit
         "source_path",
         "error_chain",
     ] {
-        assert!(!rendered.contains(prohibited), "report exposed {prohibited}");
+        assert!(
+            !rendered.contains(prohibited),
+            "report exposed {prohibited}"
+        );
     }
 
     let retired_keyword = ["c", "s", "m", "p"].concat();
