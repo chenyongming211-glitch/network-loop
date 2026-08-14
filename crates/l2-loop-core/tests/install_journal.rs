@@ -22,7 +22,10 @@ const PRIOR_SHA256: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccc
 fn roles_own_the_fixed_destinations_and_install_order() {
     assert_eq!(INSTALL_JOURNAL_SCHEMA_VERSION, 1);
     assert_eq!(InstallRoleV1::UsrRoot.fixed_destination(), "/usr");
-    assert_eq!(InstallRoleV1::Cli.fixed_destination(), "/usr/bin/l2-loopctl");
+    assert_eq!(
+        InstallRoleV1::Cli.fixed_destination(),
+        "/usr/bin/l2-loopctl"
+    );
     assert_eq!(
         InstallRoleV1::Daemon.fixed_destination(),
         "/usr/libexec/l2-loop/l2-loopd"
@@ -50,12 +53,7 @@ fn journal_serialization_is_strict_and_revalidates_private_invariants() {
         cli_identity(),
         Some(parent_identity()),
     );
-    apply_and_verify(
-        &mut journal,
-        InstallRoleV1::Daemon,
-        daemon_identity(),
-        None,
-    );
+    apply_and_verify(&mut journal, InstallRoleV1::Daemon, daemon_identity(), None);
     journal.mark_installed().unwrap();
 
     let encoded = serde_json::to_string(&journal).unwrap();
@@ -91,11 +89,22 @@ fn preparation_is_deterministic_and_preserves_exact_prior_and_generated_identiti
     assert_eq!(journal.state(), InstallJournalStateV1::Prepared);
     assert_eq!(journal.durable_step(), 1);
     assert_eq!(
-        journal.entries().iter().map(|entry| entry.role()).collect::<Vec<_>>(),
-        [InstallRoleV1::UsrRoot, InstallRoleV1::Cli, InstallRoleV1::Daemon]
+        journal
+            .entries()
+            .iter()
+            .map(|entry| entry.role())
+            .collect::<Vec<_>>(),
+        [
+            InstallRoleV1::UsrRoot,
+            InstallRoleV1::Cli,
+            InstallRoleV1::Daemon
+        ]
     );
     assert_eq!(journal.entries()[0].fixed_path(), "/usr");
-    assert_eq!(journal.entries()[0].prior_state(), &InstallPriorStateV1::Absent);
+    assert_eq!(
+        journal.entries()[0].prior_state(),
+        &InstallPriorStateV1::Absent
+    );
     assert_eq!(
         journal.entries()[1].sibling_basename(),
         Some(".l2-loop-cli-new")
@@ -188,12 +197,7 @@ fn applying_exposes_one_exact_forward_action_at_every_crash_point() {
         journal.entries()[1].created_parent_identity(),
         Some(&parent_identity())
     );
-    apply_and_verify(
-        &mut journal,
-        InstallRoleV1::Daemon,
-        daemon_identity(),
-        None,
-    );
+    apply_and_verify(&mut journal, InstallRoleV1::Daemon, daemon_identity(), None);
     assert_eq!(journal.next_forward_action(), None);
     journal.mark_installed().unwrap();
     assert_eq!(journal.state(), InstallJournalStateV1::Installed);
@@ -212,7 +216,10 @@ fn rollback_is_reverse_ordered_and_includes_only_durably_applied_entries() {
         cli_identity(),
         Some(parent_identity()),
     );
-    assert_eq!(journal.entries()[2].phase(), InstallJournalEntryPhaseV1::Pending);
+    assert_eq!(
+        journal.entries()[2].phase(),
+        InstallJournalEntryPhaseV1::Pending
+    );
 
     journal.begin_rollback().unwrap();
     assert_eq!(journal.state(), InstallJournalStateV1::RollingBack);
@@ -244,7 +251,10 @@ fn rollback_is_reverse_ordered_and_includes_only_durably_applied_entries() {
     assert_eq!(journal.next_rollback_action(), Some(root_rollback.clone()));
     journal.record_rollback_completed(&root_rollback).unwrap();
     assert_eq!(journal.next_rollback_action(), None);
-    assert_eq!(journal.entries()[2].phase(), InstallJournalEntryPhaseV1::Pending);
+    assert_eq!(
+        journal.entries()[2].phase(),
+        InstallJournalEntryPhaseV1::Pending
+    );
     journal.mark_rolled_back().unwrap();
     assert_eq!(journal.state(), InstallJournalStateV1::RolledBack);
     assert!(journal.begin_rollback().is_err());
@@ -261,12 +271,7 @@ fn installed_upgrade_rollback_carries_both_exact_current_and_backup_identity() {
         cli_identity(),
         Some(parent_identity()),
     );
-    apply_and_verify(
-        &mut journal,
-        InstallRoleV1::Daemon,
-        daemon_identity(),
-        None,
-    );
+    apply_and_verify(&mut journal, InstallRoleV1::Daemon, daemon_identity(), None);
     journal.mark_installed().unwrap();
     journal.begin_rollback().unwrap();
 
@@ -306,16 +311,23 @@ fn first_failure_is_immutable_and_identity_uncertainty_blocks_rollback() {
     blocked
         .record_applied(InstallRoleV1::UsrRoot, usr_identity(), None)
         .unwrap();
-    blocked
-        .record_failure(GI_ROLLBACK_IDENTITY, false)
-        .unwrap();
+    blocked.record_failure(GI_ROLLBACK_IDENTITY, false).unwrap();
     assert!(!blocked.rollback_possible());
     assert!(blocked.begin_rollback().is_err());
 }
 
 #[test]
 fn generated_names_and_identity_shapes_fail_closed() {
-    for basename in ["", ".", "..", "nested/name", "nested\\name", "*.tmp", "name?tmp", "[name]"] {
+    for basename in [
+        "",
+        ".",
+        "..",
+        "nested/name",
+        "nested\\name",
+        "*.tmp",
+        "name?tmp",
+        "[name]",
+    ] {
         assert!(
             InstallJournalEntryV1::absent_file(
                 InstallRoleV1::Cli,
@@ -327,9 +339,7 @@ fn generated_names_and_identity_shapes_fail_closed() {
         );
     }
 
-    assert!(
-        InstallIntendedIdentityV1::regular_file(CLI_SHA256, 0o777, 0, 0).is_ok()
-    );
+    assert!(InstallIntendedIdentityV1::regular_file(CLI_SHA256, 0o777, 0, 0).is_ok());
     assert!(
         InstallJournalEntryV1::absent_file(
             InstallRoleV1::Cli,
