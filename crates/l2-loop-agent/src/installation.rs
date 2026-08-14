@@ -6,46 +6,12 @@ use l2_loop_core::{
     InstallAuthorizationV1, InstallCommandV1, InstallContractError, InstallFindingV1,
     InstallOperationV1, InstallReportV1,
 };
+pub use l2_loop_core::InstallRoleV1;
 use thiserror::Error;
 
 use crate::{
     Clock, HostIdentityReader, InstallSourceReader, InstallStateReader, InstallTransactionWriter,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum InstallRoleV1 {
-    EvidenceRoot,
-    Daemon,
-    Cli,
-    UsrRoot,
-    UsrBinRoot,
-    UsrLibRoot,
-    UsrLibexecRoot,
-    ProductLibexecRoot,
-    UsrLibSystemdRoot,
-    SystemdUnitRoot,
-    UsrShareRoot,
-    UsrShareDocRoot,
-    ProductDocRoot,
-    EtcRoot,
-    ConfigRoot,
-    VarRoot,
-    VarLibRoot,
-    StateRoot,
-    GatesRoot,
-    EvidenceParent,
-    InstallRoot,
-    TransactionsRoot,
-    DeploymentChecker,
-    HostChecker,
-    EbpfObject,
-    BundleManifest,
-    BundleChecksums,
-    ServiceUnit,
-    AuthorizationExample,
-    DeploymentAuthorization,
-    PerformanceEvidence,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstallDestinationStateV1 {
