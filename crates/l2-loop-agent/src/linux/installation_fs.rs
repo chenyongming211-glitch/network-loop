@@ -24,7 +24,7 @@ const COPY_BUFFER_BYTES: usize = 16 * 1024;
 const MAX_INSTALL_PAYLOAD_BYTES: u64 = 64 * 1024 * 1024;
 const JOURNAL_BASENAME: &str = "journal-v1.json";
 const JOURNAL_SIBLING_BASENAME: &str = ".journal-v1.json.new";
-const FS_IOC_GETFLAGS: nix::libc::c_ulong = 0x8008_6601;
+const FS_IOC_GETFLAGS: u32 = 0x8008_6601;
 const UNSUPPORTED_FILE_FLAGS: nix::libc::c_long = 0x10 | 0x20;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -622,13 +622,7 @@ fn ensure_supported_metadata(file: &File) -> Result<(), InstallIoError> {
         return Err(InstallIoError::UnsupportedMetadata);
     }
     let mut flags: nix::libc::c_long = 0;
-    let result = unsafe {
-        nix::libc::ioctl(
-            file.as_raw_fd(),
-            FS_IOC_GETFLAGS,
-            std::ptr::addr_of_mut!(flags),
-        )
-    };
+    let result = ioctl_getflags(file.as_raw_fd(), &mut flags);
     if result == 0 && flags & UNSUPPORTED_FILE_FLAGS != 0 {
         return Err(InstallIoError::UnsupportedMetadata);
     }
@@ -641,6 +635,16 @@ fn ensure_supported_metadata(file: &File) -> Result<(), InstallIoError> {
         return Err(InstallIoError::Unavailable);
     }
     Ok(())
+}
+
+#[cfg(target_env = "musl")]
+fn ioctl_getflags(fd: RawFd, flags: &mut nix::libc::c_long) -> nix::libc::c_int {
+    unsafe { nix::libc::ioctl(fd, FS_IOC_GETFLAGS as nix::libc::c_int, flags) }
+}
+
+#[cfg(not(target_env = "musl"))]
+fn ioctl_getflags(fd: RawFd, flags: &mut nix::libc::c_long) -> nix::libc::c_int {
+    unsafe { nix::libc::ioctl(fd, nix::libc::c_ulong::from(FS_IOC_GETFLAGS), flags) }
 }
 
 fn set_owner_mode<F: InstallFaultInjector>(
