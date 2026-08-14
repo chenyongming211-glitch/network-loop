@@ -55,8 +55,7 @@ fn backup_rename_and_rollback_faults_never_guess_at_foreign_state() {
             return;
         };
         root.write_file("usr/bin/l2-loopctl", b"prior", 0o755);
-        let mut inspector =
-            LinuxInstallationFilesystem::new(root.clone(), FailOnce::disabled());
+        let mut inspector = LinuxInstallationFilesystem::new(root.clone(), FailOnce::disabled());
         let prior = inspector.inspect_exact(InstallRoleV1::Cli).unwrap();
         let payload = b"next";
         let entry = InstallJournalEntryV1::prior_owned_file(
@@ -80,8 +79,7 @@ fn backup_rename_and_rollback_faults_never_guess_at_foreign_state() {
                 b"prior"
             );
         } else {
-            let mut writer =
-                LinuxInstallationFilesystem::new(root.clone(), FailOnce::disabled());
+            let mut writer = LinuxInstallationFilesystem::new(root.clone(), FailOnce::disabled());
             let applied = writer
                 .apply_entry(&entry, Some(&mut Cursor::new(payload)))
                 .unwrap();
@@ -115,10 +113,8 @@ fn verify_fault_is_reported_before_identity_is_trusted() {
     let applied = writer
         .apply_entry(&entry, Some(&mut Cursor::new(payload)))
         .unwrap();
-    let mut verifier = LinuxInstallationFilesystem::new(
-        root.clone(),
-        FailOnce::at(InstallFaultPointV1::Verify),
-    );
+    let mut verifier =
+        LinuxInstallationFilesystem::new(root.clone(), FailOnce::at(InstallFaultPointV1::Verify));
 
     assert!(
         verifier
@@ -187,11 +183,7 @@ impl FaultRoot {
 
     fn create_dir(&self, relative: &str, mode: u32) {
         fs::create_dir(self.path.join(relative)).unwrap();
-        fs::set_permissions(
-            self.path.join(relative),
-            fs::Permissions::from_mode(mode),
-        )
-        .unwrap();
+        fs::set_permissions(self.path.join(relative), fs::Permissions::from_mode(mode)).unwrap();
     }
 
     fn write_file(&self, relative: &str, bytes: &[u8], mode: u32) {
@@ -226,20 +218,11 @@ impl Drop for FaultRoot {
 }
 
 fn absent_cli_entry(bytes: &[u8]) -> InstallJournalEntryV1 {
-    InstallJournalEntryV1::absent_file(
-        InstallRoleV1::Cli,
-        intended_file(bytes),
-        ".l2-loop-cli-new",
-    )
-    .unwrap()
+    InstallJournalEntryV1::absent_file(InstallRoleV1::Cli, intended_file(bytes), ".l2-loop-cli-new")
+        .unwrap()
 }
 
 fn intended_file(bytes: &[u8]) -> InstallIntendedIdentityV1 {
-    InstallIntendedIdentityV1::regular_file(
-        format!("{:x}", Sha256::digest(bytes)),
-        0o755,
-        0,
-        0,
-    )
-    .unwrap()
+    InstallIntendedIdentityV1::regular_file(format!("{:x}", Sha256::digest(bytes)), 0o755, 0, 0)
+        .unwrap()
 }

@@ -185,9 +185,9 @@ fn bootstrap_journal_moves_once_to_the_fixed_transaction_directory() {
     filesystem.publish_journal(&journal).unwrap();
 
     assert!(!bootstrap.exists());
-    let final_root = root
-        .path
-        .join(format!("var/lib/l2-loop/install/transactions/{TRANSACTION_ID}"));
+    let final_root = root.path.join(format!(
+        "var/lib/l2-loop/install/transactions/{TRANSACTION_ID}"
+    ));
     let decoded: InstallJournalV1 =
         serde_json::from_slice(&fs::read(final_root.join("journal-v1.json")).unwrap()).unwrap();
     assert_eq!(decoded, journal);
@@ -217,11 +217,7 @@ impl TestRoot {
 
     fn create_dir(&self, relative: &str, mode: u32) {
         fs::create_dir(self.path.join(relative)).unwrap();
-        fs::set_permissions(
-            self.path.join(relative),
-            fs::Permissions::from_mode(mode),
-        )
-        .unwrap();
+        fs::set_permissions(self.path.join(relative), fs::Permissions::from_mode(mode)).unwrap();
     }
 
     fn write_file(&self, relative: &str, bytes: &[u8], mode: u32) {
@@ -276,11 +272,8 @@ fn prepared_journal() -> InstallJournalV1 {
             TRANSACTION_ID,
             "00112233445566778899aabbccddeeff",
             "1".repeat(64),
-            DeploymentArtifactIdentityV1::new(
-                "0123456789abcdef0123456789abcdef01234567",
-                "0.1.0",
-            )
-            .unwrap(),
+            DeploymentArtifactIdentityV1::new("0123456789abcdef0123456789abcdef01234567", "0.1.0")
+                .unwrap(),
             "2".repeat(64),
             "3".repeat(64),
             "4".repeat(64),
