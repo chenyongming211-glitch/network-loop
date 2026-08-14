@@ -34,10 +34,13 @@ $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Import-Module (Join-Path $PSScriptRoot 'lib/IsolatedNames.psm1') -Force
 
 $ExpectedBundleFiles = @(
-    'l2-loopd',
-    'l2-loopctl',
-    'l2-loop-hostcheck',
+    'deployment-v1.example.json',
+    'l2-loop-deploycheck',
     'l2-loop-ebpf.o',
+    'l2-loop-hostcheck',
+    'l2-loop.service',
+    'l2-loopctl',
+    'l2-loopd',
     'manifest.json',
     'SHA256SUMS'
 )
@@ -141,35 +144,43 @@ function Get-ExactGreenBundle {
 
     $RootItem = Get-Item -LiteralPath $ArtifactRoot
     Assert-NoSymlink -Item $RootItem
-    foreach ($Filename in $ExpectedBundleFiles) {
-        $Path = Join-Path $ArtifactRoot $Filename
-        $Item = Get-Item -LiteralPath $Path
+    $ObservedFiles = @(Get-ChildItem -LiteralPath $ArtifactRoot -Force)
+    if ($ObservedFiles.Count -ne 9 -or @($ObservedFiles | Where-Object { $_.PSIsContainer }).Count -ne 0) {
+        throw 'bundle inventory is not exactly nine regular files'
+    }
+    foreach ($Item in $ObservedFiles) {
         Assert-NoSymlink -Item $Item
-        if (-not $Item.PSIsContainer -and $Item.Name -cne $Filename) {
-            throw 'bundle filename changed identity'
-        }
+    }
+    $ObservedNames = @($ObservedFiles.Name | Sort-Object)
+    $ExpectedNames = @($ExpectedBundleFiles | Sort-Object)
+    if (($ObservedNames -join "`n") -cne ($ExpectedNames -join "`n")) {
+        throw 'bundle filenames do not match the fixed inventory'
     }
 
-    $ChecksumLines = Get-Content -LiteralPath (Join-Path $ArtifactRoot 'SHA256SUMS')
-    if ($ChecksumLines.Count -ne 5) {
-        throw 'bundle checksum file must contain exactly five entries'
+    $ChecksumLines = @(Get-Content -LiteralPath (Join-Path $ArtifactRoot 'SHA256SUMS'))
+    if ($ChecksumLines.Count -ne 8) {
+        throw 'bundle checksum file must contain exactly eight entries'
     }
+    $Covered = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($Line in $ChecksumLines) {
         if ($Line -cnotmatch '^([0-9a-f]{64})  ([A-Za-z0-9._-]+)$') {
             throw 'bundle checksum line is malformed'
         }
         $ExpectedHash = $Matches[1]
         $Filename = $Matches[2]
-        if ($Filename -cnotin $ExpectedBundleFiles) {
-            throw 'bundle checksum covers an unexpected file'
+        if ($Filename -ceq 'SHA256SUMS' -or $Filename -cnotin $ExpectedBundleFiles -or -not $Covered.Add($Filename)) {
+            throw 'bundle checksum coverage is invalid'
         }
-        $ActualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $ArtifactRoot $Filename)).Hash.ToLowerInvariant()
+        $Item = Get-Item -LiteralPath (Join-Path $ArtifactRoot $Filename)
+        Assert-NoSymlink -Item $Item
+        if ($Item.PSIsContainer) { throw 'bundle payload is not a regular file' }
+        $ActualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Item.FullName).Hash.ToLowerInvariant()
         if ($ActualHash -cne $ExpectedHash) {
             throw "bundle checksum mismatch for $Filename"
         }
     }
     $Manifest = Get-Content -LiteralPath (Join-Path $ArtifactRoot 'manifest.json') -Raw | ConvertFrom-Json
-    if ($Manifest.commit_sha -cne $Commit) {
+    if ($Manifest.commit_sha -cne $Commit -or $Manifest.files.deployment_checker -cne 'l2-loop-deploycheck') {
         throw 'bundle manifest commit does not match the requested commit'
     }
     $ArtifactRoot
@@ -353,10 +364,13 @@ cleanup_state() {
 cleanup() {
     cleanup_state
     cleanup_evidence
+    cleanup_file "$root/deployment-v1.example.json"
+    cleanup_file "$root/l2-loop-deploycheck"
     cleanup_file "$root/l2-loopd"
     cleanup_file "$root/l2-loopctl"
     cleanup_file "$root/l2-loop-hostcheck"
     cleanup_file "$root/l2-loop-ebpf.o"
+    cleanup_file "$root/l2-loop.service"
     cleanup_file "$root/manifest.json"
     cleanup_file "$root/SHA256SUMS"
     cleanup_dir "$root"
@@ -406,7 +420,7 @@ case "$phase" in
         assert_no_symlink "$root"
         cd "$root"
         sha256sum --check SHA256SUMS >/dev/null
-        chmod 0755 l2-loopd l2-loopctl l2-loop-hostcheck
+        chmod 0755 l2-loopd l2-loopctl l2-loop-deploycheck l2-loop-hostcheck
         ;;
     launch)
         cd "$root"
