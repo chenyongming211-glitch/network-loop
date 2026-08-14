@@ -680,16 +680,16 @@ impl InstallJournalV1 {
         current_identity: InstallObjectIdentityV1,
         created_parent_identity: Option<InstallObjectIdentityV1>,
     ) -> Result<(), InstallJournalError> {
-        if let Some(entry) = self.entries.iter().find(|entry| entry.role == role) {
-            if entry.phase == InstallJournalEntryPhaseV1::Applied {
-                return if entry.current_identity.as_ref() == Some(&current_identity)
-                    && entry.created_parent_identity == created_parent_identity
-                {
-                    Ok(())
-                } else {
-                    Err(InstallJournalError::InvalidTransition)
-                };
-            }
+        if let Some(entry) = self.entries.iter().find(|entry| entry.role == role)
+            && entry.phase == InstallJournalEntryPhaseV1::Applied
+        {
+            return if entry.current_identity.as_ref() == Some(&current_identity)
+                && entry.created_parent_identity == created_parent_identity
+            {
+                Ok(())
+            } else {
+                Err(InstallJournalError::InvalidTransition)
+            };
         }
         let Some(InstallJournalForwardActionV1::Apply {
             role: expected_role,
@@ -723,14 +723,14 @@ impl InstallJournalV1 {
         role: InstallRoleV1,
         observed_identity: InstallObjectIdentityV1,
     ) -> Result<(), InstallJournalError> {
-        if let Some(entry) = self.entries.iter().find(|entry| entry.role == role) {
-            if entry.phase == InstallJournalEntryPhaseV1::Verified {
-                return if entry.current_identity.as_ref() == Some(&observed_identity) {
-                    Ok(())
-                } else {
-                    Err(InstallJournalError::InvalidTransition)
-                };
-            }
+        if let Some(entry) = self.entries.iter().find(|entry| entry.role == role)
+            && entry.phase == InstallJournalEntryPhaseV1::Verified
+        {
+            return if entry.current_identity.as_ref() == Some(&observed_identity) {
+                Ok(())
+            } else {
+                Err(InstallJournalError::InvalidTransition)
+            };
         }
         let Some(InstallJournalForwardActionV1::Verify {
             role: expected_role,
