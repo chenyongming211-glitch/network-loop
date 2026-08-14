@@ -171,9 +171,9 @@ where
         if entry_exists_at(var_lib.as_raw_fd(), &bootstrap)? {
             return Err(InstallIoError::UnsafeObject);
         }
-        if let Some(final_parent) = self.open_static_directory_optional(
-            InstallRoleV1::TransactionsRoot.fixed_destination(),
-        )? && entry_exists_at(final_parent.as_raw_fd(), journal.transaction_id())?
+        if let Some(final_parent) = self
+            .open_static_directory_optional(InstallRoleV1::TransactionsRoot.fixed_destination())?
+            && entry_exists_at(final_parent.as_raw_fd(), journal.transaction_id())?
         {
             return Err(InstallIoError::UnsafeObject);
         }
