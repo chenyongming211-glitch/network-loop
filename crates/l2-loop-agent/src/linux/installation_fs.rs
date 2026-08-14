@@ -43,9 +43,7 @@ impl InstallRootDirectory for FixedInstallRoot {
     fn open_root(&self) -> Result<File, InstallIoError> {
         OpenOptions::new()
             .read(true)
-            .custom_flags(
-                nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC,
-            )
+            .custom_flags(nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC)
             .open("/")
             .map_err(unavailable)
     }
@@ -166,10 +164,7 @@ where
         Ok(())
     }
 
-    pub fn bootstrap_journal(
-        &mut self,
-        journal: &InstallJournalV1,
-    ) -> Result<(), InstallIoError> {
+    pub fn bootstrap_journal(&mut self, journal: &InstallJournalV1) -> Result<(), InstallIoError> {
         ensure_selinux_is_not_enforcing()?;
         let var_lib = self.open_static_directory("/var/lib")?;
         let bootstrap = bootstrap_basename(journal.transaction_id())?;
@@ -185,14 +180,10 @@ where
         sync_journal_directory(&mut self.faults, &var_lib)
     }
 
-    pub fn publish_journal(
-        &mut self,
-        journal: &InstallJournalV1,
-    ) -> Result<(), InstallIoError> {
+    pub fn publish_journal(&mut self, journal: &InstallJournalV1) -> Result<(), InstallIoError> {
         let var_lib = self.open_static_directory("/var/lib")?;
-        let final_parent = self.open_static_directory(
-            InstallRoleV1::TransactionsRoot.fixed_destination(),
-        )?;
+        let final_parent =
+            self.open_static_directory(InstallRoleV1::TransactionsRoot.fixed_destination())?;
         let bootstrap = bootstrap_basename(journal.transaction_id())?;
         let bootstrap_directory = openat_directory(var_lib.as_raw_fd(), &bootstrap)?;
         validate_directory(&bootstrap_directory, 0o700)?;
@@ -212,10 +203,7 @@ where
         sync_journal_directory(&mut self.faults, &final_parent)
     }
 
-    pub fn persist_journal(
-        &mut self,
-        journal: &InstallJournalV1,
-    ) -> Result<(), InstallIoError> {
+    pub fn persist_journal(&mut self, journal: &InstallJournalV1) -> Result<(), InstallIoError> {
         let directory = self.open_transaction_directory(journal.transaction_id())?;
         validate_existing_journal_binding(&directory, journal.transaction_id())?;
         if entry_exists_at(directory.as_raw_fd(), JOURNAL_SIBLING_BASENAME)? {
@@ -251,7 +239,11 @@ where
             return Err(InstallIoError::UnsafeObject);
         }
         self.faults.check(InstallFaultPointV1::DirectoryCreate)?;
-        mkdirat_name(parent.as_raw_fd(), basename, entry.intended_identity().mode())?;
+        mkdirat_name(
+            parent.as_raw_fd(),
+            basename,
+            entry.intended_identity().mode(),
+        )?;
         let directory = openat_directory(parent.as_raw_fd(), basename)?;
         let result = (|| {
             set_owner_mode(
@@ -349,12 +341,7 @@ where
             }
 
             self.faults.check(InstallFaultPointV1::FinalRename)?;
-            renameat_name(
-                parent.as_raw_fd(),
-                sibling,
-                parent.as_raw_fd(),
-                destination,
-            )?;
+            renameat_name(parent.as_raw_fd(), sibling, parent.as_raw_fd(), destination)?;
             final_moved = true;
             sync_directory(&mut self.faults, &parent)?;
             let current = inspect_at(&parent, destination)?;
@@ -401,7 +388,10 @@ where
             return Err(InstallIoError::UnsafeObject);
         }
         let mut current = self.root.open_root()?;
-        for component in absolute.split('/').filter(|component| !component.is_empty()) {
+        for component in absolute
+            .split('/')
+            .filter(|component| !component.is_empty())
+        {
             ensure_safe_basename(component)?;
             let next = openat_directory(current.as_raw_fd(), component)?;
             let expected_mode = InstallLayoutV1::entries()
@@ -417,9 +407,8 @@ where
 
     fn open_transaction_directory(&self, transaction_id: &str) -> Result<File, InstallIoError> {
         ensure_transaction_id(transaction_id)?;
-        let final_parent = self.open_static_directory(
-            InstallRoleV1::TransactionsRoot.fixed_destination(),
-        )?;
+        let final_parent =
+            self.open_static_directory(InstallRoleV1::TransactionsRoot.fixed_destination())?;
         if let Ok(directory) = openat_directory(final_parent.as_raw_fd(), transaction_id) {
             validate_directory(&directory, 0o700)?;
             return Ok(directory);
@@ -526,14 +515,8 @@ fn renameat_name(
 ) -> Result<(), InstallIoError> {
     let old_name = safe_cstring(old_name)?;
     let new_name = safe_cstring(new_name)?;
-    if unsafe {
-        nix::libc::renameat(
-            old_parent,
-            old_name.as_ptr(),
-            new_parent,
-            new_name.as_ptr(),
-        )
-    } != 0
+    if unsafe { nix::libc::renameat(old_parent, old_name.as_ptr(), new_parent, new_name.as_ptr()) }
+        != 0
     {
         return Err(InstallIoError::Unavailable);
     }
