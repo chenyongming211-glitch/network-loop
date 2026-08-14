@@ -343,11 +343,7 @@ where
             );
         };
         if self.writer.begin_rollback(journal).is_err() {
-            return prepared.blocked_report(
-                InstallCommandV1::Rollback,
-                GI_ROLLBACK_IDENTITY,
-                true,
-            );
+            return prepared.blocked_report(InstallCommandV1::Rollback, GI_ROLLBACK_IDENTITY, true);
         }
         for action in journal.completed_actions.iter().rev() {
             if self.writer.rollback_action(action).is_err() {
@@ -366,11 +362,7 @@ where
             }
         }
         if self.writer.complete_rollback(journal).is_err() {
-            return prepared.blocked_report(
-                InstallCommandV1::Rollback,
-                GI_ROLLBACK_IDENTITY,
-                true,
-            );
+            return prepared.blocked_report(InstallCommandV1::Rollback, GI_ROLLBACK_IDENTITY, true);
         }
         prepared.report(InstallCommandV1::Rollback, Vec::new(), true)
     }
@@ -499,7 +491,11 @@ fn source_binding_failure(
     source: &InstallSourceSnapshotV1,
     captured_at_unix_ms: u64,
 ) -> Option<&'static str> {
-    if source.authorization.validate_at(captured_at_unix_ms).is_err() {
+    if source
+        .authorization
+        .validate_at(captured_at_unix_ms)
+        .is_err()
+    {
         return Some(GI_AUTH_EXPIRED);
     }
     if source.authorization.artifact_commit_sha != source.artifact.commit_sha

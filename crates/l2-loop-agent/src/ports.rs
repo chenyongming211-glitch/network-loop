@@ -291,10 +291,7 @@ pub trait InstallTransactionWriter {
     fn apply_action(&mut self, action: &InstallActionV1) -> Result<(), InstallIoError>;
     fn record_completed(&mut self, action: &InstallActionV1) -> Result<(), InstallIoError>;
     fn complete_transaction(&mut self, plan: &InstallPlanV1) -> Result<(), InstallIoError>;
-    fn begin_rollback(
-        &mut self,
-        journal: &InstallJournalSnapshotV1,
-    ) -> Result<(), InstallIoError>;
+    fn begin_rollback(&mut self, journal: &InstallJournalSnapshotV1) -> Result<(), InstallIoError>;
     fn rollback_action(&mut self, action: &InstallActionV1) -> Result<(), InstallIoError>;
     fn record_rolled_back(&mut self, action: &InstallActionV1) -> Result<(), InstallIoError>;
     fn complete_rollback(
