@@ -83,8 +83,10 @@ jobs:
       - name: Run privileged generated-root installation tests
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/l2-loop-install-tests
+          RUSTUP_HOME: /home/runner/.rustup
         run: >-
-          sudo --preserve-env=CARGO_HOME,RUSTUP_HOME,PATH,CARGO_TARGET_DIR
+          sudo env "PATH=$PATH" "CARGO_HOME=$CARGO_HOME"
+          "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_TARGET_DIR=$CARGO_TARGET_DIR"
           cargo test --locked --package l2-loop-agent
           --test installation_fs --test installation_faults
 
