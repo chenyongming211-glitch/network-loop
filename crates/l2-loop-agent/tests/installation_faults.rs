@@ -298,9 +298,9 @@ fn journal_publication_never_replaces_a_foreign_directory_created_after_prefligh
     LinuxInstallationFilesystem::new(root.clone(), FailOnce::disabled())
         .bootstrap_journal(&journal)
         .unwrap();
-    let destination = root
-        .path
-        .join(format!("var/lib/l2-loop/install/transactions/{TRANSACTION_ID}"));
+    let destination = root.path.join(format!(
+        "var/lib/l2-loop/install/transactions/{TRANSACTION_ID}"
+    ));
     let mut filesystem = LinuxInstallationFilesystem::new(
         root.clone(),
         InsertForeignDirectoryAtJournalMove::new(destination.clone()),
