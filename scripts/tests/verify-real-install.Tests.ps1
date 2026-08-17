@@ -37,7 +37,6 @@ else {
         '$EXPECTED_CHECKSUM_COUNT = 9',
         'InstallAuthorizationPath',
         'RollbackAuthorizationPath',
-        'ServiceAuthorizationPath',
         'DeploymentAuthorizationPath',
         'PerformanceEvidencePath',
         'Get-ExactGreenInstallBundle',
@@ -60,11 +59,8 @@ else {
         'l2-loop-deploycheck',
         "'installed'",
         'installed_verified',
-        'service_verified',
         'rolled_back',
-        'verify-installed-service.ps1',
         '$InstalledVerification = Invoke-RemoteInstallPhase',
-        '$ServiceVerification = & $ServiceHarness',
         '$RollbackResult = Invoke-RemoteInstallPhase',
         'network_identity_before',
         'network_identity_after',
@@ -85,13 +81,23 @@ else {
     $PlanIndex = $Harness.IndexOf('$PlanResult = Invoke-RemoteInstallPhase', [StringComparison]::Ordinal)
     $ApplyIndex = $Harness.IndexOf('$ApplyResult = Invoke-RemoteInstallPhase', [StringComparison]::Ordinal)
     $InstalledIndex = $Harness.IndexOf('$InstalledVerification = Invoke-RemoteInstallPhase', [StringComparison]::Ordinal)
-    $ServiceIndex = $Harness.IndexOf('$ServiceVerification = & $ServiceHarness', [StringComparison]::Ordinal)
     $RollbackIndex = $Harness.IndexOf('$RollbackResult = Invoke-RemoteInstallPhase', [StringComparison]::Ordinal)
     Assert-True ($BundleIndex -ge 0 -and $PlanIndex -gt $BundleIndex) 'installation plan precedes exact bundle validation'
     Assert-True ($ApplyIndex -gt $PlanIndex) 'installation apply does not follow the accepted plan'
     Assert-True ($InstalledIndex -gt $ApplyIndex) 'installed layout is checked before apply'
-    Assert-True ($ServiceIndex -gt $InstalledIndex) 'service acceptance can run before installed_verified'
-    Assert-True ($RollbackIndex -gt $ServiceIndex) 'exact rollback is not sequenced after service acceptance'
+    Assert-True ($RollbackIndex -gt $InstalledIndex) 'exact rollback is not sequenced after installed verification'
+
+    foreach ($ServiceMarker in @(
+        'ServiceAuthorizationPath',
+        '$ServiceHarness',
+        'verify-installed-service.ps1',
+        '$ServiceVerification',
+        'service_decision',
+        'service_verified',
+        'service.json'
+    )) {
+        Assert-True (-not $Harness.Contains($ServiceMarker)) "Gate 1 crosses the service-acceptance boundary: $ServiceMarker"
+    }
 
     foreach ($Prohibited in @(
         '(?im)^\s*param\([\s\S]*?\[string\]\s+\$Interface\b',
