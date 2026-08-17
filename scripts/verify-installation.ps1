@@ -248,7 +248,21 @@ function Write-InstallAuthorization {
     Add-TransactionCleanup $Context.Root $TransactionId
     $AuthorizationId = New-LowerHexId; $Name = "$Operation-$TransactionId-$AuthorizationId.json"; $Path = Join-Path $Context.Inputs $Name
     Write-PrivateJson $Path (New-StrictInstallAuthorization $Context $Operation $TransactionId $AuthorizationId $ManifestSha256)
-    [pscustomobject]@{ ChrootPath = "/acceptance/inputs/$Name"; TransactionId = $TransactionId }
+    [pscustomobject]@{ HostPath = $Path; ChrootPath = "/acceptance/inputs/$Name"; TransactionId = $TransactionId }
+}
+
+function Assert-GeneratedInstallSource {
+    param([psobject] $Context, [psobject] $Authorization)
+    $env:L2_LOOP_INSTALL_ACCEPTANCE_COMMIT = $Commit
+    $env:L2_LOOP_INSTALL_ACCEPTANCE_BUNDLE = Join-Path $Context.Root 'acceptance/bundle'
+    $env:L2_LOOP_INSTALL_ACCEPTANCE_AUTHORIZATION = $Authorization.HostPath
+    $env:L2_LOOP_INSTALL_ACCEPTANCE_DEPLOYMENT = Join-Path $Context.Inputs 'deployment-v1.json'
+    $env:L2_LOOP_INSTALL_ACCEPTANCE_PERFORMANCE = Join-Path $Context.Inputs 'performance-v1.json'
+    $env:L2_LOOP_INSTALL_ACCEPTANCE_MACHINE_ID = Join-Path $Context.Root 'etc/machine-id'
+    try { $null = Invoke-ExactProcess 'cargo' @('test','--locked','--package','l2-loop-agent','--test','installation_layout','injected_generated_root_source_is_exact','--','--exact') @(0) }
+    finally {
+        foreach ($Name in @('L2_LOOP_INSTALL_ACCEPTANCE_COMMIT','L2_LOOP_INSTALL_ACCEPTANCE_BUNDLE','L2_LOOP_INSTALL_ACCEPTANCE_AUTHORIZATION','L2_LOOP_INSTALL_ACCEPTANCE_DEPLOYMENT','L2_LOOP_INSTALL_ACCEPTANCE_PERFORMANCE','L2_LOOP_INSTALL_ACCEPTANCE_MACHINE_ID')) { Remove-Item "Env:$Name" -ErrorAction SilentlyContinue }
+    }
 }
 
 function Invoke-GeneratedInstallationEntryPoint {
@@ -271,6 +285,7 @@ function Invoke-PositiveLifecycle {
     param([psobject] $Artifact, [string] $Root, [string] $RunId)
     $Context = Initialize-ScenarioRoot $Artifact $Root $RunId
     $InstallId = New-LowerHexId; $Install = Write-InstallAuthorization $Context 'install' $InstallId $Artifact.ManifestSha256
+    Assert-GeneratedInstallSource $Context $Install
     $Plan1 = Invoke-GeneratedInstallationEntryPoint $Context 'plan' $Install @(0); $Plan2 = Invoke-GeneratedInstallationEntryPoint $Context 'plan' $Install @(0)
     Assert-InstallDecision $Plan1 'install_plan_ready' $false; Assert-InstallDecision $Plan2 'install_plan_ready' $false
     if (Test-Path -LiteralPath (Join-Path $Root 'var/lib/l2-loop/install/transactions')) { throw 'plan mutated generated root' }

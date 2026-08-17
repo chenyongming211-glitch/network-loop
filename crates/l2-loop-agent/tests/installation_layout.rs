@@ -1,10 +1,21 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(target_os = "linux")]
+use std::{env, fs, path::PathBuf, time::UNIX_EPOCH};
+
 use l2_loop_agent::{
     BundleFileIdentityV1, BundleSnapshotV1, InstallInputDocumentV1, InstallLayoutEntryKindV1,
     InstallLayoutV1, InstallRoleV1, validate_install_inputs,
 };
 use l2_loop_core::DeploymentArtifactIdentityV1;
+
+#[cfg(target_os = "linux")]
+use l2_loop_agent::{
+    InstallSourcePathsV1, InstallSourceReader, LinuxInstallSourceReaderV1,
+    linux::deployment_fs::LinuxDeploymentFilesystem,
+};
+#[cfg(target_os = "linux")]
+use sha2::{Digest, Sha256};
 
 const COMMIT_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 const AUTHORIZATION: &[u8] = include_bytes!("fixtures/installation/install-authorization-v1.json");
@@ -281,6 +292,66 @@ fn installation_validation_source_is_bounded_read_only_and_has_no_destination_ov
             "prohibited surface present: {prohibited}"
         );
     }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn injected_generated_root_source_is_exact() {
+    let Ok(commit) = env::var("L2_LOOP_INSTALL_ACCEPTANCE_COMMIT") else {
+        return;
+    };
+    let required_path = |name: &str| {
+        env::var_os(name)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| panic!("missing generated-root input: {name}"))
+    };
+    let bundle_path = required_path("L2_LOOP_INSTALL_ACCEPTANCE_BUNDLE");
+    let authorization_path = required_path("L2_LOOP_INSTALL_ACCEPTANCE_AUTHORIZATION");
+    let deployment_path = required_path("L2_LOOP_INSTALL_ACCEPTANCE_DEPLOYMENT");
+    let performance_path = required_path("L2_LOOP_INSTALL_ACCEPTANCE_PERFORMANCE");
+    let machine_id_path = required_path("L2_LOOP_INSTALL_ACCEPTANCE_MACHINE_ID");
+    let artifact = DeploymentArtifactIdentityV1::new(commit, env!("CARGO_PKG_VERSION"))
+        .expect("generated-root artifact identity");
+
+    LinuxDeploymentFilesystem::new(artifact.clone())
+        .expect("generated-root bundle reader")
+        .inspect_bundle(&bundle_path)
+        .expect("generated-root exact bundle");
+    let mut source_reader = LinuxInstallSourceReaderV1::new(
+        InstallSourcePathsV1 {
+            bundle: bundle_path,
+            authorization: authorization_path,
+            deployment_authorization: deployment_path,
+            performance_evidence: performance_path,
+        },
+        artifact.clone(),
+    )
+    .expect("generated-root source reader");
+    let source = source_reader
+        .load_source()
+        .expect("generated-root bound source documents");
+    let host_identity_sha256 = format!(
+        "{:x}",
+        Sha256::digest(fs::read(machine_id_path).expect("generated-root machine identity"))
+    );
+    let captured_at_unix_ms = UNIX_EPOCH
+        .elapsed()
+        .expect("generated-root wall clock")
+        .as_millis()
+        .try_into()
+        .expect("generated-root wall clock bound");
+    source
+        .authorization
+        .validate_for(
+            captured_at_unix_ms,
+            source.authorization.operation,
+            &source.artifact,
+            &source.bundle_manifest_sha256,
+            &host_identity_sha256,
+            &source.deployment_authorization_sha256,
+            &source.performance_evidence_sha256,
+        )
+        .expect("generated-root current authorization binding");
 }
 
 fn artifact() -> DeploymentArtifactIdentityV1 {
