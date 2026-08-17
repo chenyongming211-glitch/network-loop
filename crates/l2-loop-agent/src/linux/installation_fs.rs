@@ -384,7 +384,12 @@ where
             }
 
             self.faults.check(InstallFaultPointV1::FinalRename)?;
-            renameat_name(parent.as_raw_fd(), sibling, parent.as_raw_fd(), destination)?;
+            renameat_noreplace_name(
+                parent.as_raw_fd(),
+                sibling,
+                parent.as_raw_fd(),
+                destination,
+            )?;
             final_moved = true;
             sync_directory(&mut self.faults, &parent)?;
             let current = inspect_at(&parent, destination)?;
@@ -581,6 +586,35 @@ fn renameat_name(
         return Err(InstallIoError::Unavailable);
     }
     Ok(())
+}
+
+fn renameat_noreplace_name(
+    old_parent: RawFd,
+    old_name: &str,
+    new_parent: RawFd,
+    new_name: &str,
+) -> Result<(), InstallIoError> {
+    let old_name = safe_cstring(old_name)?;
+    let new_name = safe_cstring(new_name)?;
+    let result = unsafe {
+        nix::libc::syscall(
+            nix::libc::SYS_renameat2,
+            old_parent,
+            old_name.as_ptr(),
+            new_parent,
+            new_name.as_ptr(),
+            nix::libc::RENAME_NOREPLACE,
+        )
+    };
+    if result == 0 {
+        return Ok(());
+    }
+    match std::io::Error::last_os_error().raw_os_error() {
+        Some(code) if code == nix::libc::EEXIST || code == nix::libc::ENOTEMPTY => {
+            Err(InstallIoError::UnsafeObject)
+        }
+        _ => Err(InstallIoError::Unavailable),
+    }
 }
 
 fn unlinkat_name(parent: RawFd, name: &str, flags: i32) -> Result<(), InstallIoError> {
