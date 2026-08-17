@@ -1,7 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 #[cfg(target_os = "linux")]
-use std::{env, fs, path::PathBuf, time::UNIX_EPOCH};
+use std::{
+    env, fs,
+    fs::{File, OpenOptions},
+    os::unix::fs::OpenOptionsExt,
+    path::PathBuf,
+    time::UNIX_EPOCH,
+};
 
 use l2_loop_agent::{
     BundleFileIdentityV1, BundleSnapshotV1, InstallInputDocumentV1, InstallLayoutEntryKindV1,
@@ -11,8 +17,13 @@ use l2_loop_core::DeploymentArtifactIdentityV1;
 
 #[cfg(target_os = "linux")]
 use l2_loop_agent::{
-    InstallSourcePathsV1, InstallSourceReader, LinuxInstallSourceReaderV1,
-    linux::deployment_fs::LinuxDeploymentFilesystem,
+    InstallIoError, InstallRootDirectory, InstallSourcePathsV1, InstallSourceReader,
+    LinuxInstallSourceReaderV1,
+    linux::{
+        deployment_fs::LinuxDeploymentFilesystem,
+        installation_fs::{LinuxInstallationFilesystem, NoInstallFaults},
+        installation_runtime::SystemInstallationCommandRunner,
+    },
 };
 #[cfg(target_os = "linux")]
 use sha2::{Digest, Sha256};
@@ -310,8 +321,11 @@ fn injected_generated_root_source_is_exact() {
     let deployment_path = required_path("L2_LOOP_INSTALL_ACCEPTANCE_DEPLOYMENT");
     let performance_path = required_path("L2_LOOP_INSTALL_ACCEPTANCE_PERFORMANCE");
     let machine_id_path = required_path("L2_LOOP_INSTALL_ACCEPTANCE_MACHINE_ID");
+    let generated_root = required_path("L2_LOOP_INSTALL_ACCEPTANCE_ROOT");
     let artifact = DeploymentArtifactIdentityV1::new(commit, env!("CARGO_PKG_VERSION"))
         .expect("generated-root artifact identity");
+
+    SystemInstallationCommandRunner::system().expect("generated-root embedded commit identity");
 
     LinuxDeploymentFilesystem::new(artifact.clone())
         .expect("generated-root bundle reader")
@@ -352,6 +366,36 @@ fn injected_generated_root_source_is_exact() {
             &source.performance_evidence_sha256,
         )
         .expect("generated-root current authorization binding");
+
+    let mut filesystem = LinuxInstallationFilesystem::new(
+        InjectedInstallRoot(generated_root),
+        NoInstallFaults,
+    );
+    assert!(
+        filesystem
+            .transaction_ids()
+            .expect("generated-root transaction inventory")
+            .is_empty()
+    );
+    for entry in InstallLayoutV1::entries() {
+        filesystem
+            .inspect_optional_exact(entry.role)
+            .unwrap_or_else(|error| panic!("generated-root role {:?}: {error}", entry.role));
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct InjectedInstallRoot(PathBuf);
+
+#[cfg(target_os = "linux")]
+impl InstallRootDirectory for InjectedInstallRoot {
+    fn open_root(&self) -> Result<File, InstallIoError> {
+        OpenOptions::new()
+            .read(true)
+            .custom_flags(nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW | nix::libc::O_CLOEXEC)
+            .open(&self.0)
+            .map_err(|_| InstallIoError::Unavailable)
+    }
 }
 
 fn artifact() -> DeploymentArtifactIdentityV1 {

@@ -259,9 +259,11 @@ function Assert-GeneratedInstallSource {
     $env:L2_LOOP_INSTALL_ACCEPTANCE_DEPLOYMENT = Join-Path $Context.Inputs 'deployment-v1.json'
     $env:L2_LOOP_INSTALL_ACCEPTANCE_PERFORMANCE = Join-Path $Context.Inputs 'performance-v1.json'
     $env:L2_LOOP_INSTALL_ACCEPTANCE_MACHINE_ID = Join-Path $Context.Root 'etc/machine-id'
+    $env:L2_LOOP_INSTALL_ACCEPTANCE_ROOT = $Context.Root
+    $env:L2_LOOP_BUILD_COMMIT_SHA = $Commit
     try { $null = Invoke-ExactProcess 'cargo' @('test','--locked','--package','l2-loop-agent','--test','installation_layout','injected_generated_root_source_is_exact','--','--exact') @(0) }
     finally {
-        foreach ($Name in @('L2_LOOP_INSTALL_ACCEPTANCE_COMMIT','L2_LOOP_INSTALL_ACCEPTANCE_BUNDLE','L2_LOOP_INSTALL_ACCEPTANCE_AUTHORIZATION','L2_LOOP_INSTALL_ACCEPTANCE_DEPLOYMENT','L2_LOOP_INSTALL_ACCEPTANCE_PERFORMANCE','L2_LOOP_INSTALL_ACCEPTANCE_MACHINE_ID')) { Remove-Item "Env:$Name" -ErrorAction SilentlyContinue }
+        foreach ($Name in @('L2_LOOP_INSTALL_ACCEPTANCE_COMMIT','L2_LOOP_INSTALL_ACCEPTANCE_BUNDLE','L2_LOOP_INSTALL_ACCEPTANCE_AUTHORIZATION','L2_LOOP_INSTALL_ACCEPTANCE_DEPLOYMENT','L2_LOOP_INSTALL_ACCEPTANCE_PERFORMANCE','L2_LOOP_INSTALL_ACCEPTANCE_MACHINE_ID','L2_LOOP_INSTALL_ACCEPTANCE_ROOT','L2_LOOP_BUILD_COMMIT_SHA')) { Remove-Item "Env:$Name" -ErrorAction SilentlyContinue }
     }
 }
 
