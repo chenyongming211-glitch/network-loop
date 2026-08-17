@@ -41,6 +41,10 @@ fn planner_builds_deterministic_fixed_role_actions() {
             InstallRoleV1::EvidenceRoot,
             InstallDestinationStateV1::AbsentDirectory,
         ),
+        destination(
+            InstallRoleV1::UsrRoot,
+            InstallDestinationStateV1::ExistingPrerequisiteDirectory,
+        ),
     ];
 
     let plan = InstallPlanner::plan(&source, &destinations, None).unwrap();
@@ -54,23 +58,47 @@ fn planner_builds_deterministic_fixed_role_actions() {
             InstallActionV1::CreateDirectory {
                 role: InstallRoleV1::EvidenceRoot,
             },
+            InstallActionV1::VerifyInstalledObject {
+                role: InstallRoleV1::EvidenceRoot,
+            },
             InstallActionV1::UpgradeOwnedFile {
+                role: InstallRoleV1::Daemon,
+            },
+            InstallActionV1::VerifyInstalledObject {
                 role: InstallRoleV1::Daemon,
             },
             InstallActionV1::InstallAbsentFile {
                 role: InstallRoleV1::Cli,
             },
             InstallActionV1::VerifyInstalledObject {
-                role: InstallRoleV1::EvidenceRoot,
-            },
-            InstallActionV1::VerifyInstalledObject {
-                role: InstallRoleV1::Daemon,
-            },
-            InstallActionV1::VerifyInstalledObject {
                 role: InstallRoleV1::Cli,
             },
         ]
     );
+}
+
+#[test]
+fn planner_accepts_only_directory_prerequisites_without_ownership_actions() {
+    let source = source(InstallOperationV1::Install);
+    let prerequisites = vec![
+        destination(
+            InstallRoleV1::UsrRoot,
+            InstallDestinationStateV1::ExistingPrerequisiteDirectory,
+        ),
+        destination(
+            InstallRoleV1::VarLibRoot,
+            InstallDestinationStateV1::ExistingPrerequisiteDirectory,
+        ),
+    ];
+
+    let plan = InstallPlanner::plan(&source, &prerequisites, None).unwrap();
+
+    assert!(plan.actions.is_empty());
+    let invalid = [destination(
+        InstallRoleV1::Daemon,
+        InstallDestinationStateV1::ExistingPrerequisiteDirectory,
+    )];
+    assert!(InstallPlanner::plan(&source, &invalid, None).is_err());
 }
 
 #[test]
