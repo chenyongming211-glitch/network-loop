@@ -42,6 +42,8 @@ else {
         'PerformanceEvidencePath',
         'Get-ExactGreenInstallBundle',
         'Assert-ExactBundle',
+        'ControllerOwnershipNonce',
+        'assert_owned',
         'Assert-StrictInstallAuthorization',
         'Get-StableRealInstallState',
         'Assert-RealInstallStateUnchanged',

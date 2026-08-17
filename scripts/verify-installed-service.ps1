@@ -145,7 +145,7 @@ function New-ServiceAcceptanceNames {
         WorkRoot = "$SERVICE_WORK_PARENT/$GeneratedRunId"
         RuntimeRoot = $Names.RemoteRunRoot
         Socket = '/run/l2-loop/agent.sock'
-        ControllerNonce = -join ($ProbeBytes | ForEach-Object { $_.ToString('x2') })
+        ControllerOwnershipNonce = -join ($ProbeBytes | ForEach-Object { $_.ToString('x2') })
     }
 }
 
@@ -188,8 +188,9 @@ peer=$5
 work=$6
 runtime=$7
 auth=$8
-cycle=$9
-stop_bound=${10}
+nonce=$9
+cycle=${10}
+stop_bound=${11}
 socket=/run/l2-loop/agent.sock
 unit=l2-loop.service
 work_parent=/var/tmp/l2-loop-service-acceptance-v1
@@ -206,6 +207,12 @@ assert_generated() {
     test "$ns" = "l2ns-${run:0:12}" || fail 'invalid namespace'
     test "$host" = "l2h${run:0:10}" || fail 'invalid host veth'
     test "$peer" = "l2n${run:0:10}" || fail 'invalid peer veth'
+    case "$nonce" in *[!0-9a-f]*|'') fail 'invalid controller ownership nonce' ;; esac
+    test "${#nonce}" -eq 32 || fail 'invalid controller ownership nonce length'
+}
+assert_owned() {
+    test -f "$work/ownership" && test ! -L "$work/ownership" || fail 'service ownership marker is unavailable'
+    test "$(cat -- "$work/ownership")" = "$nonce" || fail 'service ownership marker changed'
 }
 snapshot() {
     python3 - "$run" <<'PY'
@@ -222,6 +229,7 @@ print(json.dumps({'network':hashlib.sha256(parts[0]+b'\0'+parts[4]).hexdigest(),
 PY
 }
 cleanup_generated() {
+    assert_owned
     if test -f "$work/service-started"; then
         systemctl stop "$unit" || true
         wait_inactive
@@ -245,7 +253,9 @@ cleanup_generated() {
     if test -d "$work"; then
         test ! -L "$work" || fail 'work root became a link'
         for leaf in service-authorization.json service-started journal-before journal-after cycle-1.json cycle-2.json; do test ! -e "$work/$leaf" || unlink -- "$work/$leaf"; done
+        unlink -- "$work/ownership"
         rmdir -- "$work"
+        rmdir -- "$work_parent"
     fi
 }
 wait_inactive() {
@@ -256,18 +266,21 @@ wait_inactive() {
     done
 }
 assert_generated
+case "$phase" in precheck|residue) ;; *) assert_owned ;; esac
 case "$phase" in
 precheck)
     test "$(id -u)" -eq 0 || fail 'service acceptance requires root'
     for name in systemctl journalctl ip bpftool python3 sha256sum awk grep stat install chmod unlink rmdir mkdir sleep date kill; do command -v "$name" >/dev/null || fail 'required command unavailable'; done
     test -x "$ctl" && test -x "$daemon" && test -f /usr/lib/systemd/system/l2-loop.service || fail 'installed service layout incomplete'
-    test ! -e "$work" && test ! -e "$runtime" || fail 'generated service root occupied'
+    test ! -e "$work_parent" && test ! -e "$work" && test ! -e "$runtime" || fail 'generated service root occupied'
     install -d -m 0700 -- "$work_parent" "$work"
+    printf '%s\n' "$nonce" >"$work/ownership"
+    chmod 0600 -- "$work/ownership"
     ;;
 prior-unit)
     enabled=$(systemctl is-enabled "$unit" 2>/dev/null || true)
     active=$(systemctl is-active "$unit" 2>/dev/null || true)
-    test "$enabled" = disabled || fail 'unit was not disabled before acceptance'
+    test "$enabled" = disabled || test "$enabled" = static || fail 'unit was enabled before acceptance'
     test "$active" = inactive || fail 'unit was not inactive before acceptance'
     test ! -S "$socket" || fail 'runtime socket was already present'
     printf '{"enabled":"%s","active":"%s"}\n' "$enabled" "$active"
@@ -331,7 +344,7 @@ fallback)
 cleanup) cleanup_generated ;;
 residue)
     count=0
-    for candidate in "$work" "$runtime" "/sys/fs/bpf/l2-loop/test/$run"; do test ! -e "$candidate" || count=$((count+1)); done
+    for candidate in "$work_parent" "$work" "$runtime" "/sys/fs/bpf/l2-loop/test/$run"; do test ! -e "$candidate" || count=$((count+1)); done
     ip netns list | awk '{print $1}' | grep -Fxq -- "$ns" && count=$((count+1)) || true
     ip link show dev "$host" >/dev/null 2>&1 && count=$((count+1)) || true
     printf '%s\n' "$count"
@@ -350,7 +363,7 @@ function Invoke-ServiceRemotePhase {
         [switch] $AllowFailure
     )
     Assert-ServiceCleanupTarget -Names $Names
-    $RemoteArguments = @('bash', '-s', '--', $Phase, $Names.RunId, $Names.Namespace, $Names.HostVeth, $Names.PeerVeth, $Names.WorkRoot, $Names.RuntimeRoot, "$($Names.WorkRoot)/service-authorization.json", [string]$Cycle, [string]$STOP_TIMEOUT_SECONDS)
+    $RemoteArguments = @('bash', '-s', '--', $Phase, $Names.RunId, $Names.Namespace, $Names.HostVeth, $Names.PeerVeth, $Names.WorkRoot, $Names.RuntimeRoot, "$($Names.WorkRoot)/service-authorization.json", $Names.ControllerOwnershipNonce, [string]$Cycle, [string]$STOP_TIMEOUT_SECONDS)
     $Arguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments $RemoteArguments
     Invoke-ExactServiceProcess -FilePath 'ssh' -ArgumentList $Arguments -StandardInput $RemoteServiceProgram -BoundSeconds $TimeoutSeconds -AllowFailure:$AllowFailure
 }
@@ -407,7 +420,9 @@ function Assert-SanitizedJournalRecords {
     param([Parameter(Mandatory)] [string] $JsonLines)
     if ([Text.Encoding]::UTF8.GetByteCount($JsonLines) -gt $MAX_OUTPUT_BYTES) { throw 'journal output exceeds bound' }
     $ProhibitedFields = @('INTERFACE', 'MAC', 'SOURCE_IP', 'DESTINATION_IP', 'PACKET', 'PAYLOAD')
-    foreach ($Line in @($JsonLines -split "`r?`n" | Where-Object { $_.Length -ne 0 })) {
+    $Records = @($JsonLines -split "`r?`n" | Where-Object { $_.Length -ne 0 })
+    if ($Records.Count -eq 0) { throw 'journal record set is empty' }
+    foreach ($Line in $Records) {
         $Record = $Line | ConvertFrom-Json
         foreach ($Name in $Record.PSObject.Properties.Name) {
             if ($Name.ToUpperInvariant() -in $ProhibitedFields) { throw 'journal record contains a prohibited traffic identity field' }
@@ -447,7 +462,7 @@ try {
     $ScpArguments = Get-ScpArguments -Target $Target -KeyPath $KeyPath -Sources @((Resolve-Path -LiteralPath $ServiceAuthorizationPath).Path) -Destination "$($Names.WorkRoot)/service-authorization.json"
     $null = Invoke-ExactServiceProcess -FilePath 'scp' -ArgumentList $ScpArguments -StandardInput $null -BoundSeconds 60
     $PriorUnitState = Get-PriorUnitState -Names $Names -Target $Target -KeyPath $KeyPath
-    if ($PriorUnitState.enabled -cne 'disabled' -or $PriorUnitState.active -cne 'inactive') { throw 'prior unit state is not acceptable' }
+    if ($PriorUnitState.enabled -cnotin @('disabled', 'static') -or $PriorUnitState.active -cne 'inactive') { throw 'prior unit state is not acceptable' }
     $BeforeState = Wait-StableServiceHostState -Names $Names -Target $Target -KeyPath $KeyPath
     $ReadOnlyUnitStates = @('is-enabled', 'is-active', 'disabled', 'inactive')
     $JournalQueryVocabulary = @('--after-cursor', '_SYSTEMD_UNIT=l2-loop.service', 'json')
@@ -500,6 +515,7 @@ try {
         ebpf_identity_before = [string]$BeforeState.ebpf
         ebpf_identity_after = [string]$AfterState.ebpf
         owned_cleanup_complete = $true
+        service_work_parent_created = $true
         generated_residue_count = $ResidueCount
         service_enable = $false
         mutations_performed = $true

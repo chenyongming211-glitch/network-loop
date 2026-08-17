@@ -202,6 +202,7 @@ run=$2
 root=$3
 commit=$4
 transaction=$5
+nonce=$6
 trap 'code=$?; printf "install phase failed: phase=%s line=%s code=%s\n" "$phase" "$LINENO" "$code" >&2; exit "$code"' ERR
 bundle="$root/bundle"
 inputs="$root/inputs"
@@ -212,6 +213,12 @@ assert_generated() {
     test "$root" = "/run/l2-loop/accept/$run" || fail 'invalid generated install root'
     case "$transaction" in *[!0-9a-f]*|'') fail 'invalid transaction' ;; esac
     test "${#transaction}" -eq 32 || fail 'invalid transaction length'
+    case "$nonce" in *[!0-9a-f]*|'') fail 'invalid controller ownership nonce' ;; esac
+    test "${#nonce}" -eq 32 || fail 'invalid controller ownership nonce length'
+}
+assert_owned() {
+    test -f "$root/ownership" && test ! -L "$root/ownership" || fail 'install ownership marker is unavailable'
+    test "$(cat -- "$root/ownership")" = "$nonce" || fail 'install ownership marker changed'
 }
 snapshot() {
     python3 <<'PY'
@@ -226,22 +233,27 @@ print(json.dumps({'network':hashlib.sha256(n).hexdigest(),'ebpf':hashlib.sha256(
 PY
 }
 cleanup_generated() {
+    assert_owned
     if test -d "$root"; then
         test ! -L "$root" || fail 'generated root became a link'
         for leaf in install.json rollback.json service.json deployment.json performance.json; do test ! -e "$inputs/$leaf" || unlink -- "$inputs/$leaf"; done
         test ! -d "$inputs" || rmdir -- "$inputs"
         for leaf in SHA256SUMS deployment-v1.example.json l2-loop-deploycheck l2-loop-ebpf.o l2-loop-hostcheck l2-loop-install l2-loop.service l2-loopctl l2-loopd manifest.json; do test ! -e "$bundle/$leaf" || unlink -- "$bundle/$leaf"; done
         test ! -d "$bundle" || rmdir -- "$bundle"
+        unlink -- "$root/ownership"
         rmdir -- "$root"
     fi
 }
 assert_generated
+case "$phase" in precheck|residue) ;; *) assert_owned ;; esac
 case "$phase" in
 precheck)
     test "$(id -u)" -eq 0 || fail 'real installation acceptance requires root'
     for name in ip bpftool python3 sha256sum install chmod unlink rmdir mkdir; do command -v "$name" >/dev/null || fail 'required command unavailable'; done
     test ! -e "$root" || fail 'generated install root occupied'
     install -d -m 0700 -- "$root" "$bundle" "$inputs"
+    printf '%s\n' "$nonce" >"$root/ownership"
+    chmod 0600 -- "$root/ownership"
     ;;
 verify-bundle)
     test "$(find "$bundle" -mindepth 1 -maxdepth 1 -type f -printf x | wc -c)" -eq 10 || fail 'remote bundle count mismatch'
@@ -280,7 +292,7 @@ function Invoke-RemoteInstallPhase {
     )
     Assert-IsolatedRunId -RunId $Names.RunId
     if ($Names.RemoteRunRoot -cne "/run/l2-loop/accept/$($Names.RunId)") { throw 'real install generated root identity mismatch' }
-    $Arguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @('bash','-s','--',$Phase,$Names.RunId,$Names.RemoteRunRoot,$Commit,$TransactionId)
+    $Arguments = Get-SshArguments -Target $Target -KeyPath $KeyPath -RemoteArguments @('bash','-s','--',$Phase,$Names.RunId,$Names.RemoteRunRoot,$Commit,$TransactionId,$Names.ControllerOwnershipNonce)
     Invoke-ExactInstallProcess -FilePath 'ssh' -ArgumentList $Arguments -StandardInput $RemoteInstallProgram -BoundSeconds $TimeoutSeconds -AllowFailure:$AllowFailure
 }
 
@@ -327,6 +339,7 @@ $RollbackAuthorization = Assert-StrictInstallAuthorization -Path $RollbackAuthor
 if ([string]$InstallAuthorization.transaction_id -cne [string]$RollbackAuthorization.transaction_id) { throw 'install and rollback authorizations bind different transactions' }
 $TransactionId = [string]$InstallAuthorization.transaction_id
 $Names = New-IsolatedNames -RunId (New-InstallRunId)
+$Names | Add-Member -NotePropertyName ControllerOwnershipNonce -NotePropertyValue (New-InstallRunId)
 $ServiceRunId = New-InstallRunId
 
 $CleanupAction = { Invoke-RealInstallCleanup -Names $Names -TransactionId $TransactionId -Target $Target -KeyPath $KeyPath }
