@@ -328,7 +328,7 @@ owned_cleanup_complete = [bool]$ServiceVerification.owned_cleanup_complete
 
 Keep `install_transaction_id`, `install_decision`, `installed_check_decision`, `rollback_decision`, workflow/artifact identity, before/after network and eBPF hashes, `outside_install_state_unchanged = $true`, `generated_residue_count = 0`, and `mutations_performed = $true`.
 
-- [ ] **Step 3: Record RED evidence and push GREEN**
+- [x] **Step 3: Record RED evidence and push GREEN**
 
 ```powershell
 git diff --check
@@ -337,9 +337,11 @@ git commit -m "feat: add separate real service acceptance gate"
 git push origin main
 ```
 
-- [ ] **Step 4: Require all five GitHub jobs**
+- [x] **Step 4: Require all five GitHub jobs**
 
 Use the exact commit with `gh run list` and `gh run watch`. Require five successful jobs and the exact ten-file/nine-checksum artifact. Do not download or execute the controller on a node. Record the exact GREEN evidence in this plan.
+
+**Task 4 GREEN evidence:** Commit `8f526c8f79bb83bc6f2391aa19c2f81954d58eb0`, GitHub run `32011451181`. Userspace, eBPF, Script safety, Windows PowerShell safety, and Bundle all succeeded. The Gate 2 source is byte-equivalent to the previously reviewed combined controller at `d75a43980c0c0d8cbbfecf4f5238eb3a59ff6fc2` except for the distinct `real_service_acceptance_verified` decision and explicit `owned_cleanup_complete` propagation. No real-node command ran.
 
 ---
 
@@ -359,7 +361,7 @@ Use the exact commit with `gh run list` and `gh run watch`. Require five success
 - Consumes: final Gate 1 and Gate 2 scripts plus exact GitHub evidence.
 - Produces: consistent operator commands, completion evidence, and an explicit stop before Gate 1 real-node authorization.
 
-- [ ] **Step 1: Audit the two controller surfaces**
+- [x] **Step 1: Audit the two controller surfaces**
 
 Trace and record:
 
@@ -377,7 +379,7 @@ rg -n "Interface|default route|systemctl (enable|disable|restart)|rm -r|Remove-I
 
 Expected: the first command returns no match; the second returns no prohibited execution surface. If a defect is found, add a focused failing static test, prove RED in GitHub, apply the minimum fix, and prove all five jobs GREEN before continuing.
 
-- [ ] **Step 2: Correct operator documentation**
+- [x] **Step 2: Correct operator documentation**
 
 Document these exact invocations separately:
 
@@ -410,7 +412,7 @@ pwsh -NoProfile -File scripts/verify-real-service-acceptance.ps1 `
 
 State that Gate 2 repeats installation under new authorization and never inherits Gate 1 state. Preserve the four-stage order and explicitly state that no real-node gate was executed during G.1.1 development.
 
-- [ ] **Step 3: Mark the correction in the original G.1 records**
+- [x] **Step 3: Mark the correction in the original G.1 records**
 
 Add a dated correction note to the original G.1 design and plan: Task 9’s single combined controller was superseded by G.1.1 because distinct authorization documents were insufficient to provide distinct operator execution gates. Do not rewrite historical RED/GREEN evidence.
 

@@ -442,6 +442,10 @@ The operational handoff remains four separately authorized stages:
 
 The fourth authorization must bind the exact artifact, host, interface name, ifindex, MAC, driver, device/PCI and namespace identity, freshly empty native/generic XDP and TC states, representative external traffic source, duration no greater than 15 minutes, operator, complete commands and mutations, stop conditions, and exact reverse rollback. Its design must prohibit hook replacement, foreign cleanup, probe traffic, packet drop, policing, persistent enablement, and any broader production claim. G.1 contains no command that can perform it.
 
+### 17.2 G.1.1 controller-boundary correction
+
+The original Task 9 implementation required distinct installation and service authorization documents but consumed both in one outer controller invocation. On 2026-08-17, G.1.1 superseded that operational shape because separate documents alone do not create separate operator execution gates. Gate 1 is now `verify-real-install.ps1` and ends after independent installed verification, exact authorized rollback, stable network/eBPF comparison, and generated transfer cleanup. It has no service parameter or service invocation. Gate 2 is now `verify-real-service-acceptance.ps1`; only after a reviewed Gate 1 report and a new authorization does it create a new installation transaction, require `installed_verified`, invoke the generated-veth-only service harness, exactly roll back, and report cleanup. This correction changes no historical Task 9 evidence and grants no node authorization.
+
 ## 18. Explicitly Deferred
 
 - executing any physical-interface canary;

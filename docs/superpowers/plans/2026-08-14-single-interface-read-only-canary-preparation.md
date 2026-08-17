@@ -347,6 +347,8 @@ Implement the real-install harness as a fixed transaction wrapper: baseline, pla
 
 Commit `test: add installed service acceptance harness` and require all five jobs. Do not connect to a node. Present the exact artifact SHA and requested mutations for explicit approval before real installation/service execution.
 
+**2026-08-17 G.1.1 correction:** The completed Task 9 history is retained, but its single combined outer controller is superseded by [the independent real-node acceptance gate plan](2026-08-17-separate-real-node-acceptance-gates.md). Distinct authorization documents did not provide distinct operator execution gates. `verify-real-install.ps1` is now Gate 1-only; `verify-real-service-acceptance.ps1` uses a new Gate 2 installation/service/rollback authorization set and transaction. No historical RED/GREEN record is rewritten, and no node execution is implied.
+
 ### Task 10: Add Installed Verification and Read-Only Physical Readiness
 
 **Files:**

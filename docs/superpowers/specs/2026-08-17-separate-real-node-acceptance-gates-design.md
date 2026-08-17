@@ -1,7 +1,8 @@
 # Separate Real-Node Acceptance Gates Design
 
 **Date:** 2026-08-17  
-**Status:** Approved design; implementation and all real-node execution remain pending  
+**Status:** Implemented and GitHub-verified; all real-node execution remains pending
+
 **Scope:** Delivery G.1.1 operational gate separation
 
 ## 1. Problem
@@ -150,4 +151,3 @@ After the expected RED failure is recorded, the minimum controller and documenta
 ## 7. Operational Handoff
 
 After the final exact artifact is green, execution stops again. The first real-node request will name one exact SSH target and request only Gate 1. Gate 2 authorization is requested only after the Gate 1 report is complete and reviewed. Gates 3 and 4 remain separately blocked.
-

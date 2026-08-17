@@ -156,40 +156,57 @@ l2-loop-install rollback --transaction <32-lower-hex> --authorization <ROLLBACK_
 
 The installer neither enables nor starts the unit and never invokes installed payloads. Enforcing SELinux, ACLs, xattrs, immutable flags, file capabilities, security labels, linked/special objects, foreign identities, and incomplete conflicting transactions block. Rollback removes or restores only exact recorded identities; disagreement preserves the journal and requires manual review. There is no wildcard, recursive deletion, automatic adoption, or automatic journal garbage collection.
 
-## Separately authorized real-install and service acceptance
+## Independently authorized real-install and service acceptance
 
-Task 9 adds two fail-closed controller-side harnesses but does not execute them in CI or during development. `verify-real-install.ps1` consumes one exact successful GitHub artifact plus distinct, short-lived install, rollback, and service authorizations. It verifies the ten-file bundle and nine checksum entries, captures a converged network/eBPF baseline, runs installer `plan` and `apply`, requires the independent fixed-layout checker to return `installed_verified`, and only then invokes `verify-installed-service.ps1`. After service acceptance reports exact cleanup, the wrapper performs the transaction-bound rollback and requires the original network/eBPF identities and zero generated staging residue.
+G.1.1 separates the original combined Task 9 wrapper into two fail-closed operator gates. Development and CI never execute either controller on a node.
 
-`verify-installed-service.ps1` independently binds authorization to the artifact SHA, host identity, install transaction, two cycles, a ten-second stop bound, no service enablement, no physical attachment, and generated resources only. It refuses an active unit or an enabled unit; the deterministic unit is normally `static` because it deliberately has no `[Install]` section, while an explicitly disabled compatible state is also accepted. Each of the two cycles performs only `daemon-reload`, start, root-owned mode-`0600` socket verification, generated namespace/veth attach-observe-status-detach, and bounded stop. Journald is read only after a captured cursor and only for `l2-loop.service`; at least one returned record is required, and all records are bounded and scanned for traffic-identity fields. A separately injected acceptance evidence root verifies the stderr fallback without writing the production evidence root. Cleanup addresses only paths carrying the controller's cryptographic ownership nonce, the run-derived namespace, veth, runtime files, process identity, and owned eBPF state.
+Gate 1 is `verify-real-install.ps1`. It consumes one exact successful GitHub artifact plus fresh install and rollback authorizations bound to the same transaction, the deployment authorization, and performance evidence. It verifies the ten-file bundle and nine checksum entries, captures a converged network/eBPF baseline, runs installer `plan` and `apply`, requires the independent fixed-layout checker to return `installed_verified`, immediately performs the transaction-bound rollback, and requires the original network/eBPF identities plus zero generated transfer residue. It has no service parameter, service harness reference, service result, systemd operation, network creation, or eBPF cleanup operation.
 
-The wrapper depends on the implemented and contract-tested `l2-loop-deploycheck installed --json`. CI validates parser/static safety and generated-root behavior only; it never supplies the real-node authorizations or target. A human must provide the exact artifact SHA, target, task-scoped key, five input files, and fresh explicit authorizations before any real installation or service command. Neither harness accepts an interface argument, discovers a production interface, enables a unit, or attaches to a physical interface.
+Gate 2 is `verify-real-service-acceptance.ps1`. It is requested only after the Gate 1 report is reviewed and requires completely new install, service, and rollback authorizations with a new transaction and authorization IDs. It repeats the fixed-path installation because the production-shaped unit references fixed installed paths, independently requires `installed_verified`, and only then invokes `verify-installed-service.ps1`. After the inner harness reports `service_verified` and exact owned cleanup, the outer controller exactly rolls back the Gate 2 installation, compares the converged network/eBPF identities, and requires zero generated transfer residue. It inherits no authorization, transaction, installed state, or permission from Gate 1.
 
-The future authorized invocation has this fixed shape:
+The inner `verify-installed-service.ps1` binds authorization to the artifact SHA, host identity, Gate 2 install transaction, two cycles, a ten-second stop bound, no service enablement, no physical attachment, and generated resources only. It refuses an active unit or an enabled unit; the deterministic unit is normally `static` because it deliberately has no `[Install]` section, while an explicitly disabled compatible state is also accepted. Each cycle performs only `daemon-reload`, start, root-owned mode-`0600` socket verification, generated namespace/veth attach-observe-status-detach, and bounded stop. Journald is read only after a captured cursor and only for `l2-loop.service`; records are bounded and scanned for traffic-identity fields. A separately injected acceptance evidence root verifies stderr fallback without writing the production evidence root. Cleanup addresses only controller-owned generated identities and owned eBPF state.
+
+Both outer controllers depend on the implemented and contract-tested `l2-loop-deploycheck installed --json`. CI validates parser/static safety and generated-root behavior only; it never supplies a real target or authorization. Neither controller accepts an interface argument, discovers a production interface, enables a unit, or attaches to a physical interface.
+
+After a separate Gate 1 authorization, the fixed invocation is:
 
 ```powershell
 $env:L2_LOOP_TEST_TARGET = '<user>@<separately-authorized-target>'
 $env:L2_LOOP_TEST_KEY = '<task-scoped-private-key-path>'
 pwsh -NoProfile -File scripts/verify-real-install.ps1 `
     -Commit '<exact-green-commit-sha>' `
-    -InstallAuthorizationPath '<install-authorization.json>' `
-    -RollbackAuthorizationPath '<rollback-authorization.json>' `
-    -ServiceAuthorizationPath '<service-authorization.json>' `
+    -InstallAuthorizationPath '<gate1-install-authorization.json>' `
+    -RollbackAuthorizationPath '<gate1-rollback-authorization.json>' `
     -DeploymentAuthorizationPath '<deployment-authorization.json>' `
     -PerformanceEvidencePath '<performance-evidence.json>'
 ```
 
-Do not run this command from CI and do not reuse an authorization across hosts, artifacts, transactions, or expiry windows.
+Only after Gate 1 succeeds and a new Gate 2 authorization is granted, the fixed invocation is:
+
+```powershell
+$env:L2_LOOP_TEST_TARGET = '<same-user>@<same-separately-authorized-target>'
+$env:L2_LOOP_TEST_KEY = '<task-scoped-private-key-path>'
+pwsh -NoProfile -File scripts/verify-real-service-acceptance.ps1 `
+    -Commit '<same-exact-green-commit-sha>' `
+    -InstallAuthorizationPath '<gate2-install-authorization.json>' `
+    -RollbackAuthorizationPath '<gate2-rollback-authorization.json>' `
+    -ServiceAuthorizationPath '<gate2-service-authorization.json>' `
+    -DeploymentAuthorizationPath '<deployment-authorization.json>' `
+    -PerformanceEvidencePath '<performance-evidence.json>'
+```
+
+Do not run either command from CI and do not reuse an authorization across gates, hosts, artifacts, transactions, or expiry windows.
 
 ## Four independent real-node authorization gates
 
 Progression is monotonic only when each preceding report is retained for the same exact artifact and host. Authorization never carries forward:
 
-1. **Real installation/rollback:** authorize the fixed `plan`/`apply`/`installed --json`/transaction rollback command set and all `/usr`, `/etc`, and `/var/lib/l2-loop` mutations. A successful independent report is `installed_verified`; the installer still does not start or enable the service.
-2. **Service lifecycle:** separately authorize two bounded systemd/journald cycles using generated namespace/veth only. The harness may run `daemon-reload`, start, observe the root-only socket, stop within ten seconds, and restore the prior service/network/eBPF state. A successful controller report is `service_verified`; it never selects a physical port.
+1. **Real installation/rollback:** authorize the fixed `plan`/`apply`/`installed --json`/transaction rollback command set and all `/usr`, `/etc`, and `/var/lib/l2-loop` mutations. A successful outer report is `real_install_verified`; the contained installed-layout decision is `installed_verified`, and the installer still does not start or enable the service.
+2. **Service lifecycle:** separately authorize a new fixed-path install/rollback transaction plus two bounded systemd/journald cycles using generated namespace/veth only. The harness may run `daemon-reload`, start, observe the root-only socket, stop within ten seconds, and restore the prior service/network/eBPF state. A successful outer report is `real_service_acceptance_verified`, containing `service_verified`; it never selects a physical port.
 3. **Physical-port read-only inspection:** separately authorize `l2-loop-deploycheck inspect [--json]` for one exact reserved non-business interface. Collection is bounded and read-only. A positive report is `physical_canary_ready` with `executable: false`; any occupied/foreign/unknown hook, consumer, topology, identity, native-driver, evidence, or pre/post-state uncertainty blocks.
 4. **Future physical Canary:** requires a new design and new explicit authorization binding the exact artifact, host, interface name/ifindex/MAC/driver/device/namespace identity, fresh hook states, representative traffic source, duration no greater than 15 minutes, complete command/mutation list, stop conditions, and exact reverse rollback. No current product command consumes a readiness plan or grants this capability.
 
-Delivery G.1 executed none of these four real-node gates. The handoff therefore records `installed_verified`, `service_verified`, and `physical_canary_ready` as unavailable, not failed and not implicitly passed. Before any future physical Canary, retain the three preceding positive reports, recapture a converged network/eBPF baseline, prove both target hooks freshly empty, inventory every pre-existing eBPF identity, and obtain the fourth authorization. The Canary design must remain pass-through/read-only observation only: no probe, drop, policing, policy, boot enablement, hook replacement, foreign cleanup, or production-ready claim.
+Delivery G.1 and G.1.1 executed none of these four real-node gates. The handoff therefore records `installed_verified`, `service_verified`, and `physical_canary_ready` as unavailable, not failed and not implicitly passed. Before any future physical Canary, retain the three preceding positive reports, recapture a converged network/eBPF baseline, prove both target hooks freshly empty, inventory every pre-existing eBPF identity, and obtain the fourth authorization. The Canary design must remain pass-through/read-only observation only: no probe, drop, policing, policy, boot enablement, hook replacement, foreign cleanup, or production-ready claim.
 
 ## Current safety boundary
 
