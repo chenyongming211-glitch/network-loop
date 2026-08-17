@@ -2,15 +2,14 @@ use std::path::{Path, PathBuf};
 
 use l2_loop_agent::{
     EXIT_INSTALLATION_BLOCKED, EXIT_INSTALLATION_INTERNAL, EXIT_INSTALLATION_SUCCESS,
-    EXIT_INSTALLATION_USAGE, InstallationCliAction, InstallationCliCommand,
+    EXIT_INSTALLATION_USAGE, InstallServiceError, InstallationCliAction, InstallationCliCommand,
     InstallationCliFormat, InstallationCliSourcePaths, InstallationCommandRunner,
-    InstallServiceError, MAX_INSTALLATION_OUTPUT_BYTES, execute_installation_command,
-    installation_help, parse_installation_args, render_installation_report,
+    MAX_INSTALLATION_OUTPUT_BYTES, execute_installation_command, installation_help,
+    parse_installation_args, render_installation_report,
 };
 use l2_loop_core::{
-    DeploymentArtifactIdentityV1, GI_AUTH_HOST, GI_DESTINATION_FOREIGN,
-    InstallCommandV1, InstallDecisionV1, InstallFindingV1, InstallOperationV1,
-    InstallReportV1,
+    DeploymentArtifactIdentityV1, GI_AUTH_HOST, GI_DESTINATION_FOREIGN, InstallCommandV1,
+    InstallDecisionV1, InstallFindingV1, InstallOperationV1, InstallReportV1,
 };
 
 const AUTHORIZATION_ID: &str = "00112233445566778899aabbccddeeff";
@@ -118,7 +117,13 @@ fn parser_rejects_missing_reordered_or_unsafe_arguments() {
             "/private/install.json",
         ],
         &["rollback", "--transaction", TRANSACTION_ID],
-        &["rollback", "--authorization", "/private/install.json", "--transaction", TRANSACTION_ID],
+        &[
+            "rollback",
+            "--authorization",
+            "/private/install.json",
+            "--transaction",
+            TRANSACTION_ID,
+        ],
         &["status", "--root", "/tmp/root"],
         &["status", "--prefix", "/tmp/root"],
         &["status", "--destination", "/tmp/file"],
@@ -160,7 +165,10 @@ fn help_names_only_fixed_bounded_installation_authority() {
         "attach",
         "detach",
     ] {
-        assert!(!help.contains(prohibited), "unsafe help surface: {prohibited}");
+        assert!(
+            !help.contains(prohibited),
+            "unsafe help surface: {prohibited}"
+        );
     }
 }
 
