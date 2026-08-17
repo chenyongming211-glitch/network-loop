@@ -367,10 +367,8 @@ fn injected_generated_root_source_is_exact() {
         )
         .expect("generated-root current authorization binding");
 
-    let mut filesystem = LinuxInstallationFilesystem::new(
-        InjectedInstallRoot(generated_root),
-        NoInstallFaults,
-    );
+    let mut filesystem =
+        LinuxInstallationFilesystem::new(InjectedInstallRoot(generated_root), NoInstallFaults);
     assert!(
         filesystem
             .transaction_ids()
