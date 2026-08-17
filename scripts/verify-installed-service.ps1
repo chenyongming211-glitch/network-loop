@@ -28,7 +28,7 @@ $STOP_TIMEOUT_SECONDS = 10
 $SOCKET_MODE = '600'
 $SERVICE_WORK_PARENT = '/var/tmp/l2-loop-service-acceptance-v1'
 $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-Import-Module (Join-Path $PSScriptRoot 'lib/IsolatedNames.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'lib/IsolatedNames.psm1')
 
 $script:ServiceCleanupAction = $null
 $script:ServiceCleanupComplete = $false

@@ -28,7 +28,7 @@ $ExpectedBundleFiles = @(
 $ExecutableBundleFiles = @('l2-loop-deploycheck', 'l2-loop-hostcheck', 'l2-loop-install', 'l2-loopctl', 'l2-loopd')
 $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $ServiceHarness = Join-Path $PSScriptRoot 'verify-installed-service.ps1'
-Import-Module (Join-Path $PSScriptRoot 'lib/IsolatedNames.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'lib/IsolatedNames.psm1')
 
 $script:RealInstallCleanupAction = $null
 $script:RealInstallCleanupComplete = $false
@@ -121,7 +121,7 @@ function Assert-ExactBundle {
     param([Parameter(Mandatory)] [string] $Root, [Parameter(Mandatory)] [string] $ArtifactCommit)
     $RootItem = Get-Item -LiteralPath $Root
     Assert-NoLocalLink -Item $RootItem
-    $Items = @(Get-ChildItem -LiteralPath $Root -Force)
+    $Items = @([IO.Directory]::EnumerateFileSystemEntries($Root) | ForEach-Object { Get-Item -LiteralPath $_ })
     if ($Items.Count -ne $EXPECTED_BUNDLE_FILE_COUNT -or @($Items | Where-Object { $_.PSIsContainer }).Count -ne 0 -or
         (@($Items.Name | Sort-Object) -join ',') -cne (@($ExpectedBundleFiles | Sort-Object) -join ',')) {
         throw 'bundle inventory is not exact'
