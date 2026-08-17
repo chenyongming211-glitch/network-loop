@@ -416,7 +416,7 @@ State that Gate 2 repeats installation under new authorization and never inherit
 
 Add a dated correction note to the original G.1 design and plan: Task 9’s single combined controller was superseded by G.1.1 because distinct authorization documents were insufficient to provide distinct operator execution gates. Do not rewrite historical RED/GREEN evidence.
 
-- [ ] **Step 4: Push final documentation and require exact-SHA GREEN**
+- [x] **Step 4: Push final documentation and require exact-SHA GREEN**
 
 ```powershell
 git diff --check
@@ -427,7 +427,7 @@ git push origin main
 
 Require Userspace, eBPF, Script safety, Windows PowerShell safety, and Bundle success for the exact final commit. Verify the artifact inventory has ten files with nine checksum-covered payloads.
 
-- [ ] **Step 5: Stop for Gate 1 authorization**
+- [x] **Step 5: Stop for Gate 1 authorization**
 
 Verify and report:
 
@@ -438,6 +438,8 @@ git status --porcelain
 ```
 
 Expected: `HEAD == origin/main`, no worktree output, five green jobs, exact artifact available, and no node/systemd/network/eBPF operation performed. Request one exact host and a task-scoped Gate 1 authorization only. Do not request or execute Gate 2, Gate 3, or Gate 4 authorization at this checkpoint.
+
+**Task 5 GREEN evidence:** Commit `e4aa9a80046ddccfcd3ae6c9ea6ffb5f881fb8dd`, GitHub run `32012460638`. Userspace, eBPF, Script safety, Windows PowerShell safety, and Bundle all succeeded. The exact artifact `l2-loop-linux-x86_64-e4aa9a80046ddccfcd3ae6c9ea6ffb5f881fb8dd` is available. Before this completion-record commit, local `HEAD`, remote `main`, and the run head were identical and the worktree was clean. No node, systemd, journald, network-interface, physical-interface, or live eBPF operation ran during G.1.1. The next permitted action is a separately authorized Gate 1 request only.
 
 ## Execution Checkpoints
 
