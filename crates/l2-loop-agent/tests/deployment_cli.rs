@@ -168,7 +168,11 @@ fn command_execution_routes_directly_to_the_gate_runner() {
     );
     assert_eq!(
         runner.calls,
-        vec!["staging:/bundle".to_owned(), "inspect".to_owned()]
+        vec![
+            "staging:/bundle".to_owned(),
+            "installed".to_owned(),
+            "inspect".to_owned(),
+        ]
     );
     assert_eq!(inspect.exit_code, EXIT_DEPLOYMENT_BLOCKED);
 }
