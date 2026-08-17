@@ -132,6 +132,26 @@ fn preparation_is_deterministic_and_preserves_exact_prior_and_generated_identiti
 }
 
 #[test]
+fn persistent_identity_ignores_only_the_mutable_directory_link_count() {
+    let created_directory = InstallObjectIdentityV1::directory(9, 100, 2, 0o755, 0, 0).unwrap();
+    let populated_directory =
+        InstallObjectIdentityV1::directory(9, 100, 7, 0o755, 0, 0).unwrap();
+    assert!(created_directory.matches_persistent_object(&populated_directory));
+    assert!(!created_directory.matches_persistent_object(
+        &InstallObjectIdentityV1::directory(9, 101, 7, 0o755, 0, 0).unwrap()
+    ));
+    assert!(!created_directory.matches_persistent_object(
+        &InstallObjectIdentityV1::directory(9, 100, 7, 0o700, 0, 0).unwrap()
+    ));
+
+    let file = cli_identity();
+    assert!(file.matches_persistent_object(&file));
+    assert!(!file.matches_persistent_object(
+        &InstallObjectIdentityV1::regular_file(9, 200, 1, DAEMON_SHA256, 0o755, 0, 0).unwrap()
+    ));
+}
+
+#[test]
 fn applying_exposes_one_exact_forward_action_at_every_crash_point() {
     let mut journal = prepared_journal();
     assert!(journal.mark_installed().is_err());

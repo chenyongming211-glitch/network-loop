@@ -323,6 +323,21 @@ impl InstallObjectIdentityV1 {
         self.gid
     }
 
+    pub fn matches_persistent_object(&self, observed: &Self) -> bool {
+        self.kind == observed.kind
+            && self.device == observed.device
+            && self.inode == observed.inode
+            && self.mode == observed.mode
+            && self.uid == observed.uid
+            && self.gid == observed.gid
+            && match self.kind {
+                InstallObjectKindV1::RegularFile => {
+                    self.hard_links == observed.hard_links && self.sha256 == observed.sha256
+                }
+                InstallObjectKindV1::Directory => true,
+            }
+    }
+
     fn matches_intended(&self, intended: &InstallIntendedIdentityV1) -> bool {
         self.kind == intended.kind
             && self.sha256 == intended.sha256

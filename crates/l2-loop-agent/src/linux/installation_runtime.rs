@@ -264,7 +264,8 @@ fn inspect_layout(
             (InstallLayoutEntryKindV1::Regular, None) => InstallDestinationStateV1::AbsentFile,
             (InstallLayoutEntryKindV1::Directory, Some(identity))
                 if is_standard_prerequisite(entry.role)
-                    || journal_identity(current.as_ref(), entry.role) == Some(&identity) =>
+                    || journal_identity(current.as_ref(), entry.role)
+                        .is_some_and(|expected| expected.matches_persistent_object(&identity)) =>
             {
                 InstallDestinationStateV1::ExistingPrerequisiteDirectory
             }
@@ -300,12 +301,11 @@ fn current_installed_journal(
                 matches = false;
                 break;
             };
-            if filesystem
+            if !filesystem
                 .inspect_optional_exact(entry.role())
                 .ok()
                 .flatten()
-                .as_ref()
-                != Some(expected)
+                .is_some_and(|observed| expected.matches_persistent_object(&observed))
             {
                 matches = false;
                 break;

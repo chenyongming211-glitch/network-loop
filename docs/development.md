@@ -88,6 +88,8 @@ The Bundle job then downloads that exact just-uploaded artifact and runs `script
 
 The same acceptance step runs the complete privileged installation filesystem test plus all fourteen fixed Task 5 fault selectors. Every generated name is cryptographic lower-hex, cleanup targets are registered before creation, each deletion is a literal known path, and an outside-root sentinel must retain its device, inode, ownership, mode, size, and SHA-256 identity. The harness never invokes SSH, a service manager, network tooling, eBPF attachment, or a physical interface, and it fails closed on symlinks, foreign objects, unsafe metadata, identity disagreement, cleanup residue, or an artifact mismatch.
 
+Persistent installed-file identity includes the exact device, inode, single-link count, digest, mode, uid, and gid. Persistent directory identity includes the exact device, inode, type, mode, uid, and gid; its observed link count must be nonzero but is not persisted as an equality field because owned child-directory creation changes it. Exact no-follow traversal and empty-directory removal remain mandatory, so rollback never claims or recursively removes foreign contents.
+
 ## Build input update policy
 
 The tracked root `Cargo.lock` is generated only by an explicitly added, temporary GitHub workflow with `contents: read`; the local authoring workspace does not resolve dependencies. Dependency, stable/nightly Rust, `bpf-linker`, and Action-SHA updates are selected manually and committed atomically. The maintainer reviews the lock and workflow diffs, removes the temporary workflow, then requires all five CI jobs and exact-artifact host acceptance again. No dependency updater, bot write, scheduled update, or automatic pull request is enabled.

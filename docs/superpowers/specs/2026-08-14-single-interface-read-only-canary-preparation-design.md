@@ -191,7 +191,7 @@ The journal contains no secret, raw machine ID, arbitrary error chain, or packet
 A destination is writable only when it is:
 
 - absent; or
-- exactly owned by a previously completed valid installer journal whose artifact, digest, type, mode, uid, gid, inode/link expectations, and path all match fresh no-follow metadata.
+- exactly owned by a previously completed valid installer journal whose artifact, digest, type, mode, uid, gid, inode, regular-file link expectation, and path all match fresh no-follow metadata. A directory's link count is validated as nonzero when observed but is not a persistent identity field because adding or removing a child directory changes it; persistent directory ownership still requires the same device/inode/type/mode/uid/gid, and rollback removes it only when the exact path is empty.
 
 Every foreign, unjournaled, partially matching, linked, special, or unknown object blocks. The installer never adopts it. An incomplete prior transaction blocks a new `apply`; only exact rollback with matching authorization may proceed.
 
