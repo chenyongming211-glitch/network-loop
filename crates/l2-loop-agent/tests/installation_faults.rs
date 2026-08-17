@@ -378,20 +378,15 @@ fn prepared_journal() -> InstallJournalV1 {
             TRANSACTION_ID,
             "00112233445566778899aabbccddeeff",
             "1".repeat(64),
-            DeploymentArtifactIdentityV1::new(
-                "0123456789abcdef0123456789abcdef01234567",
-                "0.1.0",
-            )
-            .unwrap(),
+            DeploymentArtifactIdentityV1::new("0123456789abcdef0123456789abcdef01234567", "0.1.0")
+                .unwrap(),
             "2".repeat(64),
             "3".repeat(64),
             "4".repeat(64),
         )
         .unwrap(),
     );
-    journal
-        .prepare(vec![absent_cli_entry(b"payload")])
-        .unwrap();
+    journal.prepare(vec![absent_cli_entry(b"payload")]).unwrap();
     journal
 }
 
