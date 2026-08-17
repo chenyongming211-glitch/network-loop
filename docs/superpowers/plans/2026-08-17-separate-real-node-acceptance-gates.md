@@ -261,7 +261,7 @@ Add these exact workflow steps after the existing installed-service tests:
   run: powershell -NoProfile -File scripts/tests/verify-real-service-acceptance.Tests.ps1
 ```
 
-- [ ] **Step 3: Commit, push, and prove RED**
+- [x] **Step 3: Commit, push, and prove RED**
 
 ```powershell
 git diff --check
@@ -271,6 +271,8 @@ git push origin main
 ```
 
 Expected GitHub result: Script safety and Windows PowerShell safety fail only because `scripts/verify-real-service-acceptance.ps1` is absent. Record exact commit, run, jobs, and missing-harness messages.
+
+**Task 3 RED evidence:** Commit `527fe34767071ac6797442543f9ac1c2ed079bf3`, GitHub run `32011238550`. `Script safety` job `95331054932` and `Windows PowerShell safety` job `95331055000` both failed only in the newly registered real-service acceptance step. The Linux log reported `real service acceptance harness is missing` and exactly one failed assertion. No real-node command ran.
 
 ---
 
@@ -284,7 +286,7 @@ Expected GitHub result: Script safety and Windows PowerShell safety fail only be
 - Consumes: exact GitHub artifact, fresh Gate 2 install/service/rollback authorizations, deployment authorization, performance evidence, explicit target/key, and `verify-installed-service.ps1`.
 - Produces: Schema 1 `real_service_acceptance_verified` after installed verification, generated-veth service acceptance, exact rollback, stable network/eBPF comparison, and zero generated residue.
 
-- [ ] **Step 1: Preserve the reviewed combined transaction under the Gate 2 name**
+- [x] **Step 1: Preserve the reviewed combined transaction under the Gate 2 name**
 
 Create `scripts/verify-real-service-acceptance.ps1` from the combined controller at commit `d75a43980c0c0d8cbbfecf4f5238eb3a59ff6fc2`. Preserve its bounded process runner, exact artifact/checksum verification, strict authorization parser, embedded remote phases, stable state snapshots, cancellation cleanup, plan/apply/installed/service/rollback ordering, and prohibited-operation surface.
 
@@ -304,7 +306,7 @@ param(
 )
 ```
 
-- [ ] **Step 2: Give Gate 2 a distinct decision and truthful cleanup field**
+- [x] **Step 2: Give Gate 2 a distinct decision and truthful cleanup field**
 
 Require the inner report before rollback:
 
