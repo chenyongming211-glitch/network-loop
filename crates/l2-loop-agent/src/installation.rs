@@ -18,6 +18,7 @@ pub enum InstallDestinationStateV1 {
     AbsentDirectory,
     AbsentFile,
     PriorOwnedFile,
+    ExistingPrerequisiteDirectory,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,30 +165,42 @@ impl InstallPlanner {
         let mut actions = Vec::with_capacity(destinations.len().saturating_mul(2));
         for destination in &destinations {
             let action = match destination.state {
-                InstallDestinationStateV1::AbsentDirectory => InstallActionV1::CreateDirectory {
-                    role: destination.role,
-                },
-                InstallDestinationStateV1::AbsentFile => InstallActionV1::InstallAbsentFile {
-                    role: destination.role,
-                },
+                InstallDestinationStateV1::AbsentDirectory => Some(
+                    InstallActionV1::CreateDirectory {
+                        role: destination.role,
+                    },
+                ),
+                InstallDestinationStateV1::AbsentFile => Some(
+                    InstallActionV1::InstallAbsentFile {
+                        role: destination.role,
+                    },
+                ),
                 InstallDestinationStateV1::PriorOwnedFile
                     if source.authorization.operation == InstallOperationV1::Upgrade =>
                 {
-                    InstallActionV1::UpgradeOwnedFile {
+                    Some(InstallActionV1::UpgradeOwnedFile {
                         role: destination.role,
-                    }
+                    })
                 }
                 InstallDestinationStateV1::PriorOwnedFile => {
                     return Err(InstallPlanningError::InvalidDestination);
                 }
+                InstallDestinationStateV1::ExistingPrerequisiteDirectory
+                    if destination.role.install_order() < 20 =>
+                {
+                    None
+                }
+                InstallDestinationStateV1::ExistingPrerequisiteDirectory => {
+                    return Err(InstallPlanningError::InvalidDestination);
+                }
             };
-            actions.push(action);
-        }
-        actions.extend(destinations.iter().map(|destination| {
-            InstallActionV1::VerifyInstalledObject {
-                role: destination.role,
+            if let Some(action) = action {
+                actions.push(action);
+                actions.push(InstallActionV1::VerifyInstalledObject {
+                    role: destination.role,
+                });
             }
-        }));
+        }
 
         Ok(InstallPlanV1 {
             authorization_id: source.authorization.authorization_id.clone(),
