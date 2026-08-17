@@ -83,6 +83,46 @@ fn final_publication_never_replaces_a_foreign_file_created_after_preflight() {
 }
 
 #[test]
+fn backup_publication_never_replaces_a_foreign_file_created_after_preflight() {
+    if !fault_is_selected(InstallFaultPointV1::BackupRename) {
+        return;
+    }
+    let Some(root) = FaultRoot::new_if_privileged(InstallFaultPointV1::BackupRename) else {
+        return;
+    };
+    root.write_file("usr/bin/l2-loopctl", b"prior", 0o755);
+    let mut inspector = LinuxInstallationFilesystem::new(root.clone(), FailOnce::disabled());
+    let prior = inspector.inspect_exact(InstallRoleV1::Cli).unwrap();
+    let backup = root.path.join("usr/bin/.l2-loop-cli-backup");
+    let mut filesystem = LinuxInstallationFilesystem::new(
+        root.clone(),
+        InsertForeignAtBackupRename::new(backup.clone()),
+    );
+    let payload = b"next";
+    let entry = InstallJournalEntryV1::prior_owned_file(
+        InstallRoleV1::Cli,
+        intended_file(payload),
+        ".l2-loop-cli-new",
+        ".l2-loop-cli-backup",
+        prior,
+    )
+    .unwrap();
+
+    assert!(
+        filesystem
+            .apply_entry(&entry, Some(&mut Cursor::new(payload)))
+            .is_err(),
+        "a backup no-replace publication must reject the raced backup name"
+    );
+    assert_eq!(
+        fs::read(root.path.join("usr/bin/l2-loopctl")).unwrap(),
+        b"prior"
+    );
+    assert_eq!(fs::read(backup).unwrap(), b"foreign");
+    assert_eq!(fs::read(root.path.join("sentinel")).unwrap(), b"unchanged");
+}
+
+#[test]
 fn backup_rename_and_rollback_faults_never_guess_at_foreign_state() {
     for point in [
         InstallFaultPointV1::BackupRename,
@@ -237,6 +277,48 @@ fn journal_move_fault_retains_only_the_exact_bootstrap_identity() {
     assert_eq!(fs::read(root.path.join("sentinel")).unwrap(), b"unchanged");
 }
 
+#[test]
+fn journal_publication_never_replaces_a_foreign_directory_created_after_preflight() {
+    if !fault_is_selected(InstallFaultPointV1::JournalMove) {
+        return;
+    }
+    let Some(root) = FaultRoot::new_if_privileged(InstallFaultPointV1::JournalMove) else {
+        return;
+    };
+    for (path, mode) in [
+        ("var", 0o755),
+        ("var/lib", 0o755),
+        ("var/lib/l2-loop", 0o700),
+        ("var/lib/l2-loop/install", 0o700),
+        ("var/lib/l2-loop/install/transactions", 0o700),
+    ] {
+        root.create_dir(path, mode);
+    }
+    let journal = prepared_journal();
+    LinuxInstallationFilesystem::new(root.clone(), FailOnce::disabled())
+        .bootstrap_journal(&journal)
+        .unwrap();
+    let destination = root
+        .path
+        .join(format!("var/lib/l2-loop/install/transactions/{TRANSACTION_ID}"));
+    let mut filesystem = LinuxInstallationFilesystem::new(
+        root.clone(),
+        InsertForeignDirectoryAtJournalMove::new(destination.clone()),
+    );
+
+    assert!(
+        filesystem.publish_journal(&journal).is_err(),
+        "a journal no-replace publication must reject the raced directory"
+    );
+    assert!(destination.is_dir());
+    assert!(
+        root.path
+            .join(format!("var/lib/.l2-loop-install-{TRANSACTION_ID}"))
+            .is_dir()
+    );
+    assert_eq!(fs::read(root.path.join("sentinel")).unwrap(), b"unchanged");
+}
+
 #[derive(Debug, Clone, Copy)]
 struct FailOnce {
     selected: Option<InstallFaultPointV1>,
@@ -289,6 +371,58 @@ impl InstallFaultInjector for InsertForeignAtFinalRename {
             self.fired = true;
             fs::write(&self.destination, b"foreign").map_err(|_| InstallIoError::Unavailable)?;
             fs::set_permissions(&self.destination, fs::Permissions::from_mode(0o755))
+                .map_err(|_| InstallIoError::Unavailable)?;
+        }
+        Ok(())
+    }
+}
+
+struct InsertForeignAtBackupRename {
+    destination: PathBuf,
+    fired: bool,
+}
+
+impl InsertForeignAtBackupRename {
+    const fn new(destination: PathBuf) -> Self {
+        Self {
+            destination,
+            fired: false,
+        }
+    }
+}
+
+impl InstallFaultInjector for InsertForeignAtBackupRename {
+    fn check(&mut self, point: InstallFaultPointV1) -> Result<(), InstallIoError> {
+        if !self.fired && point == InstallFaultPointV1::BackupRename {
+            self.fired = true;
+            fs::write(&self.destination, b"foreign").map_err(|_| InstallIoError::Unavailable)?;
+            fs::set_permissions(&self.destination, fs::Permissions::from_mode(0o755))
+                .map_err(|_| InstallIoError::Unavailable)?;
+        }
+        Ok(())
+    }
+}
+
+struct InsertForeignDirectoryAtJournalMove {
+    destination: PathBuf,
+    fired: bool,
+}
+
+impl InsertForeignDirectoryAtJournalMove {
+    const fn new(destination: PathBuf) -> Self {
+        Self {
+            destination,
+            fired: false,
+        }
+    }
+}
+
+impl InstallFaultInjector for InsertForeignDirectoryAtJournalMove {
+    fn check(&mut self, point: InstallFaultPointV1) -> Result<(), InstallIoError> {
+        if !self.fired && point == InstallFaultPointV1::JournalMove {
+            self.fired = true;
+            fs::create_dir(&self.destination).map_err(|_| InstallIoError::Unavailable)?;
+            fs::set_permissions(&self.destination, fs::Permissions::from_mode(0o700))
                 .map_err(|_| InstallIoError::Unavailable)?;
         }
         Ok(())
