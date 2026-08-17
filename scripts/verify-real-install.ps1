@@ -6,7 +6,6 @@ param(
 
     [Parameter(Mandatory)] [string] $InstallAuthorizationPath,
     [Parameter(Mandatory)] [string] $RollbackAuthorizationPath,
-    [Parameter(Mandatory)] [string] $ServiceAuthorizationPath,
     [Parameter(Mandatory)] [string] $DeploymentAuthorizationPath,
     [Parameter(Mandatory)] [string] $PerformanceEvidencePath,
 
@@ -27,7 +26,6 @@ $ExpectedBundleFiles = @(
 )
 $ExecutableBundleFiles = @('l2-loop-deploycheck', 'l2-loop-hostcheck', 'l2-loop-install', 'l2-loopctl', 'l2-loopd')
 $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$ServiceHarness = Join-Path $PSScriptRoot 'verify-installed-service.ps1'
 Import-Module (Join-Path $PSScriptRoot 'lib/IsolatedNames.psm1')
 
 $script:RealInstallCleanupAction = $null
@@ -236,7 +234,7 @@ cleanup_generated() {
     assert_owned
     if test -d "$root"; then
         test ! -L "$root" || fail 'generated root became a link'
-        for leaf in install.json rollback.json service.json deployment.json performance.json; do test ! -e "$inputs/$leaf" || unlink -- "$inputs/$leaf"; done
+        for leaf in install.json rollback.json deployment.json performance.json; do test ! -e "$inputs/$leaf" || unlink -- "$inputs/$leaf"; done
         test ! -d "$inputs" || rmdir -- "$inputs"
         for leaf in SHA256SUMS deployment-v1.example.json l2-loop-deploycheck l2-loop-ebpf.o l2-loop-hostcheck l2-loop-install l2-loop.service l2-loopctl l2-loopd manifest.json; do test ! -e "$bundle/$leaf" || unlink -- "$bundle/$leaf"; done
         test ! -d "$bundle" || rmdir -- "$bundle"
@@ -340,7 +338,6 @@ if ([string]$InstallAuthorization.transaction_id -cne [string]$RollbackAuthoriza
 $TransactionId = [string]$InstallAuthorization.transaction_id
 $Names = New-IsolatedNames -RunId (New-InstallRunId)
 $Names | Add-Member -NotePropertyName ControllerOwnershipNonce -NotePropertyValue (New-InstallRunId)
-$ServiceRunId = New-InstallRunId
 
 $CleanupAction = { Invoke-RealInstallCleanup -Names $Names -TransactionId $TransactionId -Target $Target -KeyPath $KeyPath }
 Register-RealInstallCleanup -Action $CleanupAction
@@ -355,8 +352,8 @@ try {
     $null = Invoke-RemoteInstallPhase -Phase 'precheck' -Names $Names -TransactionId $TransactionId -Target $Target -KeyPath $KeyPath
     $Sources = @($ExpectedBundleFiles | ForEach-Object { Join-Path $Bundle.Root $_ })
     $null = Invoke-ExactInstallProcess -FilePath 'scp' -ArgumentList (Get-ScpArguments -Target $Target -KeyPath $KeyPath -Sources $Sources -Destination "$($Names.RemoteRunRoot)/bundle/") -StandardInput $null -BoundSeconds 180
-    $InputSources = @($InstallAuthorizationPath, $RollbackAuthorizationPath, $ServiceAuthorizationPath, $DeploymentAuthorizationPath, $PerformanceEvidencePath) | ForEach-Object { (Resolve-Path -LiteralPath $_).Path }
-    $InputNames = @('install.json','rollback.json','service.json','deployment.json','performance.json')
+    $InputSources = @($InstallAuthorizationPath, $RollbackAuthorizationPath, $DeploymentAuthorizationPath, $PerformanceEvidencePath) | ForEach-Object { (Resolve-Path -LiteralPath $_).Path }
+    $InputNames = @('install.json','rollback.json','deployment.json','performance.json')
     for ($Index = 0; $Index -lt $InputSources.Count; $Index++) {
         $null = Invoke-ExactInstallProcess -FilePath 'scp' -ArgumentList (Get-ScpArguments -Target $Target -KeyPath $KeyPath -Sources @($InputSources[$Index]) -Destination "$($Names.RemoteRunRoot)/inputs/$($InputNames[$Index])") -StandardInput $null -BoundSeconds 60
     }
@@ -369,9 +366,6 @@ try {
     $ApplyReport = Assert-InstallDecision -Result $ApplyResult -Expected 'installed_verified'
     $InstalledVerification = Invoke-RemoteInstallPhase -Phase 'installed' -Names $Names -TransactionId $TransactionId -Target $Target -KeyPath $KeyPath
     $InstalledReport = Assert-InstallDecision -Result $InstalledVerification -Expected 'installed_verified'
-
-    $ServiceVerification = & $ServiceHarness -Commit $Commit -RunId $ServiceRunId -ServiceAuthorizationPath $ServiceAuthorizationPath -InstallTransactionId $TransactionId -TimeoutSeconds ([Math]::Min($TimeoutSeconds, 900)) | ConvertFrom-Json
-    if ([string]$ServiceVerification.decision -cne 'service_verified' -or -not [bool]$ServiceVerification.owned_cleanup_complete) { throw 'separate service acceptance did not complete exact cleanup' }
 
     $RollbackResult = Invoke-RemoteInstallPhase -Phase 'rollback' -Names $Names -TransactionId $TransactionId -Target $Target -KeyPath $KeyPath
     $RollbackReport = Assert-InstallDecision -Result $RollbackResult -Expected 'rolled_back'
@@ -390,7 +384,6 @@ try {
         install_transaction_id = $TransactionId
         install_decision = [string]$ApplyReport.decision
         installed_check_decision = [string]$InstalledReport.decision
-        service_decision = [string]$ServiceVerification.decision
         rollback_decision = [string]$RollbackReport.decision
         network_identity_before = [string]$BeforeState.network
         network_identity_after = [string]$AfterState.network

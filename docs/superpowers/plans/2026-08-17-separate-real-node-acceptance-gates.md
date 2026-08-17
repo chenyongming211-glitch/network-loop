@@ -33,7 +33,7 @@
 - Consumes: current combined `scripts/verify-real-install.ps1`.
 - Produces: static assertions defining a Gate 1-only parameter surface, sequence, report, and prohibited service behavior.
 
-- [ ] **Step 1: Replace service-positive assertions with Gate 1-negative assertions**
+- [x] **Step 1: Replace service-positive assertions with Gate 1-negative assertions**
 
 Remove `ServiceAuthorizationPath`, `service_verified`, `verify-installed-service.ps1`, `$ServiceVerification = & $ServiceHarness`, and `service_decision` from the required-marker list. Add the following explicit negative checks after the ordering assertions:
 
@@ -62,7 +62,7 @@ Assert-True ($RollbackIndex -gt $InstalledIndex) 'exact rollback is not sequence
 
 Retain required markers for exact artifact validation, install/rollback authorization, stable network/eBPF snapshots, plan/apply/installed/rollback, `real_install_verified`, bounded output, exact cleanup, and zero generated residue.
 
-- [ ] **Step 2: Commit and push the RED test**
+- [x] **Step 2: Commit and push the RED test**
 
 Run only repository inspection locally:
 
@@ -74,7 +74,7 @@ git commit -m "test: specify standalone real installation gate"
 git push origin main
 ```
 
-- [ ] **Step 3: Verify the expected RED result in GitHub**
+- [x] **Step 3: Verify the expected RED result in GitHub**
 
 Run:
 
@@ -85,6 +85,8 @@ gh run watch ([string]$Run.databaseId) --exit-status
 ```
 
 Expected: `Script safety` and `Windows PowerShell safety` fail because the current Gate 1 script still contains service authorization, invocation, and report markers. Confirm the failures are the new Gate 1 assertions, while no real-node command is executed.
+
+**Task 1 RED evidence:** Commit `5a72c568255e55c32532eeecf3ea7e6557215ab0`, GitHub run `32010264829`. `Script safety` job `95328129993` and `Windows PowerShell safety` job `95328130056` both failed in the real-install safety test. The Linux log reported exactly seven still-present Gate 2 markers: `ServiceAuthorizationPath`, `$ServiceHarness`, `verify-installed-service.ps1`, `$ServiceVerification`, `service_decision`, `service_verified`, and `service.json`. This proves the new test detects the pre-split controller. No real-node command ran.
 
 ---
 
@@ -98,7 +100,7 @@ Expected: `Script safety` and `Windows PowerShell safety` fail because the curre
 - Consumes: the RED contract from Task 1.
 - Produces: `verify-real-install.ps1 -Commit -InstallAuthorizationPath -RollbackAuthorizationPath -DeploymentAuthorizationPath -PerformanceEvidencePath [-TimeoutSeconds]` returning Schema 1 `real_install_verified`.
 
-- [ ] **Step 1: Remove Gate 2 inputs and setup from Gate 1**
+- [x] **Step 1: Remove Gate 2 inputs and setup from Gate 1**
 
 Delete this parameter:
 
@@ -113,7 +115,7 @@ $ServiceHarness = Join-Path $PSScriptRoot 'verify-installed-service.ps1'
 $ServiceRunId = New-InstallRunId
 ```
 
-- [ ] **Step 2: Narrow copied authorization inputs**
+- [x] **Step 2: Narrow copied authorization inputs**
 
 Replace the five-input copy table with exactly four inputs:
 
@@ -135,7 +137,7 @@ for leaf in install.json rollback.json deployment.json performance.json; do
 done
 ```
 
-- [ ] **Step 3: Remove the service call and narrow the report**
+- [x] **Step 3: Remove the service call and narrow the report**
 
 After `installed_verified`, invoke rollback immediately:
 
