@@ -273,7 +273,15 @@ function Invoke-GeneratedInstallationEntryPoint {
     if ($Command -cin @('plan','apply')) { foreach ($Value in @('--bundle','/acceptance/bundle','--authorization',$Authorization.ChrootPath,'--deployment-authorization','/acceptance/inputs/deployment-v1.json','--performance-evidence','/acceptance/inputs/performance-v1.json','--json')) { $Arguments.Add($Value) } }
     elseif ($Command -ceq 'rollback') { foreach ($Value in @('--transaction',$Authorization.TransactionId,'--authorization',$Authorization.ChrootPath,'--json')) { $Arguments.Add($Value) } }
     else { $Arguments.Add('--json') }
-    $Result = Invoke-ExactProcess 'chroot' @($Arguments) $ExpectedExitCodes
+    try {
+        $Result = Invoke-ExactProcess 'chroot' @($Arguments) $ExpectedExitCodes
+    } catch {
+        $TraceArguments = [Collections.Generic.List[string]]::new()
+        foreach ($Value in @('-f', '-e', 'trace=ioctl,flistxattr,openat,newfstatat', '--', 'chroot')) { $TraceArguments.Add($Value) }
+        foreach ($Value in $Arguments) { $TraceArguments.Add($Value) }
+        $Trace = Invoke-ExactProcess 'strace' @($TraceArguments) @(0, 1, 4)
+        throw "$($_.Exception.Message)$([Environment]::NewLine)system call trace:$([Environment]::NewLine)$($Trace.Output)"
+    }
     $Report = $null; if ($Result.Output.StartsWith('{')) { $Report = $Result.Output | ConvertFrom-Json }
     [pscustomobject]@{ ExitCode = $Result.ExitCode; Output = $Result.Output; Report = $Report }
 }
