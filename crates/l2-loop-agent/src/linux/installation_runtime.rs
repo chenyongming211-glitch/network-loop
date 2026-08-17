@@ -15,12 +15,11 @@ use l2_loop_core::{
 };
 
 use crate::{
-    HostIdentityReader, InstallActionV1, InstallDestinationSnapshotV1,
-    InstallDestinationStateV1, InstallIoError, InstallLayoutEntryKindV1, InstallLayoutV1,
-    InstallPayloadSourceV1, InstallPlanner, InstallServiceError, InstallSourcePathsV1,
-    InstallSourceReader, InstallSourceSnapshotV1, InstallationCliSourcePaths,
-    InstallationCommandRunner, LinuxHostIdentityReaderV1, LinuxInstallSourceReaderV1,
-    read_install_authorization_v1,
+    HostIdentityReader, InstallActionV1, InstallDestinationSnapshotV1, InstallDestinationStateV1,
+    InstallIoError, InstallLayoutEntryKindV1, InstallLayoutV1, InstallPayloadSourceV1,
+    InstallPlanner, InstallServiceError, InstallSourcePathsV1, InstallSourceReader,
+    InstallSourceSnapshotV1, InstallationCliSourcePaths, InstallationCommandRunner,
+    LinuxHostIdentityReaderV1, LinuxInstallSourceReaderV1, read_install_authorization_v1,
 };
 
 use super::{
@@ -34,8 +33,8 @@ pub struct SystemInstallationCommandRunner {
 
 impl SystemInstallationCommandRunner {
     pub fn system() -> Result<Self, InstallServiceError> {
-        let commit = option_env!("L2_LOOP_BUILD_COMMIT_SHA")
-            .ok_or(InstallServiceError::InputUnavailable)?;
+        let commit =
+            option_env!("L2_LOOP_BUILD_COMMIT_SHA").ok_or(InstallServiceError::InputUnavailable)?;
         let artifact = DeploymentArtifactIdentityV1::new(commit, env!("CARGO_PKG_VERSION"))
             .map_err(|_| InstallServiceError::InputUnavailable)?;
         Ok(Self { artifact })
@@ -146,12 +145,7 @@ impl InstallationCommandRunner for SystemInstallationCommandRunner {
         let result = apply_plan(&mut filesystem, &prepared, &plan.actions, prior.as_ref());
         match result {
             Ok(()) => report(&prepared, InstallCommandV1::Apply, Vec::new(), true),
-            Err(()) => blocked_report(
-                &prepared,
-                InstallCommandV1::Apply,
-                GI_WRITE_FAILED,
-                true,
-            ),
+            Err(()) => blocked_report(&prepared, InstallCommandV1::Apply, GI_WRITE_FAILED, true),
         }
     }
 
@@ -239,13 +233,8 @@ struct PreparedSystemInstall {
     bundle: crate::BundleSnapshotV1,
 }
 
-type LayoutInspection = Result<
-    (
-        Vec<InstallDestinationSnapshotV1>,
-        Option<InstallJournalV1>,
-    ),
-    &'static str,
->;
+type LayoutInspection =
+    Result<(Vec<InstallDestinationSnapshotV1>, Option<InstallJournalV1>), &'static str>;
 
 fn inspect_layout(
     filesystem: &mut LinuxInstallationFilesystem<FixedInstallRoot, NoInstallFaults>,
@@ -272,9 +261,7 @@ fn inspect_layout(
             (InstallLayoutEntryKindV1::Directory, None) => {
                 InstallDestinationStateV1::AbsentDirectory
             }
-            (InstallLayoutEntryKindV1::Regular, None) => {
-                InstallDestinationStateV1::AbsentFile
-            }
+            (InstallLayoutEntryKindV1::Regular, None) => InstallDestinationStateV1::AbsentFile,
             (InstallLayoutEntryKindV1::Directory, Some(identity))
                 if is_standard_prerequisite(entry.role)
                     || journal_identity(current.as_ref(), entry.role) == Some(&identity) =>
@@ -313,7 +300,11 @@ fn current_installed_journal(
                 matches = false;
                 break;
             };
-            if filesystem.inspect_optional_exact(entry.role()).ok().flatten().as_ref()
+            if filesystem
+                .inspect_optional_exact(entry.role())
+                .ok()
+                .flatten()
+                .as_ref()
                 != Some(expected)
             {
                 matches = false;
@@ -375,7 +366,10 @@ fn apply_plan(
                     .clone();
                 let mut payload = payload_file(prepared, role).map_err(|_| ())?;
                 let outcome = filesystem
-                    .apply_entry(&entry, payload.as_mut().map(|file| file as &mut dyn std::io::Read))
+                    .apply_entry(
+                        &entry,
+                        payload.as_mut().map(|file| file as &mut dyn std::io::Read),
+                    )
                     .map_err(|_| ())?;
                 journal
                     .record_applied(
@@ -432,17 +426,10 @@ fn rollback_journal(
                 expected_backup,
                 ..
             } => filesystem
-                .rollback_restore_exact(
-                    *role,
-                    expected_current,
-                    backup_basename,
-                    expected_backup,
-                )
+                .rollback_restore_exact(*role, expected_current, backup_basename, expected_backup)
                 .map_err(|_| ())?,
         }
-        journal
-            .record_rollback_completed(&action)
-            .map_err(|_| ())?;
+        journal.record_rollback_completed(&action).map_err(|_| ())?;
         filesystem.persist_journal(journal).map_err(|_| ())?;
     }
     journal.mark_rolled_back().map_err(|_| ())?;
@@ -487,14 +474,8 @@ fn journal_entry(
                 prepared.source.authorization.transaction_id,
                 role.install_order()
             );
-            InstallJournalEntryV1::prior_owned_file(
-                role,
-                intended,
-                sibling,
-                backup,
-                prior_identity,
-            )
-            .map_err(|_| ())
+            InstallJournalEntryV1::prior_owned_file(role, intended, sibling, backup, prior_identity)
+                .map_err(|_| ())
         }
         InstallActionV1::VerifyInstalledObject { .. }
         | InstallActionV1::RemoveOwnedEmptyDirectory { .. } => Err(()),
@@ -531,9 +512,7 @@ fn payload_file(
         InstallPayloadSourceV1::DeploymentAuthorization => {
             prepared.paths.deployment_authorization.clone()
         }
-        InstallPayloadSourceV1::PerformanceEvidence => {
-            prepared.paths.performance_evidence.clone()
-        }
+        InstallPayloadSourceV1::PerformanceEvidence => prepared.paths.performance_evidence.clone(),
     };
     OpenOptions::new()
         .read(true)
@@ -555,9 +534,11 @@ fn journal_identity(
 }
 
 fn journal_operation(journal: &InstallJournalV1) -> InstallOperationV1 {
-    if journal.entries().iter().any(|entry| {
-        matches!(entry.prior_state(), InstallPriorStateV1::PriorOwned { .. })
-    }) {
+    if journal
+        .entries()
+        .iter()
+        .any(|entry| matches!(entry.prior_state(), InstallPriorStateV1::PriorOwned { .. }))
+    {
         InstallOperationV1::Upgrade
     } else {
         InstallOperationV1::Install

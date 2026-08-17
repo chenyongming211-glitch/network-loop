@@ -165,16 +165,14 @@ impl InstallPlanner {
         let mut actions = Vec::with_capacity(destinations.len().saturating_mul(2));
         for destination in &destinations {
             let action = match destination.state {
-                InstallDestinationStateV1::AbsentDirectory => Some(
-                    InstallActionV1::CreateDirectory {
+                InstallDestinationStateV1::AbsentDirectory => {
+                    Some(InstallActionV1::CreateDirectory {
                         role: destination.role,
-                    },
-                ),
-                InstallDestinationStateV1::AbsentFile => Some(
-                    InstallActionV1::InstallAbsentFile {
-                        role: destination.role,
-                    },
-                ),
+                    })
+                }
+                InstallDestinationStateV1::AbsentFile => Some(InstallActionV1::InstallAbsentFile {
+                    role: destination.role,
+                }),
                 InstallDestinationStateV1::PriorOwnedFile
                     if source.authorization.operation == InstallOperationV1::Upgrade =>
                 {
