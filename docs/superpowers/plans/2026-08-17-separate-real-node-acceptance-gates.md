@@ -168,7 +168,7 @@ Emit exactly these decision fields, with the existing identity and residue field
 } | ConvertTo-Json -Depth 8 -Compress
 ```
 
-- [ ] **Step 4: Record Task 1 RED evidence and push GREEN**
+- [x] **Step 4: Record Task 1 RED evidence and push GREEN**
 
 Add the exact RED commit, run ID, failed jobs, and expected assertion messages to this plan. Then run:
 
@@ -179,9 +179,11 @@ git commit -m "fix: isolate real installation acceptance gate"
 git push origin main
 ```
 
-- [ ] **Step 5: Require all five GitHub jobs**
+- [x] **Step 5: Require all five GitHub jobs**
 
 Use the exact GREEN commit with `gh run list` and `gh run watch`. Expected: Userspace, eBPF, Script safety, Windows PowerShell safety, and Bundle all succeed. Record the exact commit and run in this plan before continuing.
+
+**Task 2 GREEN evidence:** Commit `52e7670a77671609cbca043e759c510d5b6b6d2a`, GitHub run `32010457161`. Userspace, eBPF, Script safety, Windows PowerShell safety, and Bundle all succeeded. The Gate 1 script contains none of the seven service-boundary markers and retains exact plan/apply/installed/rollback ordering. No real-node command ran.
 
 ---
 
@@ -195,7 +197,7 @@ Use the exact GREEN commit with `gh run list` and `gh run watch`. Expected: User
 - Consumes: the existing narrow inner `scripts/verify-installed-service.ps1` and a fresh Gate 2 install/service/rollback authorization set.
 - Produces: static assertions for a new outer `scripts/verify-real-service-acceptance.ps1` controller and permanent Linux/Windows CI coverage.
 
-- [ ] **Step 1: Create the Gate 2 static safety test**
+- [x] **Step 1: Create the Gate 2 static safety test**
 
 Use the same bounded `Assert-True` pattern as the other script tests. Resolve:
 
@@ -244,7 +246,7 @@ Assert-True ($Harness.Contains('owned_cleanup_complete = [bool]$ServiceVerificat
 
 Reuse the prohibited regex set for interface parameters, default-route discovery, service enable/disable/restart, package/kernel/offload mutation, broad process killing, recursive/wildcard cleanup, force/repair/adopt, embedded IP addresses, and embedded `.ssh` paths.
 
-- [ ] **Step 2: Register the new test in both script jobs**
+- [x] **Step 2: Register the new test in both script jobs**
 
 Add these exact workflow steps after the existing installed-service tests:
 
