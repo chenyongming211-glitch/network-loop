@@ -396,21 +396,23 @@ Commit `feat: add installed and physical readiness checks` and require all five 
 - Consumes: one final exact SHA, complete GitHub evidence, generated-root evidence, and any separately authorized real install/service/read-only-inspection evidence.
 - Produces: an evidence-backed G.1 conclusion and either `physical_canary_ready` or an explicit blocker; never a physical attach.
 
-- [ ] **Step 1: Audit fail-closed boundaries and add RED regressions for findings**
+- [x] **Step 1: Audit fail-closed boundaries and add RED regressions for findings**
 
 Trace CLI → service → journal → Linux adapter and deploycheck → collectors. Search for destination/root/interface overrides, arbitrary shell construction, symlink following, unbounded input/output, recursive cleanup, unsupported metadata loss, service-manager calls from installer, attach capability from deploycheck, raw private fields, non-fail-closed errors, and stale/inherited authorization. Every real defect first receives one focused failing test committed as `test: cover G.1 audit finding` and verified RED in GitHub.
 
-- [ ] **Step 2: Fix only proven findings and require GREEN**
+- [x] **Step 2: Fix only proven findings and require GREEN**
 
 Implement the minimum fixes, commit `fix: close G.1 audit findings`, and require all five jobs. If no defect is found, do not create an empty code commit.
 
-- [ ] **Step 3: Correct product and operator documentation**
+- [x] **Step 3: Correct product and operator documentation**
 
 Document exact commands, four independent authorization gates, fixed paths, rollback/manual-review behavior, unsupported SELinux/metadata cases, no-enable/no-start default, evidence limits, and the strongest actually proven state. Explicitly state that G.1 does not execute a physical canary and does not make the product production-ready.
 
-- [ ] **Step 4: Complete exact-SHA acceptance and publish the decision**
+- [x] **Step 4: Complete exact-SHA acceptance and publish the decision**
 
 Require five-job GitHub green, exact ten-file/nine-checksum artifact, generated-root acceptance, clean worktree, `HEAD == origin/main`, old-keyword absence, no active/generated residue, and unchanged existing network/eBPF identity. Count separately authorized node evidence only if it was actually run. Commit documentation as `docs: complete G.1 safety audit`, push, and report the exact evidence plus the next separately designed physical-canary step.
+
+**Task 11 completion record:** Audit RED commit `b4da2f640d2e1a31674469ca7f93052dcf7a1ae5` activated the first privileged raced-destination regression in GitHub run `32003126244`. Variant RED commit `6f96ece2e117678106cf95109cf7fc0bb9efb4be` then proved both upgrade-backup and journal-directory overwrite paths in run `32005460992`. The complete expected-absent no-replace fix passed all five jobs, including exact bundle and generated-root acceptance, at commit `0141e521eabd893b4ca74c614292e387feaa95af` in run `32006013596`. No node, systemd, journald, physical interface, or live eBPF action was executed, so real `installed_verified`, `service_verified`, and `physical_canary_ready` remain unavailable. The final documentation commit must itself pass the same five-job workflow before the handoff is complete.
 
 ## Execution Checkpoints
 

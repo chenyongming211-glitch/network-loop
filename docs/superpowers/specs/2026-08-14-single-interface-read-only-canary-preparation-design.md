@@ -404,7 +404,7 @@ Delivery G.1 is implemented as eleven tasks:
 10. add `deploycheck installed`, then extend `deploycheck inspect` for fresh read-only physical identity, native-driver, consumer, and workload-evidence readiness;
 11. perform final security audit, documentation correction, exact-artifact acceptance review, and decide whether a separately designed physical-canary delivery may begin.
 
-Task 1 is the next implementation task after this design is approved. Tasks 1-8 remain entirely off-node. Tasks 9 and 10 cannot run merely because their code exists; each needs explicit user authorization at execution time.
+Tasks 1-11 are implemented. Development and CI remained off-node: Task 9's real install/service harness and Task 10's real physical inspector are implemented and statically/fixture tested, but their real-node execution still requires new explicit authorization at execution time.
 
 ## 17. Acceptance Criteria
 
@@ -424,6 +424,23 @@ Delivery G.1 is complete only when one final exact SHA satisfies all applicable 
 12. worktree is clean and `HEAD == origin/main`.
 
 If node or physical inspection authorization is not granted, the corresponding evidence remains explicitly unavailable and Delivery G.1 cannot claim that gate complete.
+
+### 17.1 Final audit conclusion and authorization handoff
+
+The Task 11 audit traced installer CLI → planner/service → ownership journal → Linux filesystem adapter and deploycheck CLI → service → fixed collectors. It also reviewed destination/root/interface override surfaces, shell construction, symlink and metadata handling, I/O bounds, cleanup scope, service-manager and attach capabilities, public privacy fields, error closure, authorization freshness, dependency resolution, Action pinning, RustSec policy, and the deterministic bundle boundary.
+
+One high-confidence defect class was found at three expected-absent publication sites. Final payload, upgrade-backup, and journal-directory renames could replace a foreign destination created after the last absence check. Focused privileged tests first failed in GitHub, then all expected-absent publication and recovery renames were changed to use `renameat2(RENAME_NOREPLACE)`. A raced destination now returns a closed error while the foreign object and unrelated sentinel retain their contents and identity. The complete Userspace, eBPF, script-safety, Windows-safety, MUSL bundle, ten-file/nine-checksum, and generated-root installation acceptance then passed for the fix revision.
+
+No node, systemd, journald, physical-interface, or live eBPF operation was performed as part of this audit. Consequently the exact-artifact generated-root gate is proven, while real-node `installed_verified`, `service_verified`, and `physical_canary_ready` evidence is unavailable. This is the strongest honest G.1 conclusion and is not a production-ready or attachment decision.
+
+The operational handoff remains four separately authorized stages:
+
+1. fixed-path real installation and exact transaction rollback;
+2. bounded systemd/journald lifecycle acceptance using generated veth only;
+3. fresh read-only inspection of one exact reserved physical port;
+4. a newly designed physical Canary, authorized only after the preceding three reports pass for the same artifact and host.
+
+The fourth authorization must bind the exact artifact, host, interface name, ifindex, MAC, driver, device/PCI and namespace identity, freshly empty native/generic XDP and TC states, representative external traffic source, duration no greater than 15 minutes, operator, complete commands and mutations, stop conditions, and exact reverse rollback. Its design must prohibit hook replacement, foreign cleanup, probe traffic, packet drop, policing, persistent enablement, and any broader production claim. G.1 contains no command that can perform it.
 
 ## 18. Explicitly Deferred
 

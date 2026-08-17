@@ -9,21 +9,19 @@
 
 动态基线本身仍只表达同一 generation 内的相对速率偏离，不表达“安全”或“环路”；可信 elevated 不会把观测健康降级。被动检测器在基线之上增加固定自适应路径，并用 1 秒绝对阈值路径覆盖约 69～70 秒学习盲区。相同 storm candidate 连续 3 tick 才确认，弱化/清除需要 10 tick，清除后保留最后异常并冷却 30 秒；状态最高只到 `external_loop_high_confidence`，不能确认因果。瞬时采样故障保留有界历史并在恢复时先比较后接纳；身份、generation、时钟、计数器或完整性失败清空历史；detach/shutdown 销毁历史。
 
-## 当前已实现的 Delivery G 部署门禁
+## 当前已实现的 Delivery G / G.1 部署门禁
 
-Delivery G 只补齐“进入一次单接口只读 Canary 之前”的部署基础设施，不开放生产接口挂载。发布物现在是绑定单一 GitHub commit SHA 的九文件 MUSL 包：四个静态用户态二进制、eBPF 对象、固定 systemd unit、授权示例、manifest 和覆盖其余八个文件的 `SHA256SUMS`。
+Delivery G / G.1 只补齐“进入一次单物理口只读 Canary 之前”的部署、安装、恢复和只读验收基础设施，不开放生产接口挂载。发布物是绑定单一 GitHub commit SHA 的十文件包：五个静态 MUSL 用户态二进制、eBPF 对象、固定 systemd unit、授权示例、manifest，以及覆盖前九个文件的 `SHA256SUMS`。
 
-独立的 `l2-loop-deploycheck` 只有两个只读入口：`staging --bundle <DIR> --root /run/l2-loop/accept/<32位小写十六进制>/staging-root [--json]` 和无参数路径覆盖的 `inspect [--json]`。`staging` 只验证生成根下的生产形态镜像；`inspect` 只读取固定安装路径，并且只能从严格授权文档取得唯一接口。checker 不连接 daemon，也没有安装、修复、权限修改、服务启停、挂载、卸载、pin、清理、接口覆盖、路径覆盖或阈值覆盖能力。
+`l2-loop-install` 只有 `plan`、`apply`、`status` 和 transaction-bound `rollback`。生产目的路径来自有限编译表，没有 root/prefix/destination/interface/force/repair/adopt 参数。`apply` 和 `rollback` 需要独立的一小时授权，所有父目录都以 no-follow 语义验证，新 payload 通过原子 no-replace 发布，完成的身份和步骤写入 root-owned mode-`0600` journal。installer 不调用已安装程序，不执行 systemd，不 enable/start 服务；SELinux enforcing、ACL/xattr/immutable/capability/security label、外来对象、身份变化或不完整冲突事务全部失败关闭。rollback 只处理 journal 精确匹配的对象，分歧时保留证据等待人工复核，不做递归或猜测性清理。
 
-部署报告 Schema 1 的决定只有 `blocked`、`staging_ready` 和 `canary_candidate`。`staging_ready` 只证明包、布局、权限、unit、授权和性能证据的结构满足约束。`canary_candidate` 当前只由 GitHub 中注入的空 hook、非共享物理接口 fixture 证明；其 `CanaryPlanV1` 永远是 `executable: false`，没有 action token、执行端点或 daemon/CLI consumer，因此它不是实际挂载授权。
+独立的 `l2-loop-deploycheck` 有三个只读入口：generated-root 的 `staging ... [--json]`、只允许机器可读输出的 `installed --json`，以及无路径/接口覆盖的 `inspect [--json]`。决定集合为 `blocked`、`staging_ready`、`canary_candidate`、`installed_verified` 和 `physical_canary_ready`。后两项必须来自固定真实布局和新鲜真实主机采集；`physical_canary_ready` 的 plan 永远是 `executable: false`。checker 不连接 daemon，也不能安装、修复、改变权限、启停服务、挂载、卸载、pin 或清理。
 
-授权文档最多有效 24 小时，绑定一个随机 128-bit 小写 ID、精确 artifact SHA，以及一个 name/ifindex/state/topology/hook 全部匹配的物理接口。任何 master/member、bond、bridge、OVS、tap、veth、namespace 关系，任何 L3/route/neighbor/service consumer，或 native/generic XDP、TC 的 occupied/foreign/unknown 状态都会失败关闭。已有 eBPF 只进入前后身份快照，不会被替换、接管或宽泛清理。
+真实节点进展被拆成四次互不继承的授权：固定路径安装/rollback；仅用生成 veth 的 systemd/journald 生命周期；一个精确保留物理口的只读检查；未来另行设计的物理 Canary。每次授权都绑定精确 artifact、主机、输入、期限、命令、变更和回退范围。没有上一阶段的精确正向报告，下一阶段不可开始；物理 Canary 还必须绑定 name/ifindex/MAC/driver/device/namespace、刚确认为空的 native/generic XDP 与 TC hooks、最长 15 分钟、代表性外部流量、停止条件和逆序精确回滚。
 
-固定 unit 以 root 运行，但 capability 上限仅为 `CAP_BPF CAP_NET_ADMIN CAP_PERFMON CAP_SYS_RESOURCE`，配合 `NoNewPrivileges`、`ProtectSystem=strict`、`PrivateDevices`、内核/控制组保护、`AF_UNIX AF_NETLINK` 地址族限制、仅 `/run/l2-loop` 与 `/var/lib/l2-loop/evidence/v1` 可写、`TimeoutStopSec=10s` 和 `Restart=no`。Delivery G 只解析并校验该 unit，从不在测试节点调用 systemd 或 journald。
+固定 unit 以 root 运行，但 capability 上限仅为 `CAP_BPF CAP_NET_ADMIN CAP_PERFMON CAP_SYS_RESOURCE`，配合 `NoNewPrivileges`、`ProtectSystem=strict`、`PrivateDevices`、内核/控制组保护、`AF_UNIX AF_NETLINK` 地址族限制、仅 `/run/l2-loop` 与 `/var/lib/l2-loop/evidence/v1` 可写、`TimeoutStopSec=10s` 和 `Restart=no`；unit 没有 `[Install]`，installer 永不 enable/start。性能门禁仍只在随机 network namespace/veth 中运行：一次 warm-up 后固定五轮旋转 `baseline`、`pass_through`、`observe`，使用 64/512/1514 字节和每尺寸 65,536 帧，取下中位数，要求固定 95%/90% 保留率、零新增 drop/error、资源有界、转发正常、精确 cleanup 和原有网络/eBPF 身份恢复。
 
-性能门禁只在随机 network namespace/veth 中运行。一次 warm-up 后固定执行五轮旋转顺序的 `baseline`、`pass_through`、`observe`，每种模式使用 64/512/1514 字节和每尺寸 65,536 帧；取下中位数，不选最好成绩。pass-through 和 observe 必须分别达到 baseline 的 95% 和 90%，同时要求零新增 drop/error、CPU/RSS 有界、转发正常、精确 owned cleanup，以及原有网络/eBPF 身份完全恢复。
-
-因此 Delivery G 的最强结论只是“生成根 staging 已就绪，且 fixture 证明具备只读 Canary 候选资格”。真实 `/usr`、`/etc`、`/var`、生产 `/run` 写入，真实 systemd/journald，生产 evidence root 创建，物理接口检查/挂载，native-driver 与代表性业务负载性能，主动探针、丢包、policing 和自动处置均未实现或未授权。字段、布局、unit、性能和失败语义以[生产只读部署门禁规格](superpowers/specs/2026-08-13-production-read-only-deployment-gates-design.md)为准。
+Task 11 安全审计用 RED/GREEN 锁定并修复了一类三处发布竞态：payload 最终名、升级 backup 名和 journal 最终目录在预检后新出现外来目标时，现在都由 `renameat2(RENAME_NOREPLACE)` 原子拒绝并原样保留；失败恢复到预期空目标也使用同一规则。供应链、CLI→service→journal→Linux adapter、deploycheck collector、输出边界和 harness 清理审计未发现其他需要代码修复的高置信问题。Delivery G.1 开发没有连接节点或执行四个真实节点授权门，因此最强已证明状态仍是精确 GitHub/generated-root 和 fixture 证据；真实 `installed_verified`、`service_verified`、`physical_canary_ready` 均为 unavailable。G.1 不执行物理 Canary，也不形成 production-ready 结论。详细契约以[生产只读部署门禁规格](superpowers/specs/2026-08-13-production-read-only-deployment-gates-design.md)和[单接口只读 Canary 准备规格](superpowers/specs/2026-08-14-single-interface-read-only-canary-preparation-design.md)为准。
 
 ## 1. 设计结论
 

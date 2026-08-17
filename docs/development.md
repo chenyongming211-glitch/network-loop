@@ -100,20 +100,21 @@ The repository locks inputs it controls, but the GitHub-hosted runner image is s
 
 ## Deployment gate development and acceptance
 
-The standalone checker has exactly two operations:
+The standalone checker has exactly three operations:
 
 ```text
 l2-loop-deploycheck staging --bundle <DIR> --root /run/l2-loop/accept/<32-lower-hex>/staging-root [--json]
+l2-loop-deploycheck installed --json
 l2-loop-deploycheck inspect [--json]
 ```
 
-It has no install, repair, permission-changing, service-manager, attach/detach, pin/unpin, cleanup, interface override, threshold override, socket, or output-path option. `staging` is reachable only through an explicit bundle and exact generated root. `inspect` accepts no path or interface argument and reads only the fixed installed contract. Both commands render the same Schema 1 report in text or JSON and keep output below 1 MiB. Exit `0` means `staging_ready` or fixture-proven `canary_candidate`, `1` means bounded I/O/internal failure prevented a report, `2` means invalid CLI/local input, and `4` means a completed blocked report.
+It has no install, repair, permission-changing, service-manager, attach/detach, pin/unpin, cleanup, interface override, threshold override, socket, or output-path option. `staging` is reachable only through an explicit bundle and exact generated root. `installed --json` and `inspect` accept no path or interface argument and read only the fixed installed contract; `installed` deliberately requires JSON so the real-install harness parses one strict machine report. Output stays below 1 MiB. Exit `0` means `staging_ready`, fixture-proven `canary_candidate`, `installed_verified`, or `physical_canary_ready`; `1` means bounded I/O/internal failure prevented a report, `2` means invalid CLI/local input, and `4` means a completed blocked report.
 
 The generated staging root mirrors these fixed production paths without writing them on the host:
 
 ```text
 /usr/bin/l2-loopctl                                      0755
-/usr/libexec/l2-loop/{l2-loopd,l2-loop-deploycheck,l2-loop-hostcheck} 0755
+/usr/libexec/l2-loop/{l2-loopd,l2-loop-deploycheck,l2-loop-install,l2-loop-hostcheck} 0755
 /usr/libexec/l2-loop/{l2-loop-ebpf.o,manifest.json,SHA256SUMS}         0644
 /usr/lib/systemd/system/l2-loop.service                  0644
 /usr/share/doc/l2-loop/deployment-v1.example.json        0644
@@ -138,7 +139,22 @@ pwsh -NoProfile -File scripts/verify-deployment-gates.ps1 -Commit $L2LoopCommit
 
 It exercises ten staging cases, six deterministic rejected performance fixtures, and fifteen real traffic trials on one random namespace/veth only. The pass-through helper deliberately leaves observation configuration unpublished but still uses the same no-replace hooks, six-Map ABI, ownership journal, and exact reverse cleanup. The harness never calls real `inspect`, never selects a physical interface, and never invokes systemd or journald. It compares stable pre/post host network/eBPF identities and requires zero generated residue.
 
-The accepted boundary is packaging-ready plus fixture-proven Canary candidacy. Real installation, service lifecycle, journald delivery, production evidence-root creation, physical/native-XDP attachment, and representative workload performance remain separately authorized work.
+The accepted development boundary is the exact GitHub artifact plus generated-root and fixture evidence. The real installed checker and physical readiness collectors are implemented, but no real installation, service lifecycle, journald delivery, physical-port inspection, native-XDP attachment, or representative workload run is inferred from CI. Those gates remain separately authorized operations.
+
+## Fixed-path installer commands
+
+The release bundle contains `l2-loop-install` with exactly these public commands:
+
+```text
+l2-loop-install plan --bundle <DIR> --authorization <INSTALL_AUTH> --deployment-authorization <DEPLOYMENT_AUTH> --performance-evidence <PERFORMANCE_EVIDENCE> [--json]
+l2-loop-install apply --bundle <DIR> --authorization <INSTALL_AUTH> --deployment-authorization <DEPLOYMENT_AUTH> --performance-evidence <PERFORMANCE_EVIDENCE> [--json]
+l2-loop-install status [--json]
+l2-loop-install rollback --transaction <32-lower-hex> --authorization <ROLLBACK_AUTH> [--json]
+```
+
+`plan` and `status` are read-only. `apply` and `rollback` require effective root and an exact one-hour authorization for that operation, artifact, host, and input identity. The CLI has no root, prefix, destination, interface, force, repair, adopt, service-manager, or eBPF option. Destinations come from a finite compiled table, all traversal is no-follow, every expected-absent payload/backup/journal/recovery publication is atomic no-replace, and every completed mutation is bound to a durable root-owned mode-`0600` journal under `/var/lib/l2-loop/install/transactions/<transaction-id>/journal-v1.json`.
+
+The installer neither enables nor starts the unit and never invokes installed payloads. Enforcing SELinux, ACLs, xattrs, immutable flags, file capabilities, security labels, linked/special objects, foreign identities, and incomplete conflicting transactions block. Rollback removes or restores only exact recorded identities; disagreement preserves the journal and requires manual review. There is no wildcard, recursive deletion, automatic adoption, or automatic journal garbage collection.
 
 ## Separately authorized real-install and service acceptance
 
@@ -146,7 +162,7 @@ Task 9 adds two fail-closed controller-side harnesses but does not execute them 
 
 `verify-installed-service.ps1` independently binds authorization to the artifact SHA, host identity, install transaction, two cycles, a ten-second stop bound, no service enablement, no physical attachment, and generated resources only. It refuses an active unit or an enabled unit; the deterministic unit is normally `static` because it deliberately has no `[Install]` section, while an explicitly disabled compatible state is also accepted. Each of the two cycles performs only `daemon-reload`, start, root-owned mode-`0600` socket verification, generated namespace/veth attach-observe-status-detach, and bounded stop. Journald is read only after a captured cursor and only for `l2-loop.service`; at least one returned record is required, and all records are bounded and scanned for traffic-identity fields. A separately injected acceptance evidence root verifies the stderr fallback without writing the production evidence root. Cleanup addresses only paths carrying the controller's cryptographic ownership nonce, the run-derived namespace, veth, runtime files, process identity, and owned eBPF state.
 
-The wrapper intentionally depends on `l2-loop-deploycheck installed`, which is implemented and contract-tested in Task 10. Therefore Task 9 CI validates parser/static safety only; the real-node workflow is not executable until Task 10 is green. Even then, a human must provide the exact artifact SHA, target, task-scoped key, five input files, and a fresh explicit authorization before any real installation or service command. Neither harness accepts an interface argument, discovers a production interface, enables a unit, or attaches to a physical interface.
+The wrapper depends on the implemented and contract-tested `l2-loop-deploycheck installed --json`. CI validates parser/static safety and generated-root behavior only; it never supplies the real-node authorizations or target. A human must provide the exact artifact SHA, target, task-scoped key, five input files, and fresh explicit authorizations before any real installation or service command. Neither harness accepts an interface argument, discovers a production interface, enables a unit, or attaches to a physical interface.
 
 The future authorized invocation has this fixed shape:
 
@@ -163,6 +179,17 @@ pwsh -NoProfile -File scripts/verify-real-install.ps1 `
 ```
 
 Do not run this command from CI and do not reuse an authorization across hosts, artifacts, transactions, or expiry windows.
+
+## Four independent real-node authorization gates
+
+Progression is monotonic only when each preceding report is retained for the same exact artifact and host. Authorization never carries forward:
+
+1. **Real installation/rollback:** authorize the fixed `plan`/`apply`/`installed --json`/transaction rollback command set and all `/usr`, `/etc`, and `/var/lib/l2-loop` mutations. A successful independent report is `installed_verified`; the installer still does not start or enable the service.
+2. **Service lifecycle:** separately authorize two bounded systemd/journald cycles using generated namespace/veth only. The harness may run `daemon-reload`, start, observe the root-only socket, stop within ten seconds, and restore the prior service/network/eBPF state. A successful controller report is `service_verified`; it never selects a physical port.
+3. **Physical-port read-only inspection:** separately authorize `l2-loop-deploycheck inspect [--json]` for one exact reserved non-business interface. Collection is bounded and read-only. A positive report is `physical_canary_ready` with `executable: false`; any occupied/foreign/unknown hook, consumer, topology, identity, native-driver, evidence, or pre/post-state uncertainty blocks.
+4. **Future physical Canary:** requires a new design and new explicit authorization binding the exact artifact, host, interface name/ifindex/MAC/driver/device/namespace identity, fresh hook states, representative traffic source, duration no greater than 15 minutes, complete command/mutation list, stop conditions, and exact reverse rollback. No current product command consumes a readiness plan or grants this capability.
+
+Delivery G.1 executed none of these four real-node gates. The handoff therefore records `installed_verified`, `service_verified`, and `physical_canary_ready` as unavailable, not failed and not implicitly passed. Before any future physical Canary, retain the three preceding positive reports, recapture a converged network/eBPF baseline, prove both target hooks freshly empty, inventory every pre-existing eBPF identity, and obtain the fourth authorization. The Canary design must remain pass-through/read-only observation only: no probe, drop, policing, policy, boot enablement, hook replacement, foreign cleanup, or production-ready claim.
 
 ## Current safety boundary
 

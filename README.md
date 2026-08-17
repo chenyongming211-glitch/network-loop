@@ -18,9 +18,11 @@ The broader product design remains observe-first. Later deliveries may add NIC/k
 - [Passive detection state-machine specification](docs/superpowers/specs/2026-08-12-passive-detection-state-machine-design.md)
 - [Bounded local incident output specification](docs/superpowers/specs/2026-08-12-bounded-local-incident-output-design.md)
 - [Production read-only deployment-gate specification](docs/superpowers/specs/2026-08-13-production-read-only-deployment-gates-design.md)
+- [Single-interface read-only Canary preparation specification](docs/superpowers/specs/2026-08-14-single-interface-read-only-canary-preparation-design.md)
 - [Superseded alert/evidence draft](docs/superpowers/specs/2026-08-06-local-alert-evidence-output-design.md)
 - [Isolated safe-attach implementation plan](docs/superpowers/plans/2026-08-06-isolated-safe-attach.md)
 - [Isolated passive-observation implementation plan](docs/superpowers/plans/2026-08-10-isolated-passive-observation.md)
+- [Single-interface read-only Canary preparation implementation plan](docs/superpowers/plans/2026-08-14-single-interface-read-only-canary-preparation.md)
 
 ## Build policy
 
@@ -32,22 +34,40 @@ Successful CI runs publish a ten-file `l2-loop-linux-x86_64-<full-commit-sha>` a
 
 The GitHub-hosted runner image remains outside the repository-controlled boundary, so the project does not claim byte-for-byte reproducible rebuilds. Deployment and acceptance therefore use the artifact and checksum file from the exact successful commit.
 
+## Transactional installation boundary
+
+`l2-loop-install` exposes only the following fixed-path workflow:
+
+```text
+l2-loop-install plan --bundle <DIR> --authorization <INSTALL_AUTH> --deployment-authorization <DEPLOYMENT_AUTH> --performance-evidence <PERFORMANCE_EVIDENCE> [--json]
+l2-loop-install apply --bundle <DIR> --authorization <INSTALL_AUTH> --deployment-authorization <DEPLOYMENT_AUTH> --performance-evidence <PERFORMANCE_EVIDENCE> [--json]
+l2-loop-install status [--json]
+l2-loop-install rollback --transaction <32-lower-hex> --authorization <ROLLBACK_AUTH> [--json]
+```
+
+`plan` and `status` are read-only. `apply` and `rollback` require effective root plus a fresh, operation-specific, host- and artifact-bound authorization. There is no destination root, prefix, interface, force, adopt, repair, enable, start, stop, attach, detach, purge, or recursive-cleanup option. The installer writes only the finite reviewed `/usr`, `/etc`, and `/var/lib/l2-loop` table, traverses without following symlinks, publishes payload, backup, journal, and expected-absent recovery targets with atomic no-replace semantics, and records exact identities in a durable ownership journal. It never invokes an installed executable or systemd.
+
+Installation fails closed on enforcing SELinux and on unsupported ACLs, extended attributes, immutable flags, file capabilities, or security labels. It supports only root-owned regular files and directories with fixed POSIX modes. An interrupted or identity-disagreeing rollback stops for manual review and retains the transaction journal; it never guesses, adopts foreign state, or widens cleanup.
+
 ## Production-shaped deployment gate
 
 `l2-loop-deploycheck` is an independent, fail-closed, read-only checker. It does not connect to the daemon and exposes only:
 
 ```text
 l2-loop-deploycheck staging --bundle <DIR> --root /run/l2-loop/accept/<32-lower-hex>/staging-root [--json]
+l2-loop-deploycheck installed --json
 l2-loop-deploycheck inspect [--json]
 ```
 
 `staging` accepts only the exact generated-root grammar and validates the checksum-bound bundle plus a production-shaped mirror containing the fixed daemon/CLI/checker/object/unit/example paths, root ownership, exact `0755`/`0644`/`0600`/`0700` modes, an empty runtime directory, the strict authorization document, and strict performance evidence. It never reads real `/etc`, `/usr`, `/var`, systemd, journald, or a physical interface.
 
-`inspect` is intentionally pathless. It reads only the fixed installed layout and derives the authorized interface exclusively from `/etc/l2-loop/deployment-v1.json`. A positive fixture-backed result requires one physical, up, unshared interface with the exact authorized name/ifindex, no L3 or visible service consumer, empty native/generic XDP and TC state, the expected live-interface preflight refusal with no other blocker, a safe evidence root, and passing evidence for the exact artifact and current host compatibility identity. Delivery G does not run `inspect` on the authorized test host.
+`installed --json` is pathless and validates only the fixed real layout; a positive result is `installed_verified`. `inspect` is also pathless. It derives the sole authorized interface from `/etc/l2-loop/deployment-v1.json` and performs a fresh read-only readiness inspection. A positive result requires one physical, up, reserved and unshared interface with exact authorized identity, no L3 or visible consumer, empty native/generic XDP and TC state, supported host/native-driver facts, safe evidence storage, and evidence bound to the exact artifact and host compatibility identity. It returns `physical_canary_ready` with an `executable: false` plan and never attaches.
 
 The authorization schema is version 1, binds one random 128-bit lowercase ID and one exact 40-character artifact commit, and is valid for at most 24 hours. It grants planning input only and cannot be widened by CLI flags. Performance schema 1 records one warm-up followed by exactly five rotating trials in each of `baseline`, `pass_through`, and `observe`; every trial uses fixed 64/512/1514-byte frames. Lower medians must retain at least 950 permille for pass-through and 900 permille for observe, with zero agent-caused drops/errors, bounded CPU/RSS, forwarding intact, exact owned cleanup, and restored pre-existing network/eBPF identity. No best-run selection or caller-supplied threshold exists.
 
-Decisions are limited to `blocked`, `staging_ready`, and `canary_candidate`. `staging_ready` proves the generated packaging/layout contract. `canary_candidate` is proven only by injected physical-interface fixtures and contains a `CanaryPlanV1` with `executable: false`; no product command consumes that plan. Exit codes are `0` for either positive decision, `1` when bounded I/O/internal failure prevents a report, `2` for usage/local validation failure, and `4` for a completed blocked report. Real installation, service-manager and journald validation, physical-interface inspection or attachment, native-driver and representative-workload performance, active probes, packet drops/policing, and any production-ready claim remain outside this delivery and require separate authorization.
+Decisions are limited to `blocked`, `staging_ready`, `canary_candidate`, `installed_verified`, and `physical_canary_ready`. Exit codes are `0` for a positive decision, `1` when bounded I/O/internal failure prevents a report, `2` for usage/local validation failure, and `4` for a completed blocked report. The checker cannot install, repair, start, enable, attach, detach, pin, or clean anything.
+
+Four operational gates are independent and never inherited: (1) real fixed-path installation and rollback, (2) systemd/journald lifecycle acceptance using generated veth only, (3) read-only inspection of one named reserved physical port, and (4) a future physical Canary. Each needs a new task-scoped authorization bound to the exact artifact, host, inputs, expiry, commands, mutations, and rollback scope. No real-node gate was executed during Delivery G.1 development, so the strongest currently proven state is the GitHub/generated-root result; `installed_verified`, `service_verified`, and `physical_canary_ready` remain unavailable as real-node evidence. G.1 neither executes a physical Canary nor makes the product production-ready.
 
 ## Read-only preflight
 
@@ -141,12 +161,15 @@ The implementation now contains:
 - a 32-job serialized incident-output queue, atomic Schema 1 filesystem evidence store, fixed retention, startup recovery, truthful journald/stderr alerts, output health, and root-only bounded evidence CLI;
 - a standalone read-only deployment checker with strict bundle, installed-layout, authorization, platform, systemd-unit, evidence, and performance gates;
 - a deterministic ten-file GitHub MUSL bundle containing the installer, checkers, hardened unit, and authorization example;
-- a generated-root deployment/performance harness covering ten staging cases, six deterministic performance-failure fixtures, and fifteen fixed real traffic trials without touching a physical interface;
+- a no-follow, fixed-path transactional installer with durable exact-identity journals, restart recovery, no-replace final publication, and exact rollback;
+- generated-root installation and deployment/performance harnesses covering fresh install, upgrade, fault/restart recovery, rollback, ten staging cases, six deterministic performance-failure fixtures, and fifteen fixed real traffic trials without touching a physical interface;
+- separately authorized real-install and systemd/journald acceptance harnesses plus installed-layout and physical-readiness collectors, none executed on a real node by this delivery;
 - a bounded host harness covering eighteen exact-artifact regression, observation, detection, and incident-output scenarios.
 
-Production and live-interface attachment remain disabled. Delivery G's strongest result is
-`staging_ready` plus fixture-proven `canary_candidate`; neither is permission to install, start,
-inspect, or attach on a real interface. Loading and attachment are
+Production and live-interface attachment remain disabled. Delivery G.1's strongest executed result is
+the exact GitHub/generated-root acceptance plus fixture-proven readiness logic; it is not real-node
+`installed_verified`, `service_verified`, or `physical_canary_ready`, and it grants no permission to
+install, start, inspect, or attach on a real interface. Loading and attachment are
 available only through the generated isolated-veth verification path after the daemon
 independently approves preflight. The eBPF entry points always return pass/continue;
 this delivery derives rates, baseline-relative evidence, sampled ingress/egress relationships, storm states, passive external-loop confidence, and durable privacy-reduced local incident output, but never emits a confirmed-loop state, sends probes, drops traffic, or applies policies. It has no 100 ms sampler, raw fingerprint output, topology attribution, remote notification, or production-interface enablement. Production-root creation and real journald acceptance remain separately authorized installation work.
