@@ -140,6 +140,30 @@ It exercises ten staging cases, six deterministic rejected performance fixtures,
 
 The accepted boundary is packaging-ready plus fixture-proven Canary candidacy. Real installation, service lifecycle, journald delivery, production evidence-root creation, physical/native-XDP attachment, and representative workload performance remain separately authorized work.
 
+## Separately authorized real-install and service acceptance
+
+Task 9 adds two fail-closed controller-side harnesses but does not execute them in CI or during development. `verify-real-install.ps1` consumes one exact successful GitHub artifact plus distinct, short-lived install, rollback, and service authorizations. It verifies the ten-file bundle and nine checksum entries, captures a converged network/eBPF baseline, runs installer `plan` and `apply`, requires the independent fixed-layout checker to return `installed_verified`, and only then invokes `verify-installed-service.ps1`. After service acceptance reports exact cleanup, the wrapper performs the transaction-bound rollback and requires the original network/eBPF identities and zero generated staging residue.
+
+`verify-installed-service.ps1` independently binds authorization to the artifact SHA, host identity, install transaction, two cycles, a ten-second stop bound, no service enablement, no physical attachment, and generated resources only. It refuses a unit that is not initially `disabled` and `inactive`. Each of the two cycles performs only `daemon-reload`, start, root-owned mode-`0600` socket verification, generated namespace/veth attach-observe-status-detach, and bounded stop. Journald is read only after a captured cursor and only for `l2-loop.service`; returned records are bounded and scanned for traffic-identity fields. A separately injected acceptance evidence root verifies the stderr fallback without writing the production evidence root. Cleanup addresses only the run-derived namespace, veth, runtime files, process identity, and owned eBPF state.
+
+The wrapper intentionally depends on `l2-loop-deploycheck installed`, which is implemented and contract-tested in Task 10. Therefore Task 9 CI validates parser/static safety only; the real-node workflow is not executable until Task 10 is green. Even then, a human must provide the exact artifact SHA, target, task-scoped key, five input files, and a fresh explicit authorization before any real installation or service command. Neither harness accepts an interface argument, discovers a production interface, enables a unit, or attaches to a physical interface.
+
+The future authorized invocation has this fixed shape:
+
+```powershell
+$env:L2_LOOP_TEST_TARGET = '<user>@<separately-authorized-target>'
+$env:L2_LOOP_TEST_KEY = '<task-scoped-private-key-path>'
+pwsh -NoProfile -File scripts/verify-real-install.ps1 `
+    -Commit '<exact-green-commit-sha>' `
+    -InstallAuthorizationPath '<install-authorization.json>' `
+    -RollbackAuthorizationPath '<rollback-authorization.json>' `
+    -ServiceAuthorizationPath '<service-authorization.json>' `
+    -DeploymentAuthorizationPath '<deployment-authorization.json>' `
+    -PerformanceEvidencePath '<performance-evidence.json>'
+```
+
+Do not run this command from CI and do not reuse an authorization across hosts, artifacts, transactions, or expiry windows.
+
 ## Current safety boundary
 
 - Attachment is exposed only through the generated isolated-verification commands. The daemon independently rejects non-veth, active, or shared interfaces.
