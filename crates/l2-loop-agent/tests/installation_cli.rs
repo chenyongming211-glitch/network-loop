@@ -338,12 +338,15 @@ fn installer_cli_sources_expose_no_environment_alias_process_or_network_surface(
         "--force",
         "--repair",
         "remove_dir_all",
+        "fn unavailable",
+        "ProductionInstallationRunner",
     ] {
         assert!(
             !combined.contains(prohibited),
             "prohibited installer CLI capability present: {prohibited}"
         );
     }
+    assert!(binary.contains("SystemInstallationCommandRunner::system()"));
 }
 
 fn parse(args: &[&str]) -> InstallationCliAction {
