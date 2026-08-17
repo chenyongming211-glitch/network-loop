@@ -134,8 +134,7 @@ fn preparation_is_deterministic_and_preserves_exact_prior_and_generated_identiti
 #[test]
 fn persistent_identity_ignores_only_the_mutable_directory_link_count() {
     let created_directory = InstallObjectIdentityV1::directory(9, 100, 2, 0o755, 0, 0).unwrap();
-    let populated_directory =
-        InstallObjectIdentityV1::directory(9, 100, 7, 0o755, 0, 0).unwrap();
+    let populated_directory = InstallObjectIdentityV1::directory(9, 100, 7, 0o755, 0, 0).unwrap();
     assert!(created_directory.matches_persistent_object(&populated_directory));
     assert!(!created_directory.matches_persistent_object(
         &InstallObjectIdentityV1::directory(9, 101, 7, 0o755, 0, 0).unwrap()
