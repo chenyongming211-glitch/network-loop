@@ -122,12 +122,21 @@ where
             command: InstallationCliCommand::Status,
             format,
         }),
-        [command, bundle_flag, bundle, authorization_flag, authorization, deployment_flag, deployment, performance_flag, performance]
-            if (command == "plan" || command == "apply")
-                && bundle_flag == "--bundle"
-                && authorization_flag == "--authorization"
-                && deployment_flag == "--deployment-authorization"
-                && performance_flag == "--performance-evidence" =>
+        [
+            command,
+            bundle_flag,
+            bundle,
+            authorization_flag,
+            authorization,
+            deployment_flag,
+            deployment,
+            performance_flag,
+            performance,
+        ] if (command == "plan" || command == "apply")
+            && bundle_flag == "--bundle"
+            && authorization_flag == "--authorization"
+            && deployment_flag == "--deployment-authorization"
+            && performance_flag == "--performance-evidence" =>
         {
             let source = parse_source(bundle, authorization, deployment, performance)?;
             let command = if command == "plan" {
@@ -137,12 +146,17 @@ where
             };
             Ok(InstallationCliAction::Run { command, format })
         }
-        [command, transaction_flag, transaction_id, authorization_flag, authorization]
-            if command == "rollback"
-                && transaction_flag == "--transaction"
-                && authorization_flag == "--authorization"
-                && is_lower_hex(transaction_id, 32)
-                && !authorization.is_empty() =>
+        [
+            command,
+            transaction_flag,
+            transaction_id,
+            authorization_flag,
+            authorization,
+        ] if command == "rollback"
+            && transaction_flag == "--transaction"
+            && authorization_flag == "--authorization"
+            && is_lower_hex(transaction_id, 32)
+            && !authorization.is_empty() =>
         {
             Ok(InstallationCliAction::Run {
                 command: InstallationCliCommand::Rollback {
