@@ -37,6 +37,14 @@ jobs:
         shell: pwsh
         run: pwsh -NoProfile -File scripts/tests/verify-installation.Tests.ps1
 
+      - name: Test real installation acceptance harness safety
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/tests/verify-real-install.Tests.ps1
+
+      - name: Test installed service acceptance harness safety
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/tests/verify-installed-service.Tests.ps1
+
   windows-script-tests:
     name: Windows PowerShell safety
     runs-on: windows-latest
@@ -59,6 +67,14 @@ jobs:
       - name: Test generated-root installation harness with Windows PowerShell
         shell: powershell
         run: powershell -NoProfile -File scripts/tests/verify-installation.Tests.ps1
+
+      - name: Test installed service acceptance harness with Windows PowerShell
+        shell: powershell
+        run: powershell -NoProfile -File scripts/tests/verify-installed-service.Tests.ps1
+
+      - name: Test real installation acceptance harness with Windows PowerShell
+        shell: powershell
+        run: powershell -NoProfile -File scripts/tests/verify-real-install.Tests.ps1
 
   userspace:
     name: Userspace
