@@ -273,7 +273,20 @@ function Invoke-GeneratedInstallationEntryPoint {
     if ($Command -cin @('plan','apply')) { foreach ($Value in @('--bundle','/acceptance/bundle','--authorization',$Authorization.ChrootPath,'--deployment-authorization','/acceptance/inputs/deployment-v1.json','--performance-evidence','/acceptance/inputs/performance-v1.json','--json')) { $Arguments.Add($Value) } }
     elseif ($Command -ceq 'rollback') { foreach ($Value in @('--transaction',$Authorization.TransactionId,'--authorization',$Authorization.ChrootPath,'--json')) { $Arguments.Add($Value) } }
     else { $Arguments.Add('--json') }
-    $Result = Invoke-ExactProcess 'chroot' @($Arguments) $ExpectedExitCodes
+    if ($Command -ceq 'rollback') {
+        $TracePath = Join-Path $Context.Root "acceptance/rollback-$($Authorization.TransactionId).trace"
+        Add-CleanupFile $TracePath
+        $TraceArguments = [Collections.Generic.List[string]]::new()
+        foreach ($Value in @('-f','-o',$TracePath,'-e','trace=%file,fsync,fchown,fchmod,read,write,getdents64','--','chroot')) { $TraceArguments.Add($Value) }
+        foreach ($Value in $Arguments) { $TraceArguments.Add($Value) }
+        try { $Result = Invoke-ExactProcess 'strace' @($TraceArguments) $ExpectedExitCodes }
+        catch {
+            $Trace = if (Test-Path -LiteralPath $TracePath) { [IO.File]::ReadAllText($TracePath) } else { '<missing trace>' }
+            throw "$($_.Exception.Message)$([Environment]::NewLine)$Trace"
+        }
+    } else {
+        $Result = Invoke-ExactProcess 'chroot' @($Arguments) $ExpectedExitCodes
+    }
     $Report = $null; if ($Result.Output.StartsWith('{')) { $Report = $Result.Output | ConvertFrom-Json }
     [pscustomobject]@{ ExitCode = $Result.ExitCode; Output = $Result.Output; Report = $Report }
 }
