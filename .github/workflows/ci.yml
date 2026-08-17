@@ -33,6 +33,10 @@ jobs:
         shell: pwsh
         run: pwsh -NoProfile -File scripts/tests/verify-deployment-gates.Tests.ps1
 
+      - name: Test generated-root installation harness safety
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/tests/verify-installation.Tests.ps1
+
   windows-script-tests:
     name: Windows PowerShell safety
     runs-on: windows-latest
@@ -51,6 +55,10 @@ jobs:
       - name: Test deployment gate harness with Windows PowerShell
         shell: powershell
         run: powershell -NoProfile -File scripts/tests/verify-deployment-gates.Tests.ps1
+
+      - name: Test generated-root installation harness with Windows PowerShell
+        shell: powershell
+        run: powershell -NoProfile -File scripts/tests/verify-installation.Tests.ps1
 
   userspace:
     name: Userspace
