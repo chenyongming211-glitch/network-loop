@@ -282,7 +282,8 @@ function Invoke-GeneratedInstallationEntryPoint {
         try { $Result = Invoke-ExactProcess 'strace' @($TraceArguments) $ExpectedExitCodes }
         catch {
             $Trace = if (Test-Path -LiteralPath $TracePath) { [IO.File]::ReadAllText($TracePath) } else { '<missing trace>' }
-            throw "$($_.Exception.Message)$([Environment]::NewLine)$Trace"
+            foreach ($Line in @($Trace -split "`r?`n" | Select-Object -Last 300)) { Write-Host "ROLLBACK_TRACE $Line" }
+            throw $_
         }
     } else {
         $Result = Invoke-ExactProcess 'chroot' @($Arguments) $ExpectedExitCodes
