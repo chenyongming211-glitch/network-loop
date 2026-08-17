@@ -236,7 +236,7 @@ where
         }
 
         self.faults.check(InstallFaultPointV1::JournalMove)?;
-        renameat_name(
+        renameat_noreplace_name(
             var_lib.as_raw_fd(),
             &bootstrap,
             final_parent.as_raw_fd(),
@@ -373,7 +373,7 @@ where
 
             if let Some((_, backup_basename)) = prior.as_ref() {
                 self.faults.check(InstallFaultPointV1::BackupRename)?;
-                renameat_name(
+                renameat_noreplace_name(
                     parent.as_raw_fd(),
                     destination,
                     parent.as_raw_fd(),
@@ -408,7 +408,7 @@ where
                 && inspect_at(&parent, backup_basename).as_ref() == Ok(expected_prior)
                 && !entry_exists_at(parent.as_raw_fd(), destination).unwrap_or(true)
             {
-                let _ = renameat_name(
+                let _ = renameat_noreplace_name(
                     parent.as_raw_fd(),
                     backup_basename,
                     parent.as_raw_fd(),
