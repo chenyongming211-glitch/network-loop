@@ -679,10 +679,13 @@ fn platform_snapshot(name: &str) -> DeploymentPlatformSnapshotV1 {
         administrative_up: true,
         operational_up: true,
         master_ifindex: None,
-        mac_address_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+        mac_address_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            .into(),
         driver: "test_driver".into(),
-        device_identity_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
-        network_namespace_sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".into(),
+        device_identity_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            .into(),
+        network_namespace_sha256:
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".into(),
         tc_clsact_present: false,
         address_present: false,
         route_present: false,

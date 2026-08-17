@@ -452,10 +452,7 @@ fn report_derives_physical_readiness_only_with_a_non_executable_plan() {
         NOW_MS,
     )
     .unwrap();
-    assert_eq!(
-        report.decision,
-        DeploymentDecisionV1::PhysicalCanaryReady
-    );
+    assert_eq!(report.decision, DeploymentDecisionV1::PhysicalCanaryReady);
     assert!(!report.canary_plan.as_ref().unwrap().executable);
     assert_eq!(
         report.canary_plan.as_ref().unwrap().maximum_observation_ms,

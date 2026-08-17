@@ -425,10 +425,13 @@ fn physical_link() -> DeploymentLinkSnapshotV1 {
         operational_up: true,
         master_ifindex: None,
         peer_or_namespace_relation_present: false,
-        mac_address_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+        mac_address_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            .into(),
         driver: "test_driver".into(),
-        device_identity_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
-        network_namespace_sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".into(),
+        device_identity_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            .into(),
+        network_namespace_sha256:
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".into(),
     }
 }
 
