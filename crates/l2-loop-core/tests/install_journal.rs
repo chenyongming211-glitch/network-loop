@@ -316,6 +316,69 @@ fn installed_upgrade_rollback_carries_both_exact_current_and_backup_identity() {
 }
 
 #[test]
+fn rollback_retains_exact_directories_required_by_the_terminal_journal() {
+    let mut journal = journal();
+    let roles = [
+        InstallRoleV1::StateRoot,
+        InstallRoleV1::InstallRoot,
+        InstallRoleV1::TransactionsRoot,
+    ];
+    journal
+        .prepare(
+            roles
+                .into_iter()
+                .map(|role| {
+                    InstallJournalEntryV1::absent_directory(
+                        role,
+                        InstallIntendedIdentityV1::directory(0o700, 0, 0).unwrap(),
+                    )
+                    .unwrap()
+                })
+                .collect(),
+        )
+        .unwrap();
+    journal.start_applying().unwrap();
+    for (index, role) in roles.into_iter().enumerate() {
+        let identity = InstallObjectIdentityV1::directory(
+            9,
+            400 + u64::try_from(index).unwrap(),
+            2,
+            0o700,
+            0,
+            0,
+        )
+        .unwrap();
+        apply_and_verify(&mut journal, role, identity, None);
+    }
+    journal.mark_installed().unwrap();
+    journal.begin_rollback().unwrap();
+
+    for (index, role) in roles.into_iter().enumerate().rev() {
+        let expected_current = InstallObjectIdentityV1::directory(
+            9,
+            400 + u64::try_from(index).unwrap(),
+            2,
+            0o700,
+            0,
+            0,
+        )
+        .unwrap();
+        let action = journal.next_rollback_action().unwrap();
+        assert_eq!(
+            action,
+            InstallJournalRollbackActionV1::RetainExact {
+                durable_step: journal.durable_step() + 1,
+                role,
+                expected_current,
+            }
+        );
+        journal.record_rollback_completed(&action).unwrap();
+    }
+    assert_eq!(journal.next_rollback_action(), None);
+    journal.mark_rolled_back().unwrap();
+}
+
+#[test]
 fn first_failure_is_immutable_and_identity_uncertainty_blocks_rollback() {
     let mut journal = prepared_journal();
     journal.start_applying().unwrap();

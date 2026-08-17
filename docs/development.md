@@ -90,6 +90,8 @@ The same acceptance step runs the complete privileged installation filesystem te
 
 Persistent installed-file identity includes the exact device, inode, single-link count, digest, mode, uid, and gid. Persistent directory identity includes the exact device, inode, type, mode, uid, and gid; its observed link count must be nonzero but is not persisted as an equality field because owned child-directory creation changes it. Exact no-follow traversal and empty-directory removal remain mandatory, so rollback never claims or recursively removes foreign contents.
 
+Terminal rollback retains only the exact `/var/lib/l2-loop`, `/var/lib/l2-loop/install`, and `/var/lib/l2-loop/install/transactions` directory identities needed to contain terminal transaction journals. It freshly revalidates those identities without deleting their nonempty journal hierarchy; all payload files, backups, siblings, and other transaction-created directories still follow exact reverse rollback. A durable `rolling_back` journal resumes at its exact next reverse action after restart or after an identity disagreement is repaired. Journal retention has no wildcard or automatic garbage-collection path.
+
 ## Build input update policy
 
 The tracked root `Cargo.lock` is generated only by an explicitly added, temporary GitHub workflow with `contents: read`; the local authoring workspace does not resolve dependencies. Dependency, stable/nightly Rust, `bpf-linker`, and Action-SHA updates are selected manually and committed atomically. The maintainer reviews the lock and workflow diffs, removes the temporary workflow, then requires all five CI jobs and exact-artifact host acceptance again. No dependency updater, bot write, scheduled update, or automatic pull request is enabled.

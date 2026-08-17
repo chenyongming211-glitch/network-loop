@@ -144,6 +144,13 @@ impl InstallRoleV1 {
         }
     }
 
+    pub const fn is_journal_retention_directory(self) -> bool {
+        matches!(
+            self,
+            Self::StateRoot | Self::InstallRoot | Self::TransactionsRoot
+        )
+    }
+
     const fn is_directory(self) -> bool {
         self.install_order() < 20
     }
@@ -629,6 +636,11 @@ pub enum InstallJournalRollbackActionV1 {
         expected_backup: InstallObjectIdentityV1,
         created_parent_identity: Option<InstallObjectIdentityV1>,
     },
+    RetainExact {
+        durable_step: u64,
+        role: InstallRoleV1,
+        expected_current: InstallObjectIdentityV1,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -901,6 +913,13 @@ impl InstallJournalV1 {
         let durable_step = self.durable_step.checked_add(1)?;
         let expected_current = entry.current_identity.clone()?;
         match &entry.prior_state {
+            InstallPriorStateV1::Absent if entry.role.is_journal_retention_directory() => {
+                Some(InstallJournalRollbackActionV1::RetainExact {
+                    durable_step,
+                    role: entry.role,
+                    expected_current,
+                })
+            }
             InstallPriorStateV1::Absent => Some(InstallJournalRollbackActionV1::RemoveExact {
                 durable_step,
                 role: entry.role,
@@ -930,7 +949,8 @@ impl InstallJournalV1 {
         }
         let role = match action {
             InstallJournalRollbackActionV1::RemoveExact { role, .. }
-            | InstallJournalRollbackActionV1::RestoreExact { role, .. } => *role,
+            | InstallJournalRollbackActionV1::RestoreExact { role, .. }
+            | InstallJournalRollbackActionV1::RetainExact { role, .. } => *role,
         };
         let index = self.entry_index(role)?;
         self.entries[index].phase = InstallJournalEntryPhaseV1::RolledBack;

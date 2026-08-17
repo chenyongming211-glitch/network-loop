@@ -216,6 +216,8 @@ Rollback traverses completed steps in reverse. It removes a newly installed file
 
 Identity disagreement stops rollback and returns a bounded manual-review finding. There is no wildcard, glob, recursive delete, best-effort detach, or cleanup widening. Backups and transaction records remain until an independently verified terminal state permits a later retention policy; G.1 does not add automatic garbage collection.
 
+The exact `/var/lib/l2-loop`, `/var/lib/l2-loop/install`, and `/var/lib/l2-loop/install/transactions` directory identities are retained when they are required to contain terminal journals. Rollback revalidates their persistent device, inode, type, mode, uid, and gid before marking their retention step complete; it does not misreport their expected child-directory link-count change as an identity disagreement or try to remove a nonempty journal parent. A durable `rolling_back` journal resumes from its exact next reverse action after process restart or after the operator restores a temporarily changed canonical identity.
+
 ### 7.5 Metadata limitations
 
 G.1 supports regular files and directories with fixed POSIX mode and root ownership. It refuses installation when a destination or owned predecessor has unsupported ACLs, extended attributes, immutable flags, capabilities, or security labels that cannot be preserved and verified. On an enforcing SELinux host, installation is blocked until a separately reviewed labeling policy and verification adapter exist.

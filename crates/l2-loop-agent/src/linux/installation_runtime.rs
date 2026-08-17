@@ -408,8 +408,10 @@ fn rollback_journal(
     filesystem: &mut LinuxInstallationFilesystem<FixedInstallRoot, NoInstallFaults>,
     journal: &mut InstallJournalV1,
 ) -> Result<(), ()> {
-    journal.begin_rollback().map_err(|_| ())?;
-    filesystem.persist_journal(journal).map_err(|_| ())?;
+    if journal.state() != InstallJournalStateV1::RollingBack {
+        journal.begin_rollback().map_err(|_| ())?;
+        filesystem.persist_journal(journal).map_err(|_| ())?;
+    }
     while let Some(action) = journal.next_rollback_action() {
         match &action {
             InstallJournalRollbackActionV1::RemoveExact {
@@ -428,6 +430,16 @@ fn rollback_journal(
             } => filesystem
                 .rollback_restore_exact(*role, expected_current, backup_basename, expected_backup)
                 .map_err(|_| ())?,
+            InstallJournalRollbackActionV1::RetainExact {
+                role,
+                expected_current,
+                ..
+            } => {
+                let observed = filesystem.inspect_exact(*role).map_err(|_| ())?;
+                if !expected_current.matches_persistent_object(&observed) {
+                    return Err(());
+                }
+            }
         }
         journal.record_rollback_completed(&action).map_err(|_| ())?;
         filesystem.persist_journal(journal).map_err(|_| ())?;
