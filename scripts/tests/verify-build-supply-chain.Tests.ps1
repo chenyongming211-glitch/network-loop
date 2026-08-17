@@ -5,6 +5,7 @@ $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $CiPath = Join-Path $RepositoryRoot '.github/workflows/ci.yml'
 $ToolchainPath = Join-Path $RepositoryRoot 'rust-toolchain.toml'
 $CargoConfigPath = Join-Path $RepositoryRoot '.cargo/config.toml'
+$AuditPolicyPath = Join-Path $RepositoryRoot '.cargo/audit.toml'
 $LockPath = Join-Path $RepositoryRoot 'Cargo.lock'
 $script:Failures = 0
 
@@ -51,6 +52,11 @@ foreach ($WorkflowFile in $WorkflowFiles) {
 $Ci = Get-Content -LiteralPath $CiPath -Raw
 $Toolchain = Get-Content -LiteralPath $ToolchainPath -Raw
 $CargoConfig = Get-Content -LiteralPath $CargoConfigPath -Raw
+$AuditPolicy = if (Test-Path -LiteralPath $AuditPolicyPath -PathType Leaf) {
+    Get-Content -LiteralPath $AuditPolicyPath -Raw
+} else {
+    ''
+}
 
 foreach ($Required in @(
     'uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5',
@@ -65,6 +71,9 @@ foreach ($Required in @(
     'cargo test --locked',
     'cargo check --locked',
     'cargo install bpf-linker --version 0.10.4 --locked',
+    'cargo install cargo-audit --version 0.22.2 --locked',
+    'cargo audit',
+    "git -C `"`$CARGO_HOME/advisory-db`" show -s --format='RustSec advisory database revision: %H' HEAD",
     'cargo build --locked --release --target x86_64-unknown-linux-musl',
     'L2_LOOP_BUILD_COMMIT_SHA: ${{ github.sha }}',
     '--deploy-checker target/x86_64-unknown-linux-musl/release/l2-loop-deploycheck',
@@ -92,6 +101,44 @@ foreach ($Prohibited in @(
 )) {
     Assert-True (-not $Ci.Contains($Prohibited)) "CI contains prohibited supply-chain marker: $Prohibited"
 }
+
+foreach ($Prohibited in @(
+    'continue-on-error',
+    'cargo audit fix',
+    'cargo audit --ignore'
+)) {
+    Assert-True (-not $Ci.Contains($Prohibited)) "CI contains prohibited advisory marker: $Prohibited"
+}
+
+$AuditInstallLines = @(
+    $Ci -split "`r?`n" | Where-Object { $_.Contains('cargo install cargo-audit') }
+)
+Assert-True (
+    $AuditInstallLines.Count -eq 1 -and
+    $AuditInstallLines[0].Trim() -ceq 'run: cargo install cargo-audit --version 0.22.2 --locked'
+) 'cargo-audit installation is not a single exact pinned locked command'
+
+$AuditInstall = $Ci.IndexOf('cargo install cargo-audit --version 0.22.2 --locked')
+$AuditRun = $Ci.IndexOf('cargo audit', $AuditInstall + 1)
+$AuditRevision = $Ci.IndexOf("RustSec advisory database revision: %H", $AuditRun + 1)
+Assert-True ($AuditInstall -ge 0 -and $AuditRun -gt $AuditInstall -and $AuditRevision -gt $AuditRun) 'advisory install, audit, and revision recording are missing or out of order'
+
+foreach ($RequiredPolicy in @(
+    '[advisories]',
+    'ignore = []',
+    'informational_warnings = []',
+    'severity_threshold = "none"',
+    '[database]',
+    'fetch = true',
+    'stale = false',
+    '[yanked]',
+    'enabled = true',
+    'update_index = true'
+)) {
+    Assert-True ($AuditPolicy.Contains($RequiredPolicy)) "cargo-audit policy is missing: $RequiredPolicy"
+}
+Assert-True (-not [regex]::IsMatch($AuditPolicy, '(?m)^\s*ignore\s*=\s*\[\s*[^\]\s]')) 'cargo-audit policy ignores an advisory'
+Assert-True (-not [regex]::IsMatch($AuditPolicy, '(?m)^\s*informational_warnings\s*=\s*\[\s*[^\]\s]')) 'cargo-audit policy enables informational warnings as a product gate'
 
 Assert-True ($Toolchain.Contains('channel = "1.97.1"')) 'rust-toolchain.toml does not select stable Rust 1.97.1'
 Assert-True (-not [regex]::IsMatch($Toolchain, '(?m)^channel\s*=\s*"stable"\s*$')) 'rust-toolchain.toml still selects moving stable'

@@ -108,6 +108,7 @@ foreach ($Required in @(
     'rmdir /run/l2-loop/accept',
     'rmdir /run/l2-loop',
     'l2-loop-deploycheck',
+    'l2-loop-install',
     "'staging'",
     "'--bundle'",
     "'--root'",
@@ -214,6 +215,10 @@ Assert-True (-not [regex]::IsMatch($Harness, '\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
 Assert-True (-not $Harness.Contains('.ssh')) 'deployment harness contains a hard-coded key path'
 Assert-True (-not $Harness.Contains('b"\x88\xb5"')) 'deployment traffic uses an unhandled EtherType that inflates RX drops'
 Assert-True ($Harness.Contains('cleanup_file "$root/checker.err"')) 'negative checker stderr is not included in failure-path cleanup'
+Assert-True ($Harness.Contains('$ObservedFiles.Count -ne 10')) 'deployment harness does not require the ten-file bundle'
+Assert-True ($Harness.Contains('$ChecksumLines.Count -ne 9')) 'deployment harness does not require nine checksum entries'
+Assert-True ($Harness.Contains('manifest.files.installer')) 'deployment harness does not bind the installer manifest role'
+Assert-True ($Harness.Contains('"l2-loop-install"')) 'remote deployment inventory omits the installer'
 Assert-True ($Harness.Contains('rebind_hardened_unit_fixture')) 'hardened-unit scenario does not preserve the preceding artifact/layout identities'
 Assert-True ([regex]::IsMatch($Harness, '(?s)authorization = \{.*?"expires_at_unix_ms": now \+ 3600000\s*\}\s*orders = \[')) 'generated authorization fixture is not closed before performance trial construction'
 Assert-True ($Harness.Contains('install -m 0755 "$bundle/l2-loop-hostcheck" "$root/l2-loop-hostcheck"')) 'pass-through hostcheck is not staged at its exact Task 9 artifact root'

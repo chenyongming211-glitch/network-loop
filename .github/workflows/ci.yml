@@ -171,10 +171,10 @@ jobs:
       - name: Verify bundle inventory
         working-directory: .artifacts/bundle
         run: |
-          test "$(find . -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 9
+          test "$(find . -mindepth 1 -maxdepth 1 -type f | wc -l)" -eq 10
           test "$(find . -mindepth 1 -maxdepth 1 ! -type f | wc -l)" -eq 0
           test "$(find . -mindepth 2 | wc -l)" -eq 0
-          test "$(wc -l < SHA256SUMS)" -eq 8
+          test "$(wc -l < SHA256SUMS)" -eq 9
 
       - name: Upload release bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
