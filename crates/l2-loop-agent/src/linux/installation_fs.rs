@@ -384,12 +384,7 @@ where
             }
 
             self.faults.check(InstallFaultPointV1::FinalRename)?;
-            renameat_noreplace_name(
-                parent.as_raw_fd(),
-                sibling,
-                parent.as_raw_fd(),
-                destination,
-            )?;
+            renameat_noreplace_name(parent.as_raw_fd(), sibling, parent.as_raw_fd(), destination)?;
             final_moved = true;
             sync_directory(&mut self.faults, &parent)?;
             let current = inspect_at(&parent, destination)?;
