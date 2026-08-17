@@ -17,6 +17,10 @@ path = "src/bin/hostcheck.rs"
 name = "l2-loop-deploycheck"
 path = "src/bin/deploycheck.rs"
 
+[[bin]]
+name = "l2-loop-install"
+path = "src/bin/install.rs"
+
 [dependencies]
 aya.workspace = true
 futures-util.workspace = true
