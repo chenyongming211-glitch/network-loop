@@ -48,6 +48,14 @@ fn deployment_constants_and_decisions_are_fixed() {
         DeploymentDecisionV1::CanaryCandidate.to_string(),
         "canary_candidate"
     );
+    assert_eq!(
+        DeploymentDecisionV1::InstalledVerified.to_string(),
+        "installed_verified"
+    );
+    assert_eq!(
+        DeploymentDecisionV1::PhysicalCanaryReady.to_string(),
+        "physical_canary_ready"
+    );
 }
 
 #[test]
@@ -405,7 +413,26 @@ fn report_derives_staging_ready_only_from_staging_gates() {
 }
 
 #[test]
-fn report_derives_candidate_only_with_a_non_executable_plan() {
+fn report_derives_installed_verified_without_interface_or_canary_plan() {
+    let report = DeploymentGateReportV1::derive(
+        DeploymentCommandV1::Installed,
+        artifact(),
+        None,
+        DeploymentGateSummariesV1::installed_passed(),
+        Vec::new(),
+        None,
+        NOW_MS,
+    )
+    .unwrap();
+    assert_eq!(report.decision, DeploymentDecisionV1::InstalledVerified);
+    assert!(report.interface.is_none());
+    assert!(report.canary_plan.is_none());
+    assert!(!report.mutations_performed);
+    report.validate(DeploymentCommandV1::Installed).unwrap();
+}
+
+#[test]
+fn report_derives_physical_readiness_only_with_a_non_executable_plan() {
     let authorization = valid_authorization();
     let interface =
         DeploymentInterfaceSummaryV1::new("spare0", 7, InterfaceKind::Physical, true, true)
@@ -425,8 +452,15 @@ fn report_derives_candidate_only_with_a_non_executable_plan() {
         NOW_MS,
     )
     .unwrap();
-    assert_eq!(report.decision, DeploymentDecisionV1::CanaryCandidate);
+    assert_eq!(
+        report.decision,
+        DeploymentDecisionV1::PhysicalCanaryReady
+    );
     assert!(!report.canary_plan.as_ref().unwrap().executable);
+    assert_eq!(
+        report.canary_plan.as_ref().unwrap().maximum_observation_ms,
+        15 * 60 * 1_000
+    );
     report.validate(DeploymentCommandV1::Inspect).unwrap();
 }
 
@@ -487,11 +521,13 @@ fn public_deployment_contract_contains_no_execution_or_production_ready_state() 
         DeploymentDecisionV1::Blocked,
         DeploymentDecisionV1::StagingReady,
         DeploymentDecisionV1::CanaryCandidate,
+        DeploymentDecisionV1::InstalledVerified,
+        DeploymentDecisionV1::PhysicalCanaryReady,
     ])
     .unwrap();
     assert_eq!(
         decision_json,
-        "[\"blocked\",\"staging_ready\",\"canary_candidate\"]"
+        "[\"blocked\",\"staging_ready\",\"canary_candidate\",\"installed_verified\",\"physical_canary_ready\"]"
     );
     let production_ready = "production".to_owned() + "_ready";
     for prohibited in [

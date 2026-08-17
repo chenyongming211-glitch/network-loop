@@ -8,7 +8,7 @@ use std::{
 use l2_loop_agent::{
     BundleSnapshotV1, Clock, DeploymentFilesystem, DeploymentGateService, DeploymentIoError,
     DeploymentPlatformInspector, DeploymentPlatformSnapshotV1, DeploymentPrerequisitesV1,
-    LayoutSnapshotV1, ServiceUnitSnapshotV1,
+    InstalledOwnershipSnapshotV1, LayoutSnapshotV1, ServiceUnitSnapshotV1,
 };
 use l2_loop_core::{
     AttachmentState, BpfInspection, DG_AUTH_IDENTITY, DG_INTERFACE_UNSUPPORTED,
@@ -57,6 +57,33 @@ fn staging_calls_read_only_gates_in_exact_order() {
 }
 
 #[test]
+fn installed_verifies_exact_ownership_and_layout_without_interface_collection() {
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let filesystem = FakeFilesystem::passing(calls.clone());
+    let platform = FakePlatform::passing(calls.clone());
+    let mut service = DeploymentGateService::new(filesystem, platform, FixedClock);
+
+    let report = service.installed().unwrap();
+
+    assert_eq!(report.decision, DeploymentDecisionV1::InstalledVerified);
+    assert!(report.interface.is_none());
+    assert!(report.canary_plan.is_none());
+    assert!(!report.mutations_performed);
+    assert_eq!(
+        calls.borrow().as_slice(),
+        [
+            "inspect_installed_ownership",
+            "inspect_installed_layout",
+            "inspect_installed_service",
+            "load_installed_authorization",
+            "load_installed_performance",
+            "inspect_installed_prerequisites",
+        ]
+    );
+    assert!(!calls.borrow().contains(&"inspect_authorized_interface"));
+}
+
+#[test]
 fn inspect_calls_fixed_layout_gates_and_builds_non_executable_plan() {
     let calls = Rc::new(RefCell::new(Vec::new()));
     let filesystem = FakeFilesystem::passing(calls.clone());
@@ -65,7 +92,7 @@ fn inspect_calls_fixed_layout_gates_and_builds_non_executable_plan() {
 
     let report = service.inspect().unwrap();
 
-    assert_eq!(report.decision, DeploymentDecisionV1::CanaryCandidate);
+    assert_eq!(report.decision, DeploymentDecisionV1::PhysicalCanaryReady);
     assert_eq!(report.interface.as_ref().unwrap().name, "spare0");
     assert!(!report.canary_plan.as_ref().unwrap().executable);
     assert_eq!(
@@ -80,6 +107,7 @@ fn inspect_calls_fixed_layout_gates_and_builds_non_executable_plan() {
     assert_eq!(
         calls.borrow().as_slice(),
         [
+            "inspect_installed_ownership",
             "inspect_installed_layout",
             "inspect_installed_service",
             "load_installed_authorization",
@@ -176,6 +204,7 @@ fn inspect_identity_mismatch_stops_before_prerequisite_read() {
     assert_eq!(
         calls.borrow().as_slice(),
         [
+            "inspect_installed_ownership",
             "inspect_installed_layout",
             "inspect_installed_service",
             "load_installed_authorization",
@@ -183,6 +212,52 @@ fn inspect_identity_mismatch_stops_before_prerequisite_read() {
             "inspect_authorized_interface",
         ]
     );
+}
+
+#[test]
+fn inspect_rejects_every_authorized_private_identity_mismatch() {
+    let mutations: [fn(&mut DeploymentPlatformSnapshotV1); 4] = [
+        |snapshot| snapshot.mac_address_sha256 = "d".repeat(64),
+        |snapshot| snapshot.driver = "other_driver".into(),
+        |snapshot| snapshot.device_identity_sha256 = "e".repeat(64),
+        |snapshot| snapshot.network_namespace_sha256 = "f".repeat(64),
+    ];
+    for mutate in mutations {
+        let mut snapshot = platform_snapshot("spare0");
+        mutate(&mut snapshot);
+        assert_platform_code(snapshot, DG_AUTH_IDENTITY);
+    }
+}
+
+#[test]
+fn inspect_rejects_each_missing_physical_readiness_fact() {
+    let mutations: [fn(&mut DeploymentPlatformSnapshotV1); 6] = [
+        |snapshot| snapshot.capabilities_sufficient = false,
+        |snapshot| snapshot.native_xdp_driver_ready = false,
+        |snapshot| snapshot.receive_queue_count = 0,
+        |snapshot| snapshot.offload_state_known = false,
+        |snapshot| snapshot.preflight.kernel.btf_readable = false,
+        |snapshot| snapshot.preflight.bpf.bpffs_mounted = false,
+    ];
+    for mutate in mutations {
+        let mut snapshot = platform_snapshot("spare0");
+        mutate(&mut snapshot);
+        assert_platform_code(snapshot, DG_PLATFORM_BLOCKED);
+    }
+}
+
+#[test]
+fn inspect_report_never_exposes_raw_mac_pci_or_namespace_identity() {
+    let report = inspect_snapshot(platform_snapshot("spare0"));
+    let rendered = serde_json::to_string(&report).unwrap();
+    for private in [
+        "aa:bb:cc:dd:ee:ff",
+        "0000:01:00.0",
+        "net:[4026531993]",
+        "/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0",
+    ] {
+        assert!(!rendered.contains(private));
+    }
 }
 
 #[test]
@@ -490,6 +565,18 @@ impl DeploymentFilesystem for FakeFilesystem {
         Ok(LayoutSnapshotV1::new(artifact()))
     }
 
+    fn inspect_installed_ownership(
+        &mut self,
+    ) -> Result<InstalledOwnershipSnapshotV1, DeploymentIoError> {
+        self.call("inspect_installed_ownership")?;
+        InstalledOwnershipSnapshotV1::new(
+            "11223344556677889900aabbccddeeff",
+            "00112233445566778899aabbccddeeff",
+            artifact(),
+        )
+        .map_err(|_| DeploymentIoError::Unavailable)
+    }
+
     fn inspect_installed_service(&mut self) -> Result<ServiceUnitSnapshotV1, DeploymentIoError> {
         self.call("inspect_installed_service")?;
         Ok(ServiceUnitSnapshotV1::valid())
@@ -564,6 +651,10 @@ fn authorization() -> DeploymentAuthorizationV1 {
             "administrative_state": "up",
             "operational_state": "up",
             "master_ifindex": null,
+            "mac_address_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "driver": "test_driver",
+            "device_identity_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "network_namespace_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
             "xdp_native": "empty",
             "xdp_generic": "empty",
             "tc_clsact": false,
@@ -588,12 +679,20 @@ fn platform_snapshot(name: &str) -> DeploymentPlatformSnapshotV1 {
         administrative_up: true,
         operational_up: true,
         master_ifindex: None,
+        mac_address_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+        driver: "test_driver".into(),
+        device_identity_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+        network_namespace_sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".into(),
         tc_clsact_present: false,
         address_present: false,
         route_present: false,
         neighbor_present: false,
         service_present: false,
         other_consumer_present: false,
+        capabilities_sufficient: true,
+        native_xdp_driver_ready: true,
+        receive_queue_count: 8,
+        offload_state_known: true,
         host: host(),
     }
 }

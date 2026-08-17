@@ -31,12 +31,29 @@ fn exact_physical_empty_fixture_produces_one_sanitized_snapshot() {
     assert!(snapshot.administrative_up);
     assert!(snapshot.operational_up);
     assert_eq!(snapshot.master_ifindex, None);
+    assert_eq!(
+        snapshot.mac_address_sha256,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    assert_eq!(snapshot.driver, "test_driver");
+    assert_eq!(
+        snapshot.device_identity_sha256,
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    );
+    assert_eq!(
+        snapshot.network_namespace_sha256,
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    );
     assert!(!snapshot.tc_clsact_present);
     assert!(!snapshot.address_present);
     assert!(!snapshot.route_present);
     assert!(!snapshot.neighbor_present);
     assert!(!snapshot.service_present);
     assert!(!snapshot.other_consumer_present);
+    assert!(snapshot.capabilities_sufficient);
+    assert!(snapshot.native_xdp_driver_ready);
+    assert_eq!(snapshot.receive_queue_count, 8);
+    assert!(snapshot.offload_state_known);
     assert_eq!(snapshot.host.architecture, "x86_64");
     assert_eq!(snapshot.host.kernel_release, "6.12.0-test");
     assert_eq!(snapshot.host.logical_cpu_count, 8);
@@ -78,7 +95,7 @@ fn authorization_name_or_ifindex_mismatch_stops_before_later_collection() {
 
 #[test]
 fn mixed_or_changing_identity_fails_closed() {
-    let mutations: [fn(&mut DeploymentLinkSnapshotV1); 7] = [
+    let mutations: [fn(&mut DeploymentLinkSnapshotV1); 11] = [
         |link| link.name = InterfaceName::new("other0").unwrap(),
         |link| link.ifindex = 8,
         |link| link.kind = InterfaceKind::Veth,
@@ -86,6 +103,10 @@ fn mixed_or_changing_identity_fails_closed() {
         |link| link.operational_up = false,
         |link| link.master_ifindex = Some(19),
         |link| link.peer_or_namespace_relation_present = true,
+        |link| link.mac_address_sha256 = "d".repeat(64),
+        |link| link.driver = "other_driver".into(),
+        |link| link.device_identity_sha256 = "e".repeat(64),
+        |link| link.network_namespace_sha256 = "f".repeat(64),
     ];
 
     for mutate in mutations {
@@ -404,6 +425,10 @@ fn physical_link() -> DeploymentLinkSnapshotV1 {
         operational_up: true,
         master_ifindex: None,
         peer_or_namespace_relation_present: false,
+        mac_address_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+        driver: "test_driver".into(),
+        device_identity_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+        network_namespace_sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".into(),
     }
 }
 
@@ -519,6 +544,10 @@ impl FakeCandidate {
                 service_present: false,
                 other_consumer_present: false,
                 logical_cpu_count: 8,
+                capabilities_sufficient: true,
+                native_xdp_driver_ready: true,
+                receive_queue_count: 8,
+                offload_state_known: true,
             },
         }
     }

@@ -15,7 +15,7 @@ const COMMIT_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 const STAGING_ROOT: &str = "/run/l2-loop/accept/00112233445566778899aabbccddeeff/staging-root";
 
 #[test]
-fn parser_accepts_only_the_two_approved_read_only_commands() {
+fn parser_accepts_only_the_three_approved_read_only_commands() {
     assert_eq!(
         parse(&["staging", "--bundle", "/bundle", "--root", STAGING_ROOT]),
         DeploymentCliAction::Run {
@@ -40,6 +40,13 @@ fn parser_accepts_only_the_two_approved_read_only_commands() {
                 bundle: PathBuf::from("/bundle"),
                 root: PathBuf::from(STAGING_ROOT),
             },
+            format: DeploymentCliFormat::Json,
+        }
+    );
+    assert_eq!(
+        parse(&["installed", "--json"]),
+        DeploymentCliAction::Run {
+            command: DeploymentCliCommand::Installed,
             format: DeploymentCliFormat::Json,
         }
     );
@@ -86,6 +93,11 @@ fn parser_rejects_aliases_overrides_mutating_verbs_and_extra_positionals() {
         ],
         &["inspect", "extra"],
         &["inspect", "--interface", "eth0"],
+        &["installed"],
+        &["installed", "--json", "--json"],
+        &["installed", "--interface", "eth0", "--json"],
+        &["installed", "--root", STAGING_ROOT, "--json"],
+        &["installed", "--bundle", "/bundle", "--json"],
         &["inspect", "--root", STAGING_ROOT],
         &["inspect", "--bundle", "/bundle"],
         &["inspect", "--output", "/tmp/report"],
@@ -116,6 +128,7 @@ fn parser_rejects_aliases_overrides_mutating_verbs_and_extra_positionals() {
 fn help_is_explicitly_read_only_and_non_executable() {
     let help = deployment_help();
     assert!(help.contains("staging --bundle <DIR> --root <ROOT> [--json]"));
+    assert!(help.contains("installed --json"));
     assert!(help.contains("inspect [--json]"));
     assert!(help.contains("read-only"));
     assert!(help.contains("does not install, start, attach, repair, or mutate"));
@@ -134,6 +147,18 @@ fn command_execution_routes_directly_to_the_gate_runner() {
     );
     assert_eq!(runner.calls, vec!["staging:/bundle".to_owned()]);
     assert_eq!(staging.exit_code, EXIT_DEPLOYMENT_SUCCESS);
+
+    runner.report = installed_report();
+    let installed = execute_deployment_command(
+        &mut runner,
+        DeploymentCliCommand::Installed,
+        DeploymentCliFormat::Json,
+    );
+    assert_eq!(
+        runner.calls,
+        vec!["staging:/bundle".to_owned(), "installed".to_owned()]
+    );
+    assert_eq!(installed.exit_code, EXIT_DEPLOYMENT_SUCCESS);
 
     runner.report = blocked_report();
     let inspect = execute_deployment_command(
@@ -260,6 +285,19 @@ fn blocked_report() -> DeploymentGateReportV1 {
     .unwrap()
 }
 
+fn installed_report() -> DeploymentGateReportV1 {
+    DeploymentGateReportV1::derive(
+        DeploymentCommandV1::Installed,
+        artifact(),
+        None,
+        DeploymentGateSummariesV1::installed_passed(),
+        Vec::new(),
+        None,
+        1_787_000_000_000,
+    )
+    .unwrap()
+}
+
 struct RecordingRunner {
     calls: Vec<String>,
     report: DeploymentGateReportV1,
@@ -293,6 +331,15 @@ impl DeploymentGateRunner for RecordingRunner {
 
     fn inspect(&mut self) -> Result<DeploymentGateReportV1, DeploymentServiceError> {
         self.calls.push("inspect".to_owned());
+        if self.fail {
+            Err(DeploymentServiceError::InvalidReport)
+        } else {
+            Ok(self.report.clone())
+        }
+    }
+
+    fn installed(&mut self) -> Result<DeploymentGateReportV1, DeploymentServiceError> {
+        self.calls.push("installed".to_owned());
         if self.fail {
             Err(DeploymentServiceError::InvalidReport)
         } else {
