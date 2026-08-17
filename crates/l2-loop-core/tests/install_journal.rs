@@ -44,8 +44,7 @@ fn roles_own_the_fixed_destinations_and_install_order() {
     assert!(InstallRoleV1::UsrRoot.install_order() < InstallRoleV1::Cli.install_order());
     assert!(InstallRoleV1::Cli.install_order() < InstallRoleV1::Daemon.install_order());
     assert!(
-        InstallRoleV1::DeploymentChecker.install_order()
-            < InstallRoleV1::Installer.install_order()
+        InstallRoleV1::DeploymentChecker.install_order() < InstallRoleV1::Installer.install_order()
     );
     assert!(InstallRoleV1::Installer.install_order() < InstallRoleV1::HostChecker.install_order());
 }
