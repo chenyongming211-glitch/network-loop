@@ -455,7 +455,11 @@ fn report_derives_physical_readiness_only_with_a_non_executable_plan() {
     assert_eq!(report.decision, DeploymentDecisionV1::PhysicalCanaryReady);
     assert!(!report.canary_plan.as_ref().unwrap().executable);
     assert_eq!(
-        report.canary_plan.as_ref().unwrap().maximum_observation_ms,
+        report
+            .canary_plan
+            .as_ref()
+            .unwrap()
+            .maximum_observation_duration_ms,
         15 * 60 * 1_000
     );
     report.validate(DeploymentCommandV1::Inspect).unwrap();
@@ -563,6 +567,10 @@ fn valid_authorization_value() -> Value {
             "administrative_state": "up",
             "operational_state": "up",
             "master_ifindex": null,
+            "mac_address_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "driver": "test_driver",
+            "device_identity_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "network_namespace_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
             "xdp_native": "empty",
             "xdp_generic": "empty",
             "tc_clsact": false,

@@ -204,7 +204,7 @@ function Write-PrivateJson {
 
 function New-StrictDeploymentAuthorization {
     param([string] $AuthorizationId, [uint64] $IssuedAt)
-    [ordered]@{ schema_version = 1; authorization_id = $AuthorizationId; artifact_commit_sha = $Commit; mode = 'read_only_canary_candidate'; interface = [ordered]@{ name = 'spare0'; ifindex = 7; kind = 'physical'; administrative_state = 'up'; operational_state = 'up'; master_ifindex = $null; xdp_native = 'empty'; xdp_generic = 'empty'; tc_clsact = $false; tc_ingress = @(); tc_egress = @() }; issued_at_unix_ms = $IssuedAt; expires_at_unix_ms = $IssuedAt + 3600000 }
+    [ordered]@{ schema_version = 1; authorization_id = $AuthorizationId; artifact_commit_sha = $Commit; mode = 'read_only_canary_candidate'; interface = [ordered]@{ name = 'spare0'; ifindex = 7; kind = 'physical'; administrative_state = 'up'; operational_state = 'up'; master_ifindex = $null; mac_address_sha256 = ('a' * 64); driver = 'test_driver'; device_identity_sha256 = ('b' * 64); network_namespace_sha256 = ('c' * 64); xdp_native = 'empty'; xdp_generic = 'empty'; tc_clsact = $false; tc_ingress = @(); tc_egress = @() }; issued_at_unix_ms = $IssuedAt; expires_at_unix_ms = $IssuedAt + 3600000 }
 }
 
 function New-StrictPerformanceEvidence {

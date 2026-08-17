@@ -574,7 +574,6 @@ impl DeploymentFilesystem for FakeFilesystem {
             "00112233445566778899aabbccddeeff",
             artifact(),
         )
-        .map_err(|_| DeploymentIoError::Unavailable)
     }
 
     fn inspect_installed_service(&mut self) -> Result<ServiceUnitSnapshotV1, DeploymentIoError> {

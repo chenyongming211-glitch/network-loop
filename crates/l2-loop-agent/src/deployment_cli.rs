@@ -18,6 +18,7 @@ const HELP: &str = "l2-loop-deploycheck - strict read-only deployment gate check
 
 usage:
   l2-loop-deploycheck staging --bundle <DIR> --root <ROOT> [--json]
+  l2-loop-deploycheck installed --json
   l2-loop-deploycheck inspect [--json]
 
 This checker is read-only and non-executable. It does not install, start, attach, repair, or mutate anything.";
@@ -31,6 +32,7 @@ pub enum DeploymentCliFormat {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeploymentCliCommand {
     Staging { bundle: PathBuf, root: PathBuf },
+    Installed,
     Inspect,
 }
 
@@ -69,6 +71,8 @@ pub trait DeploymentGateRunner {
         root: &Path,
     ) -> Result<DeploymentGateReportV1, DeploymentServiceError>;
 
+    fn installed(&mut self) -> Result<DeploymentGateReportV1, DeploymentServiceError>;
+
     fn inspect(&mut self) -> Result<DeploymentGateReportV1, DeploymentServiceError>;
 }
 
@@ -88,6 +92,10 @@ where
 
     fn inspect(&mut self) -> Result<DeploymentGateReportV1, DeploymentServiceError> {
         DeploymentGateService::inspect(self)
+    }
+
+    fn installed(&mut self) -> Result<DeploymentGateReportV1, DeploymentServiceError> {
+        DeploymentGateService::installed(self)
     }
 }
 
@@ -110,6 +118,12 @@ where
             command: DeploymentCliCommand::Inspect,
             format: DeploymentCliFormat::Text,
         }),
+        [command, json] if command == "installed" && json == "--json" => {
+            Ok(DeploymentCliAction::Run {
+                command: DeploymentCliCommand::Installed,
+                format: DeploymentCliFormat::Json,
+            })
+        }
         [command, json] if command == "inspect" && json == "--json" => {
             Ok(DeploymentCliAction::Run {
                 command: DeploymentCliCommand::Inspect,
@@ -160,6 +174,7 @@ where
 {
     let result = match command {
         DeploymentCliCommand::Staging { bundle, root } => runner.staging(&bundle, &root),
+        DeploymentCliCommand::Installed => runner.installed(),
         DeploymentCliCommand::Inspect => runner.inspect(),
     };
     let Ok(report) = result else {
@@ -253,9 +268,10 @@ fn append_gate(lines: &mut Vec<String>, name: &str, gate: &l2_loop_core::Deploym
 
 fn decision_exit_code(decision: DeploymentDecisionV1) -> u8 {
     match decision {
-        DeploymentDecisionV1::StagingReady | DeploymentDecisionV1::CanaryCandidate => {
-            EXIT_DEPLOYMENT_SUCCESS
-        }
+        DeploymentDecisionV1::StagingReady
+        | DeploymentDecisionV1::CanaryCandidate
+        | DeploymentDecisionV1::InstalledVerified
+        | DeploymentDecisionV1::PhysicalCanaryReady => EXIT_DEPLOYMENT_SUCCESS,
         DeploymentDecisionV1::Blocked => EXIT_DEPLOYMENT_BLOCKED,
     }
 }

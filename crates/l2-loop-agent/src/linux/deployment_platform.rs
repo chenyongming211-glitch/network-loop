@@ -1,4 +1,8 @@
-use std::{fs::File, io::Read, path::Path};
+use std::{
+    fs::{self, File},
+    io::Read,
+    path::Path,
+};
 
 use futures_util::TryStreamExt;
 use l2_loop_core::{
@@ -10,6 +14,7 @@ use rtnetlink::packet_route::{
     route::{RouteAttribute, RouteMessage},
     tc::TcAttribute,
 };
+use sha2::{Digest, Sha256};
 
 use crate::{
     DeploymentIoError, DeploymentPlatformInspector, DeploymentPlatformSnapshotV1,
@@ -25,7 +30,10 @@ use super::{
 };
 
 const PACKET_TABLE_PATH: &str = "/proc/net/packet";
+const PROCESS_STATUS_PATH: &str = "/proc/self/status";
 const MAX_PACKET_TABLE_BYTES: u64 = 1024 * 1024;
+const MAX_PROCESS_STATUS_BYTES: u64 = 1024 * 1024;
+const MAX_RECEIVE_QUEUES: u32 = 4096;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeploymentLinkSnapshotV1 {
@@ -36,6 +44,10 @@ pub struct DeploymentLinkSnapshotV1 {
     pub operational_up: bool,
     pub master_ifindex: Option<u32>,
     pub peer_or_namespace_relation_present: bool,
+    pub mac_address_sha256: String,
+    pub driver: String,
+    pub device_identity_sha256: String,
+    pub network_namespace_sha256: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +59,10 @@ pub struct DeploymentConsumerSnapshotV1 {
     pub service_present: bool,
     pub other_consumer_present: bool,
     pub logical_cpu_count: u32,
+    pub capabilities_sufficient: bool,
+    pub native_xdp_driver_ready: bool,
+    pub receive_queue_count: u32,
+    pub offload_state_known: bool,
 }
 
 pub trait DeploymentCandidateSource {
@@ -92,7 +108,14 @@ where
         let requested = InterfaceName::new(authorization.interface.name.as_str())
             .map_err(|_| DeploymentIoError::Unavailable)?;
         let before = self.source.inspect_identity(&requested)?;
-        if before.name != requested || before.ifindex != authorization.interface.ifindex {
+        if before.name != requested
+            || before.ifindex != authorization.interface.ifindex
+            || before.mac_address_sha256 != authorization.interface.mac_address_sha256
+            || before.driver != authorization.interface.driver
+            || before.device_identity_sha256 != authorization.interface.device_identity_sha256
+            || before.network_namespace_sha256
+                != authorization.interface.network_namespace_sha256
+        {
             return Err(DeploymentIoError::Unavailable);
         }
 
@@ -129,6 +152,10 @@ where
             administrative_up: after.administrative_up,
             operational_up: after.operational_up,
             master_ifindex: after.master_ifindex,
+            mac_address_sha256: after.mac_address_sha256,
+            driver: after.driver,
+            device_identity_sha256: after.device_identity_sha256,
+            network_namespace_sha256: after.network_namespace_sha256,
             tc_clsact_present: consumers.tc_clsact_present,
             address_present: consumers.address_present,
             route_present: consumers.route_present,
@@ -136,6 +163,10 @@ where
             service_present: consumers.service_present,
             other_consumer_present: consumers.other_consumer_present
                 || after.peer_or_namespace_relation_present,
+            capabilities_sufficient: consumers.capabilities_sufficient,
+            native_xdp_driver_ready: consumers.native_xdp_driver_ready,
+            receive_queue_count: consumers.receive_queue_count,
+            offload_state_known: consumers.offload_state_known,
             host,
         })
     }
@@ -172,7 +203,7 @@ impl DeploymentCandidateSource for SystemDeploymentCandidateSource {
 
     fn inspect_consumers(
         &mut self,
-        _interface: &InterfaceName,
+        interface: &InterfaceName,
         ifindex: u32,
     ) -> Result<DeploymentConsumerSnapshotV1, DeploymentIoError> {
         let service_present = packet_socket_present(Path::new(PACKET_TABLE_PATH), ifindex)?;
@@ -183,6 +214,9 @@ impl DeploymentCandidateSource for SystemDeploymentCandidateSource {
             .ok_or(DeploymentIoError::Unavailable)?;
         let observed = run_async(move || inspect_netlink_consumers(ifindex))
             .map_err(|_| DeploymentIoError::Unavailable)?;
+        let capabilities_sufficient = deployment_capabilities_sufficient()?;
+        let (native_xdp_driver_ready, receive_queue_count) =
+            inspect_driver_queue_readiness(interface)?;
 
         Ok(DeploymentConsumerSnapshotV1 {
             tc_clsact_present: observed.tc_clsact_present,
@@ -192,6 +226,10 @@ impl DeploymentCandidateSource for SystemDeploymentCandidateSource {
             service_present,
             other_consumer_present: false,
             logical_cpu_count,
+            capabilities_sufficient,
+            native_xdp_driver_ready,
+            receive_queue_count,
+            offload_state_known: native_xdp_driver_ready && receive_queue_count != 0,
         })
     }
 }
@@ -340,7 +378,13 @@ fn deployment_link_snapshot(message: LinkMessage) -> Option<DeploymentLinkSnapsh
             LinkAttribute::Link(_) | LinkAttribute::LinkNetNsId(_)
         )
     });
+    let mac_address = message.attributes.iter().find_map(|attribute| match attribute {
+        LinkAttribute::Address(address) if address.len() == 6 => Some(address.clone()),
+        _ => None,
+    })?;
     let record = link_record(message)?;
+    let (driver, device_identity_sha256, network_namespace_sha256) =
+        inspect_private_link_identity(&record.name).ok()?;
     Some(DeploymentLinkSnapshotV1 {
         kind: classify_interface(&record),
         name: record.name,
@@ -349,7 +393,97 @@ fn deployment_link_snapshot(message: LinkMessage) -> Option<DeploymentLinkSnapsh
         operational_up: record.oper_up,
         master_ifindex: record.master_ifindex,
         peer_or_namespace_relation_present,
+        mac_address_sha256: sha256_hex(&mac_address),
+        driver,
+        device_identity_sha256,
+        network_namespace_sha256,
     })
+}
+
+fn inspect_private_link_identity(
+    interface: &InterfaceName,
+) -> Result<(String, String, String), DeploymentIoError> {
+    let interface_root = Path::new("/sys/class/net").join(interface.as_str());
+    let driver_target = fs::read_link(interface_root.join("device/driver"))
+        .map_err(|_| DeploymentIoError::Unavailable)?;
+    let driver = driver_target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .ok_or(DeploymentIoError::Unavailable)?
+        .to_owned();
+    let device = fs::canonicalize(interface_root.join("device"))
+        .map_err(|_| DeploymentIoError::Unavailable)?;
+    let device = device.to_str().ok_or(DeploymentIoError::Unavailable)?;
+    let namespace = fs::read_link("/proc/self/ns/net")
+        .map_err(|_| DeploymentIoError::Unavailable)?;
+    let namespace = namespace.to_str().ok_or(DeploymentIoError::Unavailable)?;
+    Ok((
+        driver,
+        sha256_hex(device.as_bytes()),
+        sha256_hex(namespace.as_bytes()),
+    ))
+}
+
+fn inspect_driver_queue_readiness(
+    interface: &InterfaceName,
+) -> Result<(bool, u32), DeploymentIoError> {
+    let interface_root = Path::new("/sys/class/net").join(interface.as_str());
+    let driver_ready = fs::read_link(interface_root.join("device/driver")).is_ok();
+    let mut receive_queue_count = 0_u32;
+    for entry in fs::read_dir(interface_root.join("queues"))
+        .map_err(|_| DeploymentIoError::Unavailable)?
+    {
+        let entry = entry.map_err(|_| DeploymentIoError::Unavailable)?;
+        let name = entry.file_name();
+        let name = name.to_str().ok_or(DeploymentIoError::Unavailable)?;
+        if name
+            .strip_prefix("rx-")
+            .is_some_and(|suffix| {
+                !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+            })
+        {
+            receive_queue_count = receive_queue_count
+                .checked_add(1)
+                .filter(|count| *count <= MAX_RECEIVE_QUEUES)
+                .ok_or(DeploymentIoError::Unavailable)?;
+        }
+    }
+    Ok((driver_ready, receive_queue_count))
+}
+
+fn deployment_capabilities_sufficient() -> Result<bool, DeploymentIoError> {
+    let file = File::open(PROCESS_STATUS_PATH).map_err(|_| DeploymentIoError::Unavailable)?;
+    let mut bytes = Vec::new();
+    file.take(MAX_PROCESS_STATUS_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| DeploymentIoError::Unavailable)?;
+    if u64::try_from(bytes.len())
+        .ok()
+        .is_none_or(|length| length > MAX_PROCESS_STATUS_BYTES)
+    {
+        return Err(DeploymentIoError::Unavailable);
+    }
+    let text = String::from_utf8(bytes).map_err(|_| DeploymentIoError::Unavailable)?;
+    let mut matches = text.lines().filter_map(|line| line.strip_prefix("CapEff:\t"));
+    let capabilities = u64::from_str_radix(
+        matches.next().ok_or(DeploymentIoError::Unavailable)?,
+        16,
+    )
+    .map_err(|_| DeploymentIoError::Unavailable)?;
+    if matches.next().is_some() {
+        return Err(DeploymentIoError::Unavailable);
+    }
+    const CAP_NET_ADMIN: u32 = 12;
+    const CAP_SYS_ADMIN: u32 = 21;
+    const CAP_PERFMON: u32 = 38;
+    const CAP_BPF: u32 = 39;
+    let has = |capability: u32| capabilities & (1_u64 << capability) != 0;
+    Ok(has(CAP_SYS_ADMIN) || has(CAP_NET_ADMIN) && has(CAP_PERFMON) && has(CAP_BPF))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 fn route_uses_interface(route: &RouteMessage, ifindex: u32) -> bool {

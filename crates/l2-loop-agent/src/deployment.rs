@@ -227,6 +227,18 @@ where
 
     pub fn inspect(&mut self) -> Result<DeploymentGateReportV1, DeploymentServiceError> {
         let captured_at_unix_ms = self.captured_at_unix_ms()?;
+        let ownership = match self.filesystem.inspect_installed_ownership() {
+            Ok(ownership) => ownership,
+            Err(_) => {
+                return blocked_report(
+                    DeploymentCommandV1::Inspect,
+                    None,
+                    GateSlot::Layout,
+                    DG_LAYOUT_TYPE,
+                    captured_at_unix_ms,
+                );
+            }
+        };
         let layout = match self.filesystem.inspect_installed_layout() {
             Ok(layout) => layout,
             Err(_) => {
@@ -240,7 +252,7 @@ where
             }
         };
         let artifact = layout.artifact;
-        if artifact.validate().is_err() {
+        if artifact.validate().is_err() || artifact != ownership.artifact {
             return blocked_report(
                 DeploymentCommandV1::Inspect,
                 None,
@@ -284,6 +296,15 @@ where
                 );
             }
         };
+        if authorization.authorization_id != ownership.authorization_id {
+            return blocked_report(
+                DeploymentCommandV1::Inspect,
+                Some(artifact),
+                GateSlot::Authorization,
+                DG_AUTH_IDENTITY,
+                captured_at_unix_ms,
+            );
+        }
         if let Some(code) = authorization_failure(&authorization, &artifact, captured_at_unix_ms) {
             return blocked_report(
                 DeploymentCommandV1::Inspect,
@@ -391,6 +412,153 @@ where
         )?)
     }
 
+    pub fn installed(&mut self) -> Result<DeploymentGateReportV1, DeploymentServiceError> {
+        let captured_at_unix_ms = self.captured_at_unix_ms()?;
+        let ownership = match self.filesystem.inspect_installed_ownership() {
+            Ok(ownership) => ownership,
+            Err(_) => {
+                return blocked_report(
+                    DeploymentCommandV1::Installed,
+                    None,
+                    GateSlot::Layout,
+                    DG_LAYOUT_TYPE,
+                    captured_at_unix_ms,
+                );
+            }
+        };
+        let layout = match self.filesystem.inspect_installed_layout() {
+            Ok(layout) => layout,
+            Err(_) => {
+                return blocked_report(
+                    DeploymentCommandV1::Installed,
+                    Some(ownership.artifact),
+                    GateSlot::Layout,
+                    DG_LAYOUT_TYPE,
+                    captured_at_unix_ms,
+                );
+            }
+        };
+        let artifact = layout.artifact;
+        if artifact.validate().is_err() || artifact != ownership.artifact {
+            return blocked_report(
+                DeploymentCommandV1::Installed,
+                Some(artifact),
+                GateSlot::Layout,
+                DG_ARTIFACT_MANIFEST,
+                captured_at_unix_ms,
+            );
+        }
+
+        let service = match self.filesystem.inspect_installed_service() {
+            Ok(service) => service,
+            Err(_) => {
+                return blocked_report(
+                    DeploymentCommandV1::Installed,
+                    Some(artifact),
+                    GateSlot::Service,
+                    DG_SYSTEMD_CONTRACT,
+                    captured_at_unix_ms,
+                );
+            }
+        };
+        if !service.is_valid() {
+            return blocked_report(
+                DeploymentCommandV1::Installed,
+                Some(artifact),
+                GateSlot::Service,
+                DG_SYSTEMD_CONTRACT,
+                captured_at_unix_ms,
+            );
+        }
+
+        let authorization = match self.filesystem.load_installed_authorization() {
+            Ok(authorization) => authorization,
+            Err(_) => {
+                return blocked_report(
+                    DeploymentCommandV1::Installed,
+                    Some(artifact),
+                    GateSlot::Authorization,
+                    DG_AUTH_SCHEMA,
+                    captured_at_unix_ms,
+                );
+            }
+        };
+        if authorization.authorization_id != ownership.authorization_id {
+            return blocked_report(
+                DeploymentCommandV1::Installed,
+                Some(artifact),
+                GateSlot::Authorization,
+                DG_AUTH_IDENTITY,
+                captured_at_unix_ms,
+            );
+        }
+        if let Some(code) = authorization_failure(&authorization, &artifact, captured_at_unix_ms) {
+            return blocked_report(
+                DeploymentCommandV1::Installed,
+                Some(artifact),
+                GateSlot::Authorization,
+                code,
+                captured_at_unix_ms,
+            );
+        }
+
+        let performance = match self.filesystem.load_installed_performance() {
+            Ok(performance) => performance,
+            Err(_) => {
+                return blocked_report(
+                    DeploymentCommandV1::Installed,
+                    Some(artifact),
+                    GateSlot::Performance,
+                    DG_PERFORMANCE_UNAVAILABLE,
+                    captured_at_unix_ms,
+                );
+            }
+        };
+        if let Some(code) =
+            staged_performance_failure(&performance, &artifact, captured_at_unix_ms)
+        {
+            return blocked_report(
+                DeploymentCommandV1::Installed,
+                Some(artifact),
+                GateSlot::Performance,
+                code,
+                captured_at_unix_ms,
+            );
+        }
+
+        let prerequisites = match self.filesystem.inspect_installed_prerequisites() {
+            Ok(prerequisites) => prerequisites,
+            Err(_) => {
+                return blocked_report(
+                    DeploymentCommandV1::Installed,
+                    Some(artifact),
+                    GateSlot::Evidence,
+                    DG_EVIDENCE_ROOT,
+                    captured_at_unix_ms,
+                );
+            }
+        };
+        if !prerequisites.is_ready() {
+            return blocked_report(
+                DeploymentCommandV1::Installed,
+                Some(artifact),
+                GateSlot::Evidence,
+                DG_EVIDENCE_ROOT,
+                captured_at_unix_ms,
+            );
+        }
+
+        Ok(DeploymentGateReportV1::derive(
+            DeploymentCommandV1::Installed,
+            artifact,
+            None,
+            DeploymentGateSummariesV1::installed_passed(),
+            Vec::new(),
+            None,
+            captured_at_unix_ms,
+        )?)
+    }
+
     fn captured_at_unix_ms(&self) -> Result<u64, DeploymentServiceError> {
         let elapsed = self.clock.wall_time().duration_since(UNIX_EPOCH)?;
         u64::try_from(elapsed.as_millis()).map_err(|_| DeploymentServiceError::InvalidClock)
@@ -465,6 +633,10 @@ fn platform_failure(
     let preflight = &platform.preflight;
     if platform.interface_name.as_str() != authorized.name
         || platform.ifindex != authorized.ifindex
+        || platform.mac_address_sha256 != authorized.mac_address_sha256
+        || platform.driver != authorized.driver
+        || platform.device_identity_sha256 != authorized.device_identity_sha256
+        || platform.network_namespace_sha256 != authorized.network_namespace_sha256
         || platform.administrative_up != preflight.interface.admin_up
         || platform.operational_up != preflight.interface.oper_up
         || platform.master_ifindex
@@ -512,6 +684,18 @@ fn platform_failure(
         || platform.neighbor_present
         || platform.service_present
         || platform.other_consumer_present
+        || !platform.capabilities_sufficient
+        || !platform.native_xdp_driver_ready
+        || platform.receive_queue_count == 0
+        || !platform.offload_state_known
+        || !preflight.kernel.bpf_syscall
+        || !preflight.kernel.bpf_jit
+        || !preflight.kernel.btf_readable
+        || !preflight.kernel.tc_clsact
+        || !preflight.bpf.bpffs_mounted
+        || !preflight.bpf.relevant_objects_enumerable
+        || preflight.bpf.memlock.soft_bytes.unwrap_or(0) < preflight.bpf.memlock.required_bytes
+            && !preflight.bpf.memlock.can_raise
         || preflight.kernel.architecture != platform.host.architecture
         || preflight.kernel.release != platform.host.kernel_release
     {

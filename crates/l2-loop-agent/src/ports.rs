@@ -189,6 +189,34 @@ pub struct DeploymentPrerequisitesV1 {
     runtime_contract_ready: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstalledOwnershipSnapshotV1 {
+    pub transaction_id: String,
+    pub authorization_id: String,
+    pub artifact: DeploymentArtifactIdentityV1,
+}
+
+impl InstalledOwnershipSnapshotV1 {
+    pub fn new(
+        transaction_id: impl Into<String>,
+        authorization_id: impl Into<String>,
+        artifact: DeploymentArtifactIdentityV1,
+    ) -> Result<Self, DeploymentIoError> {
+        let snapshot = Self {
+            transaction_id: transaction_id.into(),
+            authorization_id: authorization_id.into(),
+            artifact,
+        };
+        if !is_lower_hex(&snapshot.transaction_id, 32)
+            || !is_lower_hex(&snapshot.authorization_id, 32)
+            || snapshot.artifact.validate().is_err()
+        {
+            return Err(DeploymentIoError::Unavailable);
+        }
+        Ok(snapshot)
+    }
+}
+
 impl DeploymentPrerequisitesV1 {
     pub const fn new(evidence_root_ready: bool, runtime_contract_ready: bool) -> Self {
         Self {
@@ -215,12 +243,20 @@ pub struct DeploymentPlatformSnapshotV1 {
     pub administrative_up: bool,
     pub operational_up: bool,
     pub master_ifindex: Option<u32>,
+    pub mac_address_sha256: String,
+    pub driver: String,
+    pub device_identity_sha256: String,
+    pub network_namespace_sha256: String,
     pub tc_clsact_present: bool,
     pub address_present: bool,
     pub route_present: bool,
     pub neighbor_present: bool,
     pub service_present: bool,
     pub other_consumer_present: bool,
+    pub capabilities_sufficient: bool,
+    pub native_xdp_driver_ready: bool,
+    pub receive_queue_count: u32,
+    pub offload_state_known: bool,
     pub host: DeploymentHostCompatibilityV1,
 }
 
@@ -245,6 +281,9 @@ pub trait DeploymentFilesystem {
         &mut self,
         root: &Path,
     ) -> Result<DeploymentPrerequisitesV1, DeploymentIoError>;
+    fn inspect_installed_ownership(
+        &mut self,
+    ) -> Result<InstalledOwnershipSnapshotV1, DeploymentIoError>;
     fn inspect_installed_layout(&mut self) -> Result<LayoutSnapshotV1, DeploymentIoError>;
     fn inspect_installed_service(&mut self) -> Result<ServiceUnitSnapshotV1, DeploymentIoError>;
     fn load_installed_authorization(
@@ -254,6 +293,13 @@ pub trait DeploymentFilesystem {
     fn inspect_installed_prerequisites(
         &mut self,
     ) -> Result<DeploymentPrerequisitesV1, DeploymentIoError>;
+}
+
+fn is_lower_hex(value: &str, length: usize) -> bool {
+    value.len() == length
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
 pub trait DeploymentPlatformInspector {

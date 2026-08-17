@@ -8,17 +8,22 @@ use std::{
 
 use l2_loop_common::ABI_VERSION;
 use l2_loop_core::{
-    DeploymentArtifactIdentityV1, DeploymentAuthorizationV1, PerformanceEvidenceV1,
+    DeploymentArtifactIdentityV1, DeploymentAuthorizationV1, InstallJournalStateV1,
+    InstallRoleV1, PerformanceEvidenceV1,
 };
 use serde::{Deserialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 
 use crate::{
     BundleFileIdentityV1, BundleSnapshotV1, DeploymentFilesystem, DeploymentIoError,
-    DeploymentPrerequisitesV1, LayoutSnapshotV1, ServiceUnitSnapshotV1,
+    DeploymentPrerequisitesV1, InstalledOwnershipSnapshotV1, LayoutSnapshotV1,
+    ServiceUnitSnapshotV1,
 };
 
-use super::deployment_unit::{MAX_SERVICE_UNIT_BYTES, validate_service_unit};
+use super::{
+    deployment_unit::{MAX_SERVICE_UNIT_BYTES, validate_service_unit},
+    installation_fs::LinuxInstallationFilesystem,
+};
 pub use crate::{DeploymentEntryKindV1, DeploymentEntrySnapshotV1};
 
 const ACCEPTANCE_ROOT_PREFIX: &str = "/run/l2-loop/accept/";
@@ -203,6 +208,12 @@ impl DeploymentFilesystem for LinuxDeploymentFilesystem {
         Ok(DeploymentPrerequisitesV1::ready())
     }
 
+    fn inspect_installed_ownership(
+        &mut self,
+    ) -> Result<InstalledOwnershipSnapshotV1, DeploymentIoError> {
+        inspect_installed_ownership(&self.expected_artifact)
+    }
+
     fn inspect_installed_layout(&mut self) -> Result<LayoutSnapshotV1, DeploymentIoError> {
         inspect_layout(Path::new(INSTALLED_ROOT), false, &self.expected_artifact)
     }
@@ -227,6 +238,68 @@ impl DeploymentFilesystem for LinuxDeploymentFilesystem {
         inspect_layout(Path::new(INSTALLED_ROOT), false, &self.expected_artifact)?;
         Ok(DeploymentPrerequisitesV1::ready())
     }
+}
+
+fn inspect_installed_ownership(
+    expected_artifact: &DeploymentArtifactIdentityV1,
+) -> Result<InstalledOwnershipSnapshotV1, DeploymentIoError> {
+    let mut filesystem = LinuxInstallationFilesystem::production();
+    let mut installed = None;
+    for transaction_id in filesystem
+        .transaction_ids()
+        .map_err(|_| DeploymentIoError::Unavailable)?
+    {
+        let journal = filesystem
+            .load_journal_exact(&transaction_id)
+            .map_err(|_| DeploymentIoError::Unavailable)?;
+        match journal.state() {
+            InstallJournalStateV1::RolledBack => continue,
+            InstallJournalStateV1::Installed => {}
+            _ => return Err(DeploymentIoError::Unavailable),
+        }
+        if journal.artifact() != expected_artifact || installed.is_some() {
+            return Err(DeploymentIoError::Unavailable);
+        }
+        for entry in journal.entries() {
+            let expected = entry
+                .current_identity()
+                .ok_or(DeploymentIoError::Unavailable)?;
+            let observed = filesystem
+                .inspect_optional_exact(entry.role())
+                .map_err(|_| DeploymentIoError::Unavailable)?
+                .ok_or(DeploymentIoError::Unavailable)?;
+            if !expected.matches_persistent_object(&observed) {
+                return Err(DeploymentIoError::Unavailable);
+            }
+        }
+        if journal_entry_sha256(&journal, InstallRoleV1::BundleManifest)
+            != Some(journal.bundle_manifest_sha256())
+            || journal_entry_sha256(&journal, InstallRoleV1::DeploymentAuthorization)
+                != Some(journal.deployment_authorization_sha256())
+            || journal_entry_sha256(&journal, InstallRoleV1::PerformanceEvidence)
+                != Some(journal.performance_evidence_sha256())
+        {
+            return Err(DeploymentIoError::Unavailable);
+        }
+        installed = Some(InstalledOwnershipSnapshotV1::new(
+            journal.transaction_id(),
+            journal.authorization_id(),
+            journal.artifact().clone(),
+        )?);
+    }
+    installed.ok_or(DeploymentIoError::Unavailable)
+}
+
+fn journal_entry_sha256(
+    journal: &l2_loop_core::InstallJournalV1,
+    role: InstallRoleV1,
+) -> Option<&str> {
+    let mut matches = journal.entries().iter().filter(|entry| entry.role() == role);
+    let digest = matches.next()?.current_identity()?.sha256()?;
+    if matches.next().is_some() {
+        return None;
+    }
+    Some(digest)
 }
 
 fn read_gate_json<T>(path: &Path) -> Result<T, DeploymentIoError>

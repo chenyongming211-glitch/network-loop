@@ -5,6 +5,8 @@ $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $ModulePath = Join-Path $RepositoryRoot 'scripts/lib/IsolatedNames.psm1'
 $HarnessPath = Join-Path $RepositoryRoot 'scripts/verify-deployment-gates.ps1'
 $WorkflowPath = Join-Path $RepositoryRoot '.github/workflows/ci.yml'
+$DeploycheckCliPath = Join-Path $RepositoryRoot 'crates/l2-loop-agent/src/deployment_cli.rs'
+$DeploycheckBinaryPath = Join-Path $RepositoryRoot 'crates/l2-loop-agent/src/bin/deploycheck.rs'
 
 Import-Module $ModulePath -Force
 
@@ -67,6 +69,7 @@ Assert-Throws {
 
 $Harness = Get-Content -LiteralPath $HarnessPath -Raw
 $Workflow = Get-Content -LiteralPath $WorkflowPath -Raw
+$DeploycheckSources = (Get-Content -LiteralPath $DeploycheckCliPath -Raw) + "`n" + (Get-Content -LiteralPath $DeploycheckBinaryPath -Raw)
 
 foreach ($Required in @(
     'L2_LOOP_TEST_TARGET',
@@ -148,6 +151,9 @@ foreach ($Required in @(
     'ebpf_identity_restored',
     'performance-v1.json',
     'deployment-v1.json',
+    'mac_address_sha256',
+    'device_identity_sha256',
+    'network_namespace_sha256',
     'PerformancePassThroughRegression',
     'PerformanceObserveRegression',
     'PerformanceDropError',
@@ -243,6 +249,12 @@ if ($PassThroughStart -ge 0 -and $PassThroughStop -gt $PassThroughStart) {
 }
 Assert-True ($Workflow.Contains('pwsh -NoProfile -File scripts/tests/verify-deployment-gates.Tests.ps1')) 'Linux CI does not run deployment harness safety tests'
 Assert-True ($Workflow.Contains('powershell -NoProfile -File scripts/tests/verify-deployment-gates.Tests.ps1')) 'Windows CI does not run deployment harness safety tests'
+Assert-True ($DeploycheckSources.Contains('installed --json')) 'deploycheck omits the strict installed command'
+Assert-True ($DeploycheckSources.Contains('DeploymentCliCommand::Installed')) 'deploycheck does not route installed verification explicitly'
+Assert-True ($DeploycheckSources.Contains('PhysicalCanaryReady')) 'deploycheck omits the physical readiness decision'
+foreach ($ForbiddenCapability in @('aya::', 'systemctl', '.add()', '.del()', '.set()', 'Command::new')) {
+    Assert-True (-not $DeploycheckSources.Contains($ForbiddenCapability)) "deploycheck exposes prohibited capability: $ForbiddenCapability"
+}
 
 if ($script:Failures -ne 0) {
     throw "$script:Failures deployment gate harness safety assertion(s) failed"

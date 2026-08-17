@@ -439,7 +439,12 @@ authorization = {
     "interface": {
         "name": "spare0", "ifindex": 7, "kind": "physical",
         "administrative_state": "up", "operational_state": "up",
-        "master_ifindex": None, "xdp_native": "empty", "xdp_generic": "empty",
+        "master_ifindex": None,
+        "mac_address_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "driver": "test_driver",
+        "device_identity_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "network_namespace_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "xdp_native": "empty", "xdp_generic": "empty",
         "tc_clsact": False, "tc_ingress": [], "tc_egress": []
     },
     "issued_at_unix_ms": now - 1000,

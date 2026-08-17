@@ -115,6 +115,8 @@ pub enum DeploymentDecisionV1 {
     Blocked,
     StagingReady,
     CanaryCandidate,
+    InstalledVerified,
+    PhysicalCanaryReady,
 }
 
 impl fmt::Display for DeploymentDecisionV1 {
@@ -123,6 +125,8 @@ impl fmt::Display for DeploymentDecisionV1 {
             Self::Blocked => "blocked",
             Self::StagingReady => "staging_ready",
             Self::CanaryCandidate => "canary_candidate",
+            Self::InstalledVerified => "installed_verified",
+            Self::PhysicalCanaryReady => "physical_canary_ready",
         })
     }
 }
@@ -130,6 +134,7 @@ impl fmt::Display for DeploymentDecisionV1 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeploymentCommandV1 {
     Staging,
+    Installed,
     Inspect,
 }
 
@@ -223,6 +228,13 @@ pub struct DeploymentAuthorizedInterfaceV1 {
     pub administrative_state: DeploymentLinkStateV1,
     pub operational_state: DeploymentLinkStateV1,
     pub master_ifindex: Option<u32>,
+    #[serde(deserialize_with = "deserialize_sha256")]
+    pub mac_address_sha256: String,
+    pub driver: String,
+    #[serde(deserialize_with = "deserialize_sha256")]
+    pub device_identity_sha256: String,
+    #[serde(deserialize_with = "deserialize_sha256")]
+    pub network_namespace_sha256: String,
     pub xdp_native: DeploymentHookStateV1,
     pub xdp_generic: DeploymentHookStateV1,
     pub tc_clsact: bool,
@@ -236,6 +248,10 @@ impl DeploymentAuthorizedInterfaceV1 {
             || self.ifindex == 0
             || self.kind != InterfaceKind::Physical
             || self.master_ifindex.is_some()
+            || !is_lower_hex(&self.mac_address_sha256, 64)
+            || !is_safe_text(&self.driver, 128)
+            || !is_lower_hex(&self.device_identity_sha256, 64)
+            || !is_lower_hex(&self.network_namespace_sha256, 64)
             || self.tc_clsact
             || !self.tc_ingress.is_empty()
             || !self.tc_egress.is_empty()
@@ -1035,6 +1051,10 @@ impl DeploymentGateSummariesV1 {
         }
     }
 
+    pub fn installed_passed() -> Self {
+        Self::staging_passed()
+    }
+
     pub fn inspect_blocked(code: &str) -> Result<Self, DeploymentContractError> {
         let mut summaries = Self::inspect_passed();
         summaries.platform = DeploymentGateSummaryV1::blocked(code)?;
@@ -1080,6 +1100,10 @@ impl DeploymentGateSummariesV1 {
         self.all()
             .iter()
             .all(|gate| gate.state == DeploymentGateStateV1::Passed)
+    }
+
+    fn is_installed_positive(&self) -> bool {
+        self.is_staging_positive()
     }
 }
 
@@ -1140,6 +1164,18 @@ impl DeploymentGateReportV1 {
                     return Err(DeploymentContractError::InvalidReport);
                 }
             }
+            DeploymentCommandV1::Installed => {
+                if interface.is_some() || canary_plan.is_some() {
+                    return Err(DeploymentContractError::InvalidReport);
+                }
+                if has_blocker {
+                    DeploymentDecisionV1::Blocked
+                } else if gates.is_installed_positive() {
+                    DeploymentDecisionV1::InstalledVerified
+                } else {
+                    return Err(DeploymentContractError::InvalidReport);
+                }
+            }
             DeploymentCommandV1::Inspect => {
                 if has_blocker {
                     if canary_plan.is_some() {
@@ -1161,7 +1197,7 @@ impl DeploymentGateReportV1 {
                     {
                         return Err(DeploymentContractError::InvalidReport);
                     }
-                    DeploymentDecisionV1::CanaryCandidate
+                    DeploymentDecisionV1::PhysicalCanaryReady
                 }
             }
         };
@@ -1220,6 +1256,19 @@ where
     if !is_lower_hex(&value, 40) {
         return Err(D::Error::custom(
             "commit SHA must be 40 lowercase hexadecimal characters",
+        ));
+    }
+    Ok(value)
+}
+
+fn deserialize_sha256<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    if !is_lower_hex(&value, 64) {
+        return Err(D::Error::custom(
+            "SHA-256 must be 64 lowercase hexadecimal characters",
         ));
     }
     Ok(value)
