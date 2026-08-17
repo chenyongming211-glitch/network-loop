@@ -9,6 +9,7 @@
     "daemon": "l2-loopd",
     "cli": "l2-loopctl",
     "deployment_checker": "l2-loop-deploycheck",
+    "installer": "l2-loop-install",
     "host_checker": "l2-loop-hostcheck",
     "ebpf_object": "l2-loop-ebpf.o",
     "service_unit": "l2-loop.service",

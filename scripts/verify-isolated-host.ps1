@@ -38,6 +38,7 @@ $ExpectedBundleFiles = @(
     'l2-loop-deploycheck',
     'l2-loop-ebpf.o',
     'l2-loop-hostcheck',
+    'l2-loop-install',
     'l2-loop.service',
     'l2-loopctl',
     'l2-loopd',
@@ -145,8 +146,8 @@ function Get-ExactGreenBundle {
     $RootItem = Get-Item -LiteralPath $ArtifactRoot
     Assert-NoSymlink -Item $RootItem
     $ObservedFiles = @(Get-ChildItem -LiteralPath $ArtifactRoot -Force)
-    if ($ObservedFiles.Count -ne 9 -or @($ObservedFiles | Where-Object { $_.PSIsContainer }).Count -ne 0) {
-        throw 'bundle inventory is not exactly nine regular files'
+    if ($ObservedFiles.Count -ne 10 -or @($ObservedFiles | Where-Object { $_.PSIsContainer }).Count -ne 0) {
+        throw 'bundle inventory is not exactly ten regular files'
     }
     foreach ($Item in $ObservedFiles) {
         Assert-NoSymlink -Item $Item
@@ -158,8 +159,8 @@ function Get-ExactGreenBundle {
     }
 
     $ChecksumLines = @(Get-Content -LiteralPath (Join-Path $ArtifactRoot 'SHA256SUMS'))
-    if ($ChecksumLines.Count -ne 8) {
-        throw 'bundle checksum file must contain exactly eight entries'
+    if ($ChecksumLines.Count -ne 9) {
+        throw 'bundle checksum file must contain exactly nine entries'
     }
     $Covered = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($Line in $ChecksumLines) {
@@ -180,7 +181,9 @@ function Get-ExactGreenBundle {
         }
     }
     $Manifest = Get-Content -LiteralPath (Join-Path $ArtifactRoot 'manifest.json') -Raw | ConvertFrom-Json
-    if ($Manifest.commit_sha -cne $Commit -or $Manifest.files.deployment_checker -cne 'l2-loop-deploycheck') {
+    if ($Manifest.commit_sha -cne $Commit -or
+        $Manifest.files.deployment_checker -cne 'l2-loop-deploycheck' -or
+        $Manifest.files.installer -cne 'l2-loop-install') {
         throw 'bundle manifest commit does not match the requested commit'
     }
     $ArtifactRoot
@@ -369,6 +372,7 @@ cleanup() {
     cleanup_file "$root/l2-loopd"
     cleanup_file "$root/l2-loopctl"
     cleanup_file "$root/l2-loop-hostcheck"
+    cleanup_file "$root/l2-loop-install"
     cleanup_file "$root/l2-loop-ebpf.o"
     cleanup_file "$root/l2-loop.service"
     cleanup_file "$root/manifest.json"
@@ -420,7 +424,7 @@ case "$phase" in
         assert_no_symlink "$root"
         cd "$root"
         sha256sum --check SHA256SUMS >/dev/null
-        chmod 0755 l2-loopd l2-loopctl l2-loop-deploycheck l2-loop-hostcheck
+        chmod 0755 l2-loopd l2-loopctl l2-loop-deploycheck l2-loop-hostcheck l2-loop-install
         ;;
     launch)
         cd "$root"

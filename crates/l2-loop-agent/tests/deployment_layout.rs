@@ -19,11 +19,12 @@ const LOGICAL_ROOT: &str = "/run/l2-loop/accept/00112233445566778899aabbccddeeff
 const MANIFEST: &str = include_str!("fixtures/deployment/manifest-v1.json");
 const UNIT: &[u8] = b"unit-v1\n";
 const EXAMPLE: &[u8] = b"example-v1\n";
-const PAYLOADS: [&str; 8] = [
+const PAYLOADS: [&str; 9] = [
     "deployment-v1.example.json",
     "l2-loop-deploycheck",
     "l2-loop-ebpf.o",
     "l2-loop-hostcheck",
+    "l2-loop-install",
     "l2-loop.service",
     "l2-loopctl",
     "l2-loopd",
@@ -71,7 +72,7 @@ fn bundle_reader_accepts_exact_inventory_manifest_and_checksums() {
     let snapshot = filesystem.inspect_bundle(bundle.path()).unwrap();
 
     assert_eq!(snapshot.artifact, artifact());
-    assert_eq!(snapshot.files.len(), 9);
+    assert_eq!(snapshot.files.len(), 10);
     assert_eq!(snapshot.files.keys().next().unwrap(), "SHA256SUMS");
     assert_eq!(snapshot.files["l2-loop.service"].sha256, sha256(UNIT));
     assert_eq!(snapshot.files["l2-loop.service"].hard_links, 1);
@@ -86,7 +87,7 @@ fn bundle_reader_rejects_extra_missing_nested_and_renamed_entries() {
     assert!(filesystem.inspect_bundle(extra.path()).is_err());
 
     let missing = BundleTree::valid("missing");
-    fs::remove_file(missing.path().join("l2-loopctl")).unwrap();
+    fs::remove_file(missing.path().join("l2-loop-install")).unwrap();
     assert!(filesystem.inspect_bundle(missing.path()).is_err());
 
     let nested = BundleTree::valid("nested");
@@ -95,8 +96,8 @@ fn bundle_reader_rejects_extra_missing_nested_and_renamed_entries() {
 
     let renamed = BundleTree::valid("renamed");
     fs::rename(
-        renamed.path().join("l2-loopd"),
-        renamed.path().join("daemon"),
+        renamed.path().join("l2-loop-install"),
+        renamed.path().join("installer"),
     )
     .unwrap();
     assert!(filesystem.inspect_bundle(renamed.path()).is_err());
@@ -132,6 +133,7 @@ fn bundle_reader_rejects_manifest_binding_changes_and_oversized_reads() {
             "fedcba9876543210fedcba9876543210fedcba98",
         ),
         ("role", "l2-loopd", "daemon"),
+        ("installer-role", "l2-loop-install", "renamed-installer"),
         (
             "target",
             "x86_64-unknown-linux-musl",
@@ -410,6 +412,11 @@ fn valid_layout() -> StagedLayoutInputV1 {
         ),
         (
             "usr/libexec/l2-loop/l2-loop-deploycheck",
+            DeploymentEntryKindV1::Regular,
+            0o755,
+        ),
+        (
+            "usr/libexec/l2-loop/l2-loop-install",
             DeploymentEntryKindV1::Regular,
             0o755,
         ),

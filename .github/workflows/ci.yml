@@ -68,6 +68,14 @@ jobs:
       - name: Verify locked dependency graph
         run: cargo metadata --locked --no-deps
 
+      - name: Install pinned cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Enforce RustSec advisory policy
+        run: |
+          cargo audit
+          git -C "$CARGO_HOME/advisory-db" show -s --format='RustSec advisory database revision: %H' HEAD
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -158,6 +166,7 @@ jobs:
           --daemon target/x86_64-unknown-linux-musl/release/l2-loopd
           --cli target/x86_64-unknown-linux-musl/release/l2-loopctl
           --deploy-checker target/x86_64-unknown-linux-musl/release/l2-loop-deploycheck
+          --installer target/x86_64-unknown-linux-musl/release/l2-loop-install
           --host-check target/x86_64-unknown-linux-musl/release/l2-loop-hostcheck
           --ebpf .artifacts/ebpf/l2-loop-ebpf
           --service-unit packaging/l2-loop.service

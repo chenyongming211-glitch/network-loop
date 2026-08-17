@@ -14,11 +14,12 @@ use xtask::bundle::{
 const COMMIT_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 const SERVICE_DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const EXAMPLE_DIGEST: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-const PAYLOADS: [&str; 8] = [
+const PAYLOADS: [&str; 9] = [
     "deployment-v1.example.json",
     "l2-loop-deploycheck",
     "l2-loop-ebpf.o",
     "l2-loop-hostcheck",
+    "l2-loop-install",
     "l2-loop.service",
     "l2-loopctl",
     "l2-loopd",
@@ -45,6 +46,7 @@ fn manifest_uses_the_stable_deployment_release_schema() {
                 "daemon": "l2-loopd",
                 "cli": "l2-loopctl",
                 "deployment_checker": "l2-loop-deploycheck",
+                "installer": "l2-loop-install",
                 "host_checker": "l2-loop-hostcheck",
                 "ebpf_object": "l2-loop-ebpf.o",
                 "service_unit": "l2-loop.service",
@@ -57,7 +59,7 @@ fn manifest_uses_the_stable_deployment_release_schema() {
 }
 
 #[test]
-fn checksum_manifest_is_lexically_ordered_and_exact_for_eight_payloads() {
+fn checksum_manifest_is_lexically_ordered_and_exact_for_nine_payloads() {
     let checksums = PAYLOADS
         .iter()
         .enumerate()
@@ -68,7 +70,7 @@ fn checksum_manifest_is_lexically_ordered_and_exact_for_eight_payloads() {
     let names = rendered.lines().map(|line| &line[66..]).collect::<Vec<_>>();
     assert_eq!(names, PAYLOADS);
     assert!(rendered.ends_with('\n'));
-    assert_eq!(rendered.lines().count(), 8);
+    assert_eq!(rendered.lines().count(), 9);
     assert!(rendered.lines().all(|line| {
         line.len() == 66 + line[66..].len()
             && &line[64..66] == "  "
@@ -85,7 +87,7 @@ fn checksum_manifest_rejects_missing_or_extra_files() {
         .map(|name| (name.to_string(), "a".repeat(64)))
         .collect::<BTreeMap<_, _>>();
     let mut missing = exact.clone();
-    missing.remove("l2-loop-deploycheck");
+    missing.remove("l2-loop-install");
     assert!(render_sha256sums(&missing).is_err());
 
     let mut extra = exact;
@@ -94,7 +96,7 @@ fn checksum_manifest_rejects_missing_or_extra_files() {
 }
 
 #[test]
-fn bundle_creation_emits_only_nine_regular_top_level_files() {
+fn bundle_creation_emits_only_ten_regular_top_level_files() {
     let tree = BundleTestTree::new("exact");
     let inputs = tree.inputs();
     create_bundle(&inputs).expect("bundle should be created");
@@ -118,7 +120,7 @@ fn bundle_creation_emits_only_nine_regular_top_level_files() {
     }));
 
     let checksums = fs::read_to_string(tree.output.join("SHA256SUMS")).unwrap();
-    assert_eq!(checksums.lines().count(), 8);
+    assert_eq!(checksums.lines().count(), 9);
     for line in checksums.lines() {
         let expected = &line[..64];
         let filename = &line[66..];
@@ -131,6 +133,10 @@ fn bundle_creation_emits_only_nine_regular_top_level_files() {
 
 #[test]
 fn bundle_rejects_non_regular_and_oversized_gate_assets() {
+    let missing_installer = BundleTestTree::new("missing-installer");
+    fs::remove_file(&missing_installer.installer).unwrap();
+    assert!(create_bundle(&missing_installer.inputs()).is_err());
+
     let linked = BundleTestTree::new("linked");
     replace_with_symlink(&linked.service_unit, &linked.daemon);
     assert!(create_bundle(&linked.inputs()).is_err());
@@ -199,6 +205,7 @@ struct BundleTestTree {
     daemon: PathBuf,
     cli: PathBuf,
     deployment_checker: PathBuf,
+    installer: PathBuf,
     host_checker: PathBuf,
     ebpf: PathBuf,
     service_unit: PathBuf,
@@ -219,6 +226,7 @@ impl BundleTestTree {
             daemon: root.join("daemon"),
             cli: root.join("cli"),
             deployment_checker: root.join("deployment-checker"),
+            installer: root.join("installer"),
             host_checker: root.join("host-checker"),
             ebpf: root.join("ebpf"),
             service_unit: root.join("service-unit"),
@@ -229,6 +237,7 @@ impl BundleTestTree {
             &tree.daemon,
             &tree.cli,
             &tree.deployment_checker,
+            &tree.installer,
             &tree.host_checker,
             &tree.ebpf,
             &tree.service_unit,
@@ -246,6 +255,7 @@ impl BundleTestTree {
             daemon: &self.daemon,
             cli: &self.cli,
             deployment_checker: &self.deployment_checker,
+            installer: &self.installer,
             host_checker: &self.host_checker,
             ebpf: &self.ebpf,
             service_unit: &self.service_unit,

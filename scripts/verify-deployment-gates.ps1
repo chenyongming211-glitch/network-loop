@@ -52,6 +52,7 @@ $ExpectedBundleFiles = @(
     'l2-loop-deploycheck',
     'l2-loop-ebpf.o',
     'l2-loop-hostcheck',
+    'l2-loop-install',
     'l2-loop.service',
     'l2-loopctl',
     'l2-loopd',
@@ -166,8 +167,8 @@ function Get-ExactGreenDeploymentBundle {
     $RootItem = Get-Item -LiteralPath $ArtifactRoot
     Assert-NoSymlink -Item $RootItem
     $ObservedFiles = @(Get-ChildItem -LiteralPath $ArtifactRoot -Force)
-    if ($ObservedFiles.Count -ne 9 -or @($ObservedFiles | Where-Object { $_.PSIsContainer }).Count -ne 0) {
-        throw 'deployment bundle inventory is not exactly nine regular files'
+    if ($ObservedFiles.Count -ne 10 -or @($ObservedFiles | Where-Object { $_.PSIsContainer }).Count -ne 0) {
+        throw 'deployment bundle inventory is not exactly ten regular files'
     }
     $ObservedNames = @($ObservedFiles.Name | Sort-Object)
     $ExpectedNames = @($ExpectedBundleFiles | Sort-Object)
@@ -176,8 +177,8 @@ function Get-ExactGreenDeploymentBundle {
     }
 
     $ChecksumLines = @(Get-Content -LiteralPath (Join-Path $ArtifactRoot 'SHA256SUMS'))
-    if ($ChecksumLines.Count -ne 8) {
-        throw 'deployment checksum file must contain exactly eight entries'
+    if ($ChecksumLines.Count -ne 9) {
+        throw 'deployment checksum file must contain exactly nine entries'
     }
     $Covered = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($Line in $ChecksumLines) {
@@ -199,7 +200,9 @@ function Get-ExactGreenDeploymentBundle {
     }
 
     $Manifest = Get-Content -LiteralPath (Join-Path $ArtifactRoot 'manifest.json') -Raw | ConvertFrom-Json
-    if ($Manifest.commit_sha -cne $Commit -or $Manifest.files.deployment_checker -cne 'l2-loop-deploycheck') {
+    if ($Manifest.commit_sha -cne $Commit -or
+        $Manifest.files.deployment_checker -cne 'l2-loop-deploycheck' -or
+        $Manifest.files.installer -cne 'l2-loop-install') {
         throw 'deployment manifest identity does not match the exact artifact'
     }
     [pscustomobject]@{
@@ -314,7 +317,7 @@ cleanup_pins() {
 }
 cleanup_scenario_bundle() {
     scenario_bundle="$root/scenario-bundle"
-    for name in deployment-v1.example.json l2-loop-deploycheck l2-loop-ebpf.o l2-loop-hostcheck l2-loop.service l2-loopctl l2-loopd manifest.json SHA256SUMS unexpected; do
+    for name in deployment-v1.example.json l2-loop-deploycheck l2-loop-ebpf.o l2-loop-hostcheck l2-loop-install l2-loop.service l2-loopctl l2-loopd manifest.json SHA256SUMS unexpected; do
         cleanup_file "$scenario_bundle/$name"
     done
     cleanup_dir "$scenario_bundle"
@@ -326,6 +329,7 @@ cleanup_staging_tree() {
     cleanup_file "$staging/usr/bin/l2-loopctl"
     cleanup_file "$staging/usr/libexec/l2-loop/l2-loopd"
     cleanup_file "$staging/usr/libexec/l2-loop/l2-loop-deploycheck"
+    cleanup_file "$staging/usr/libexec/l2-loop/l2-loop-install"
     cleanup_file "$staging/usr/libexec/l2-loop/l2-loop-hostcheck"
     cleanup_file "$staging/usr/libexec/l2-loop/l2-loop-ebpf.o"
     cleanup_file "$staging/usr/libexec/l2-loop/manifest.json"
@@ -397,7 +401,7 @@ cleanup_generated_tree() {
     cleanup_file "$accept_marker"
     cleanup_dir "$root/evidence/v1"
     cleanup_dir "$root/evidence"
-    for name in deployment-v1.example.json l2-loop-deploycheck l2-loop-ebpf.o l2-loop-hostcheck l2-loop.service l2-loopctl l2-loopd manifest.json SHA256SUMS; do
+    for name in deployment-v1.example.json l2-loop-deploycheck l2-loop-ebpf.o l2-loop-hostcheck l2-loop-install l2-loop.service l2-loopctl l2-loopd manifest.json SHA256SUMS; do
         cleanup_file "$bundle/$name"
     done
     cleanup_dir "$bundle"
@@ -414,6 +418,7 @@ install_layout() {
     install -m 0755 "$bundle/l2-loopctl" "$staging/usr/bin/l2-loopctl"
     install -m 0755 "$bundle/l2-loopd" "$staging/usr/libexec/l2-loop/l2-loopd"
     install -m 0755 "$bundle/l2-loop-deploycheck" "$staging/usr/libexec/l2-loop/l2-loop-deploycheck"
+    install -m 0755 "$bundle/l2-loop-install" "$staging/usr/libexec/l2-loop/l2-loop-install"
     install -m 0755 "$bundle/l2-loop-hostcheck" "$staging/usr/libexec/l2-loop/l2-loop-hostcheck"
     install -m 0644 "$bundle/l2-loop-ebpf.o" "$staging/usr/libexec/l2-loop/l2-loop-ebpf.o"
     install -m 0644 "$bundle/manifest.json" "$staging/usr/libexec/l2-loop/manifest.json"
@@ -493,7 +498,7 @@ PY
 rebind_hardened_unit_fixture() {
     scenario_bundle="$root/scenario-bundle"
     install -d -m 0700 "$scenario_bundle"
-    for name in deployment-v1.example.json l2-loop-deploycheck l2-loop-ebpf.o l2-loop-hostcheck l2-loop.service l2-loopctl l2-loopd manifest.json SHA256SUMS; do
+    for name in deployment-v1.example.json l2-loop-deploycheck l2-loop-ebpf.o l2-loop-hostcheck l2-loop-install l2-loop.service l2-loopctl l2-loopd manifest.json SHA256SUMS; do
         install -m 0600 "$bundle/$name" "$scenario_bundle/$name"
     done
     python3 - "$scenario_bundle" <<'PY'
@@ -516,7 +521,7 @@ with open(manifest_path, "w", encoding="utf-8", newline="") as channel:
     json.dump(manifest, channel, sort_keys=True, separators=(",", ":"))
 payloads = [
     "deployment-v1.example.json", "l2-loop-deploycheck", "l2-loop-ebpf.o",
-    "l2-loop-hostcheck", "l2-loop.service", "l2-loopctl", "l2-loopd", "manifest.json"
+    "l2-loop-hostcheck", "l2-loop-install", "l2-loop.service", "l2-loopctl", "l2-loopd", "manifest.json"
 ]
 with open(os.path.join(root, "SHA256SUMS"), "w", encoding="ascii", newline="") as channel:
     for name in sorted(payloads):
@@ -564,7 +569,7 @@ stage_negative() {
     case "$scenario" in
         ChecksumMismatch|ExtraFile)
             install -d -m 0700 "$root/scenario-bundle"
-            for name in deployment-v1.example.json l2-loop-deploycheck l2-loop-ebpf.o l2-loop-hostcheck l2-loop.service l2-loopctl l2-loopd manifest.json SHA256SUMS; do install -m 0600 "$bundle/$name" "$root/scenario-bundle/$name"; done
+            for name in deployment-v1.example.json l2-loop-deploycheck l2-loop-ebpf.o l2-loop-hostcheck l2-loop-install l2-loop.service l2-loopctl l2-loopd manifest.json SHA256SUMS; do install -m 0600 "$bundle/$name" "$root/scenario-bundle/$name"; done
             if test "$scenario" = ChecksumMismatch; then printf 'x' >>"$root/scenario-bundle/l2-loopd"; else printf 'x' >"$root/scenario-bundle/unexpected"; fi
             run_checker_blocked "$root/scenario-bundle" DG_ARTIFACT_INVENTORY
             cleanup_scenario_bundle
@@ -820,15 +825,15 @@ case "$phase" in
 import json, os, stat, sys
 expected=sys.argv[1]
 names=sorted(os.listdir("."))
-required=sorted(["deployment-v1.example.json","l2-loop-deploycheck","l2-loop-ebpf.o","l2-loop-hostcheck","l2-loop.service","l2-loopctl","l2-loopd","manifest.json","SHA256SUMS"])
+required=sorted(["deployment-v1.example.json","l2-loop-deploycheck","l2-loop-ebpf.o","l2-loop-hostcheck","l2-loop-install","l2-loop.service","l2-loopctl","l2-loopd","manifest.json","SHA256SUMS"])
 names!=required and sys.exit("remote bundle inventory changed")
 with open("manifest.json","r",encoding="utf-8") as channel: manifest=json.load(channel)
-manifest.get("commit_sha")!=expected and sys.exit("remote manifest commit changed")
+(manifest.get("commit_sha")!=expected or manifest.get("files",{}).get("installer")!="l2-loop-install") and sys.exit("remote manifest identity changed")
 for name in names:
     item=os.lstat(name)
     (stat.S_ISREG(item.st_mode) and item.st_nlink==1 and item.st_uid==0 and item.st_gid==0) or sys.exit("remote bundle identity changed")
 PY
-        chmod 0755 l2-loopd l2-loopctl l2-loop-deploycheck l2-loop-hostcheck
+        chmod 0755 l2-loopd l2-loopctl l2-loop-deploycheck l2-loop-hostcheck l2-loop-install
         chmod 0644 l2-loop-ebpf.o l2-loop.service deployment-v1.example.json manifest.json SHA256SUMS
         install -m 0755 "$bundle/l2-loop-hostcheck" "$root/l2-loop-hostcheck"
         install -m 0644 "$bundle/l2-loop-ebpf.o" "$root/l2-loop-ebpf.o"

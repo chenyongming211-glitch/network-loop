@@ -42,23 +42,25 @@ const SERVICE_OVERRIDE_PATHS: [&str; 7] = [
     "usr/local/lib/systemd/system/l2-loop.service.d",
 ];
 
-pub const EXPECTED_BUNDLE_FILES: [&str; 9] = [
+pub const EXPECTED_BUNDLE_FILES: [&str; 10] = [
     "SHA256SUMS",
     "deployment-v1.example.json",
     "l2-loop-deploycheck",
     "l2-loop-ebpf.o",
     "l2-loop-hostcheck",
+    "l2-loop-install",
     "l2-loop.service",
     "l2-loopctl",
     "l2-loopd",
     "manifest.json",
 ];
 
-const CHECKSUM_PAYLOADS: [&str; 8] = [
+const CHECKSUM_PAYLOADS: [&str; 9] = [
     "deployment-v1.example.json",
     "l2-loop-deploycheck",
     "l2-loop-ebpf.o",
     "l2-loop-hostcheck",
+    "l2-loop-install",
     "l2-loop.service",
     "l2-loopctl",
     "l2-loopd",
@@ -72,7 +74,7 @@ struct ExpectedLayoutEntry {
     mode: u32,
 }
 
-pub const EXPECTED_LAYOUT_ENTRIES: usize = 32;
+pub const EXPECTED_LAYOUT_ENTRIES: usize = 33;
 
 const LAYOUT_ENTRIES: [ExpectedLayoutEntry; EXPECTED_LAYOUT_ENTRIES] = [
     expected_dir(".", 0o700),
@@ -99,6 +101,7 @@ const LAYOUT_ENTRIES: [ExpectedLayoutEntry; EXPECTED_LAYOUT_ENTRIES] = [
     expected_file("usr/bin/l2-loopctl", 0o755),
     expected_file("usr/libexec/l2-loop/l2-loopd", 0o755),
     expected_file("usr/libexec/l2-loop/l2-loop-deploycheck", 0o755),
+    expected_file("usr/libexec/l2-loop/l2-loop-install", 0o755),
     expected_file("usr/libexec/l2-loop/l2-loop-hostcheck", 0o755),
     expected_file("usr/libexec/l2-loop/l2-loop-ebpf.o", 0o644),
     expected_file("usr/libexec/l2-loop/manifest.json", 0o644),
@@ -868,6 +871,7 @@ fn installed_payload_path(filename: &str, files: &BundleFilesV1) -> Option<&'sta
     } else if [
         files.daemon.as_str(),
         files.deployment_checker.as_str(),
+        files.installer.as_str(),
         files.host_checker.as_str(),
         files.ebpf_object.as_str(),
     ]
@@ -876,6 +880,7 @@ fn installed_payload_path(filename: &str, files: &BundleFilesV1) -> Option<&'sta
         match filename {
             "l2-loopd" => Some("usr/libexec/l2-loop/l2-loopd"),
             "l2-loop-deploycheck" => Some("usr/libexec/l2-loop/l2-loop-deploycheck"),
+            "l2-loop-install" => Some("usr/libexec/l2-loop/l2-loop-install"),
             "l2-loop-hostcheck" => Some("usr/libexec/l2-loop/l2-loop-hostcheck"),
             "l2-loop-ebpf.o" => Some("usr/libexec/l2-loop/l2-loop-ebpf.o"),
             _ => None,
@@ -989,6 +994,7 @@ struct BundleFilesV1 {
     daemon: String,
     cli: String,
     deployment_checker: String,
+    installer: String,
     host_checker: String,
     ebpf_object: String,
     service_unit: String,
@@ -1000,6 +1006,7 @@ impl BundleFilesV1 {
         self.daemon == "l2-loopd"
             && self.cli == "l2-loopctl"
             && self.deployment_checker == "l2-loop-deploycheck"
+            && self.installer == "l2-loop-install"
             && self.host_checker == "l2-loop-hostcheck"
             && self.ebpf_object == "l2-loop-ebpf.o"
             && self.service_unit == "l2-loop.service"

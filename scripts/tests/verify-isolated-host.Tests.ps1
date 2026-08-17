@@ -90,17 +90,20 @@ $Workflow = Get-Content $WorkflowPath -Raw
 foreach ($Required in @(
     "'deployment-v1.example.json'",
     "'l2-loop-deploycheck'",
+    "'l2-loop-install'",
     "'l2-loop.service'",
     '$Sources = $ExpectedBundleFiles | ForEach-Object',
-    'if ($ObservedFiles.Count -ne 9',
-    'if ($ChecksumLines.Count -ne 8)',
+    'if ($ObservedFiles.Count -ne 10',
+    'if ($ChecksumLines.Count -ne 9)',
     '[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)',
     "`$Filename -ceq 'SHA256SUMS'",
     "`$Manifest.files.deployment_checker -cne 'l2-loop-deploycheck'",
+    "`$Manifest.files.installer -cne 'l2-loop-install'",
     'cleanup_file "$root/deployment-v1.example.json"',
     'cleanup_file "$root/l2-loop-deploycheck"',
+    'cleanup_file "$root/l2-loop-install"',
     'cleanup_file "$root/l2-loop.service"',
-    'chmod 0755 l2-loopd l2-loopctl l2-loop-deploycheck l2-loop-hostcheck'
+    'chmod 0755 l2-loopd l2-loopctl l2-loop-deploycheck l2-loop-hostcheck l2-loop-install'
 )) {
     Assert-True ($Harness.Contains($Required)) "isolated harness does not accept the exact Delivery G bundle: $Required"
 }

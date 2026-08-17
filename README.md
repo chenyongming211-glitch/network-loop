@@ -28,7 +28,7 @@ Compilation, tests, Clippy, formatting checks, and eBPF builds run only in GitHu
 
 Repository-controlled build inputs are explicit: the GitHub-generated root `Cargo.lock` is tracked, every dependency-resolving permanent Cargo command uses locked resolution, GitHub Action implementations use reviewed full commit SHAs, and the stable Rust, dated eBPF nightly, and linker versions are fixed. Dependency and tool updates are manual, atomic changes; no updater or write-capable automation is enabled.
 
-Successful CI runs publish a nine-file `l2-loop-linux-x86_64-<full-commit-sha>` artifact. Its eight checksum-covered payloads are `l2-loopd`, `l2-loopctl`, `l2-loop-deploycheck`, `l2-loop-hostcheck`, `l2-loop-ebpf.o`, `l2-loop.service`, `deployment-v1.example.json`, and `manifest.json`; `SHA256SUMS` is the ninth file. All four userspace binaries are static MUSL executables. The full commit SHA in both the artifact name and manifest identifies the exact source revision, and the manifest binds every payload role, both build targets, the public ABI, and the deterministic unit/example digests.
+Successful CI runs publish a ten-file `l2-loop-linux-x86_64-<full-commit-sha>` artifact. Its nine checksum-covered payloads are `l2-loopd`, `l2-loopctl`, `l2-loop-deploycheck`, `l2-loop-install`, `l2-loop-hostcheck`, `l2-loop-ebpf.o`, `l2-loop.service`, `deployment-v1.example.json`, and `manifest.json`; `SHA256SUMS` is the tenth file. All five userspace binaries are static MUSL executables. The full commit SHA in both the artifact name and manifest identifies the exact source revision, and the manifest binds every payload role, both build targets, the public ABI, and the deterministic unit/example digests. The same workflow installs the exact pinned `cargo-audit` version, requires a fresh RustSec database with no ignored vulnerability advisories, and records the database revision before the artifact is eligible.
 
 The GitHub-hosted runner image remains outside the repository-controlled boundary, so the project does not claim byte-for-byte reproducible rebuilds. Deployment and acceptance therefore use the artifact and checksum file from the exact successful commit.
 
@@ -140,7 +140,7 @@ The implementation now contains:
 - a generation-scoped passive state machine with fixed adaptive/absolute storm paths, hysteresis, cooldown, and at most 16 transitions;
 - a 32-job serialized incident-output queue, atomic Schema 1 filesystem evidence store, fixed retention, startup recovery, truthful journald/stderr alerts, output health, and root-only bounded evidence CLI;
 - a standalone read-only deployment checker with strict bundle, installed-layout, authorization, platform, systemd-unit, evidence, and performance gates;
-- a deterministic nine-file GitHub MUSL bundle containing the checker, hardened unit, and authorization example;
+- a deterministic ten-file GitHub MUSL bundle containing the installer, checkers, hardened unit, and authorization example;
 - a generated-root deployment/performance harness covering ten staging cases, six deterministic performance-failure fixtures, and fifteen fixed real traffic trials without touching a physical interface;
 - a bounded host harness covering eighteen exact-artifact regression, observation, detection, and incident-output scenarios.
 

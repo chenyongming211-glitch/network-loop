@@ -11,12 +11,13 @@ const AUTHORIZATION: &[u8] = include_bytes!("fixtures/installation/install-autho
 const DEPLOYMENT_AUTHORIZATION: &[u8] = b"deployment-authorization-v1\n";
 const PERFORMANCE_EVIDENCE: &[u8] = b"performance-evidence-v1\n";
 const RAW_HOST_IDENTITY: &[u8] = b"stable-host-identity-v1\n";
-const BUNDLE_FILES: [(&str, u32); 9] = [
+const BUNDLE_FILES: [(&str, u32); 10] = [
     ("SHA256SUMS", 0o644),
     ("deployment-v1.example.json", 0o644),
     ("l2-loop-deploycheck", 0o755),
     ("l2-loop-ebpf.o", 0o644),
     ("l2-loop-hostcheck", 0o755),
+    ("l2-loop-install", 0o755),
     ("l2-loop.service", 0o644),
     ("l2-loopctl", 0o755),
     ("l2-loopd", 0o755),
@@ -26,7 +27,7 @@ const BUNDLE_FILES: [(&str, u32); 9] = [
 #[test]
 fn fixed_layout_has_only_reviewed_absolute_destinations_and_modes() {
     let entries = InstallLayoutV1::entries();
-    assert_eq!(entries.len(), 31);
+    assert_eq!(entries.len(), 32);
     assert_eq!(entries[0].destination, "/usr");
     assert_eq!(
         entries.last().unwrap().destination,
@@ -57,6 +58,11 @@ fn fixed_layout_has_only_reviewed_absolute_destinations_and_modes() {
         (
             InstallRoleV1::DeploymentChecker,
             "/usr/libexec/l2-loop/l2-loop-deploycheck",
+            0o755,
+        ),
+        (
+            InstallRoleV1::Installer,
+            "/usr/libexec/l2-loop/l2-loop-install",
             0o755,
         ),
         (
@@ -120,10 +126,11 @@ fn fixed_layout_has_only_reviewed_absolute_destinations_and_modes() {
             .iter()
             .all(|entry| entry.destination != "/run/l2-loop")
     );
-    assert!(
-        entries
-            .iter()
-            .all(|entry| !entry.destination.contains("l2-loop-install"))
+    assert_eq!(
+        InstallLayoutV1::entry(InstallRoleV1::Installer)
+            .unwrap()
+            .destination,
+        "/usr/libexec/l2-loop/l2-loop-install"
     );
 }
 

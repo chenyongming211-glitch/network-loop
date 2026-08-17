@@ -139,6 +139,22 @@ foreach ($RequiredPolicy in @(
 }
 Assert-True (-not [regex]::IsMatch($AuditPolicy, '(?m)^\s*ignore\s*=\s*\[\s*[^\]\s]')) 'cargo-audit policy ignores an advisory'
 Assert-True (-not [regex]::IsMatch($AuditPolicy, '(?m)^\s*informational_warnings\s*=\s*\[\s*[^\]\s]')) 'cargo-audit policy enables informational warnings as a product gate'
+$ExpectedAuditPolicy = (@(
+    '[advisories]',
+    'ignore = []',
+    'informational_warnings = []',
+    'severity_threshold = "none"',
+    '',
+    '[database]',
+    'fetch = true',
+    'stale = false',
+    '',
+    '[yanked]',
+    'enabled = true',
+    'update_index = true',
+    ''
+) -join "`n")
+Assert-True (($AuditPolicy -replace "`r`n", "`n") -ceq $ExpectedAuditPolicy) 'cargo-audit policy differs from the exact reviewed contract'
 
 Assert-True ($Toolchain.Contains('channel = "1.97.1"')) 'rust-toolchain.toml does not select stable Rust 1.97.1'
 Assert-True (-not [regex]::IsMatch($Toolchain, '(?m)^channel\s*=\s*"stable"\s*$')) 'rust-toolchain.toml still selects moving stable'

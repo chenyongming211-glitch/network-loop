@@ -18,6 +18,7 @@ pub const EBPF_TARGET: &str = "bpfel-unknown-none";
 pub const DAEMON_FILENAME: &str = "l2-loopd";
 pub const CLI_FILENAME: &str = "l2-loopctl";
 pub const DEPLOYMENT_CHECKER_FILENAME: &str = "l2-loop-deploycheck";
+pub const INSTALLER_FILENAME: &str = "l2-loop-install";
 pub const HOST_CHECKER_FILENAME: &str = "l2-loop-hostcheck";
 pub const EBPF_FILENAME: &str = "l2-loop-ebpf.o";
 pub const SERVICE_UNIT_FILENAME: &str = "l2-loop.service";
@@ -30,23 +31,25 @@ const MAX_EBPF_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_GATE_ASSET_BYTES: u64 = 1024 * 1024;
 const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 
-const CHECKSUM_FILES: [&str; 8] = [
+const CHECKSUM_FILES: [&str; 9] = [
     AUTHORIZATION_EXAMPLE_FILENAME,
     DEPLOYMENT_CHECKER_FILENAME,
     EBPF_FILENAME,
     HOST_CHECKER_FILENAME,
+    INSTALLER_FILENAME,
     SERVICE_UNIT_FILENAME,
     CLI_FILENAME,
     DAEMON_FILENAME,
     MANIFEST_FILENAME,
 ];
 
-const OUTPUT_FILES: [&str; 9] = [
+const OUTPUT_FILES: [&str; 10] = [
     CHECKSUMS_FILENAME,
     AUTHORIZATION_EXAMPLE_FILENAME,
     DEPLOYMENT_CHECKER_FILENAME,
     EBPF_FILENAME,
     HOST_CHECKER_FILENAME,
+    INSTALLER_FILENAME,
     SERVICE_UNIT_FILENAME,
     CLI_FILENAME,
     DAEMON_FILENAME,
@@ -84,6 +87,7 @@ impl BundleManifest {
                 daemon: DAEMON_FILENAME,
                 cli: CLI_FILENAME,
                 deployment_checker: DEPLOYMENT_CHECKER_FILENAME,
+                installer: INSTALLER_FILENAME,
                 host_checker: HOST_CHECKER_FILENAME,
                 ebpf_object: EBPF_FILENAME,
                 service_unit: SERVICE_UNIT_FILENAME,
@@ -100,6 +104,7 @@ struct BundleFiles {
     daemon: &'static str,
     cli: &'static str,
     deployment_checker: &'static str,
+    installer: &'static str,
     host_checker: &'static str,
     ebpf_object: &'static str,
     service_unit: &'static str,
@@ -113,6 +118,7 @@ pub struct BundleInputs<'a> {
     pub daemon: &'a Path,
     pub cli: &'a Path,
     pub deployment_checker: &'a Path,
+    pub installer: &'a Path,
     pub host_checker: &'a Path,
     pub ebpf: &'a Path,
     pub service_unit: &'a Path,
@@ -182,6 +188,7 @@ pub fn create_bundle(inputs: &BundleInputs<'_>) -> Result<(), BundleError> {
     let daemon = read_bounded_regular(inputs.daemon, MAX_USERSPACE_BYTES)?;
     let cli = read_bounded_regular(inputs.cli, MAX_USERSPACE_BYTES)?;
     let deployment_checker = read_bounded_regular(inputs.deployment_checker, MAX_USERSPACE_BYTES)?;
+    let installer = read_bounded_regular(inputs.installer, MAX_USERSPACE_BYTES)?;
     let host_checker = read_bounded_regular(inputs.host_checker, MAX_USERSPACE_BYTES)?;
     let ebpf = read_bounded_regular(inputs.ebpf, MAX_EBPF_BYTES)?;
     let service_unit = read_bounded_regular(inputs.service_unit, MAX_GATE_ASSET_BYTES)?;
@@ -204,6 +211,7 @@ pub fn create_bundle(inputs: &BundleInputs<'_>) -> Result<(), BundleError> {
         (DEPLOYMENT_CHECKER_FILENAME, deployment_checker),
         (EBPF_FILENAME, ebpf),
         (HOST_CHECKER_FILENAME, host_checker),
+        (INSTALLER_FILENAME, installer),
         (SERVICE_UNIT_FILENAME, service_unit),
         (CLI_FILENAME, cli),
         (DAEMON_FILENAME, daemon),
@@ -324,9 +332,11 @@ fn validate_output_inventory(output: &Path) -> Result<(), BundleError> {
 
 fn payload_mode(filename: &str) -> u32 {
     match filename {
-        DAEMON_FILENAME | CLI_FILENAME | DEPLOYMENT_CHECKER_FILENAME | HOST_CHECKER_FILENAME => {
-            0o755
-        }
+        DAEMON_FILENAME
+        | CLI_FILENAME
+        | DEPLOYMENT_CHECKER_FILENAME
+        | INSTALLER_FILENAME
+        | HOST_CHECKER_FILENAME => 0o755,
         _ => 0o644,
     }
 }

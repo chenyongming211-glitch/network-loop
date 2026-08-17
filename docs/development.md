@@ -70,7 +70,7 @@ l2-loop-linux-x86_64-<full-commit-sha>
 └── SHA256SUMS
 ```
 
-`manifest.json` records the full commit SHA, workspace package version, both target triples, public ABI, the seven executable/object/asset roles, and deterministic service/example digests. `SHA256SUMS` is lexically ordered and covers the other eight files. The workflow requires exactly nine top-level regular files, no nested content, and runs `sha256sum --check SHA256SUMS` before upload.
+`manifest.json` records the full commit SHA, workspace package version, both target triples, public ABI, the eight executable/object/asset roles (including the separate installer), and deterministic service/example digests. `SHA256SUMS` is lexically ordered and covers the other nine files. The workflow requires exactly ten top-level regular files, no nested content, and runs `sha256sum --check SHA256SUMS` before upload. Before compilation tests and bundling can qualify the exact SHA, CI installs `cargo-audit` 0.22.2 with `--locked`, fetches a non-stale RustSec advisory database, audits `Cargo.lock` with no ignored vulnerability advisory and no informational-warning product gate, checks yanked crates, and records the database revision in the job log. An unavailable database or failed audit blocks the workflow.
 
 Download an artifact without compiling locally:
 

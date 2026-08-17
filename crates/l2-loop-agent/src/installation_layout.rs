@@ -31,12 +31,13 @@ const HASH_BUFFER_BYTES: usize = 16 * 1024;
 #[cfg(target_os = "linux")]
 const HOST_IDENTITY_PATH: &str = "/etc/machine-id";
 
-const INSTALL_BUNDLE_FILES: [(&str, u32); 9] = [
+const INSTALL_BUNDLE_FILES: [(&str, u32); 10] = [
     ("SHA256SUMS", 0o644),
     ("deployment-v1.example.json", 0o644),
     ("l2-loop-deploycheck", 0o755),
     ("l2-loop-ebpf.o", 0o644),
     ("l2-loop-hostcheck", 0o755),
+    ("l2-loop-install", 0o755),
     ("l2-loop.service", 0o644),
     ("l2-loopctl", 0o755),
     ("l2-loopd", 0o755),
@@ -109,7 +110,7 @@ const fn supplied_file(
     }
 }
 
-const INSTALL_LAYOUT: [InstallLayoutEntryV1; 31] = [
+const INSTALL_LAYOUT: [InstallLayoutEntryV1; 32] = [
     directory(InstallRoleV1::UsrRoot, "/usr", 0o755),
     directory(InstallRoleV1::UsrBinRoot, "/usr/bin", 0o755),
     directory(InstallRoleV1::UsrLibRoot, "/usr/lib", 0o755),
@@ -174,6 +175,12 @@ const INSTALL_LAYOUT: [InstallLayoutEntryV1; 31] = [
         InstallRoleV1::DeploymentChecker,
         "/usr/libexec/l2-loop/l2-loop-deploycheck",
         "l2-loop-deploycheck",
+        0o755,
+    ),
+    bundle_file(
+        InstallRoleV1::Installer,
+        "/usr/libexec/l2-loop/l2-loop-install",
+        "l2-loop-install",
         0o755,
     ),
     bundle_file(

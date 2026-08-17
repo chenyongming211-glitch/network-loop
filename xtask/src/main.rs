@@ -43,6 +43,8 @@ fn build_bundle(args: &[String]) -> ExitCode {
         cli,
         deployment_checker_flag,
         deployment_checker,
+        installer_flag,
+        installer,
         host_check_flag,
         host_check,
         ebpf_flag,
@@ -62,6 +64,7 @@ fn build_bundle(args: &[String]) -> ExitCode {
         || daemon_flag != "--daemon"
         || cli_flag != "--cli"
         || deployment_checker_flag != "--deploy-checker"
+        || installer_flag != "--installer"
         || host_check_flag != "--host-check"
         || ebpf_flag != "--ebpf"
         || service_unit_flag != "--service-unit"
@@ -78,6 +81,7 @@ fn build_bundle(args: &[String]) -> ExitCode {
         daemon: Path::new(daemon),
         cli: Path::new(cli),
         deployment_checker: Path::new(deployment_checker),
+        installer: Path::new(installer),
         host_checker: Path::new(host_check),
         ebpf: Path::new(ebpf),
         service_unit: Path::new(service_unit),
@@ -96,6 +100,6 @@ fn build_bundle(args: &[String]) -> ExitCode {
 fn print_usage() {
     eprintln!("usage: cargo xtask build-ebpf");
     eprintln!(
-        "       cargo xtask bundle --commit-sha <SHA> --daemon <PATH> --cli <PATH> --deploy-checker <PATH> --host-check <PATH> --ebpf <PATH> --service-unit <PATH> --authorization-example <PATH> --output <DIR>"
+        "       cargo xtask bundle --commit-sha <SHA> --daemon <PATH> --cli <PATH> --deploy-checker <PATH> --installer <PATH> --host-check <PATH> --ebpf <PATH> --service-unit <PATH> --authorization-example <PATH> --output <DIR>"
     );
 }

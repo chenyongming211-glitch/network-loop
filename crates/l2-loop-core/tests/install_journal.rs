@@ -31,6 +31,10 @@ fn roles_own_the_fixed_destinations_and_install_order() {
         "/usr/libexec/l2-loop/l2-loopd"
     );
     assert_eq!(
+        InstallRoleV1::Installer.fixed_destination(),
+        "/usr/libexec/l2-loop/l2-loop-install"
+    );
+    assert_eq!(
         InstallRoleV1::TransactionsRoot.fixed_destination(),
         "/var/lib/l2-loop/install/transactions"
     );
@@ -39,6 +43,11 @@ fn roles_own_the_fixed_destinations_and_install_order() {
     assert_eq!(InstallRoleV1::Cli.expected_mode(), 0o755);
     assert!(InstallRoleV1::UsrRoot.install_order() < InstallRoleV1::Cli.install_order());
     assert!(InstallRoleV1::Cli.install_order() < InstallRoleV1::Daemon.install_order());
+    assert!(
+        InstallRoleV1::DeploymentChecker.install_order()
+            < InstallRoleV1::Installer.install_order()
+    );
+    assert!(InstallRoleV1::Installer.install_order() < InstallRoleV1::HostChecker.install_order());
 }
 
 #[test]
