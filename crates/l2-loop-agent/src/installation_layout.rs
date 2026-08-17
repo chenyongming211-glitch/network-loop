@@ -469,6 +469,14 @@ impl LinuxInstallSourceReaderV1 {
 }
 
 #[cfg(target_os = "linux")]
+pub fn read_install_authorization_v1(
+    path: &Path,
+) -> Result<InstallAuthorizationV1, InstallIoError> {
+    let document = read_private_document(path)?;
+    serde_json::from_slice(&document.bytes).map_err(|_| InstallIoError::Unavailable)
+}
+
+#[cfg(target_os = "linux")]
 impl InstallSourceReader for LinuxInstallSourceReaderV1 {
     fn load_source(&mut self) -> Result<InstallSourceSnapshotV1, InstallIoError> {
         let bundle = self

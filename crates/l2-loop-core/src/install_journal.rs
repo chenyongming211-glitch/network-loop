@@ -657,6 +657,30 @@ impl InstallJournalV1 {
         &self.transaction_id
     }
 
+    pub fn authorization_id(&self) -> &str {
+        &self.authorization_id
+    }
+
+    pub fn host_identity_sha256(&self) -> &str {
+        &self.host_identity_sha256
+    }
+
+    pub const fn artifact(&self) -> &DeploymentArtifactIdentityV1 {
+        &self.artifact
+    }
+
+    pub fn bundle_manifest_sha256(&self) -> &str {
+        &self.bundle_manifest_sha256
+    }
+
+    pub fn deployment_authorization_sha256(&self) -> &str {
+        &self.deployment_authorization_sha256
+    }
+
+    pub fn performance_evidence_sha256(&self) -> &str {
+        &self.performance_evidence_sha256
+    }
+
     pub const fn durable_step(&self) -> u64 {
         self.durable_step
     }

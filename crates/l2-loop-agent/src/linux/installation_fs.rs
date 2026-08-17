@@ -1,5 +1,5 @@
 use std::{
-    ffi::{CString, OsStr},
+    ffi::{CStr, CString, OsStr},
     fs::{File, OpenOptions},
     io::{self, Read, Seek, SeekFrom, Write},
     os::{
@@ -87,6 +87,43 @@ where
         let basename = role_basename(role)?;
         let file = openat_existing(parent.as_raw_fd(), basename)?;
         inspect_open_file(&file)
+    }
+
+    pub fn inspect_optional_exact(
+        &mut self,
+        role: InstallRoleV1,
+    ) -> Result<Option<InstallObjectIdentityV1>, InstallIoError> {
+        ensure_selinux_is_not_enforcing()?;
+        let Some(parent) = self.open_static_directory_optional(path_string(
+            Path::new(role.fixed_destination())
+                .parent()
+                .ok_or(InstallIoError::UnsafeObject)?,
+        )?)?
+        else {
+            return Ok(None);
+        };
+        let basename = role_basename(role)?;
+        if !entry_exists_at(parent.as_raw_fd(), basename)? {
+            return Ok(None);
+        }
+        Ok(Some(inspect_at(&parent, basename)?))
+    }
+
+    pub fn load_journal_exact(
+        &self,
+        transaction_id: &str,
+    ) -> Result<InstallJournalV1, InstallIoError> {
+        let directory = self.open_transaction_directory(transaction_id)?;
+        read_journal_file(&directory, transaction_id)
+    }
+
+    pub fn transaction_ids(&self) -> Result<Vec<String>, InstallIoError> {
+        let Some(directory) = self
+            .open_static_directory_optional(InstallRoleV1::TransactionsRoot.fixed_destination())?
+        else {
+            return Ok(Vec::new());
+        };
+        read_transaction_ids(&directory)
     }
 
     pub fn apply_entry(
@@ -833,6 +870,86 @@ fn validate_existing_journal_binding(
         return Err(InstallIoError::IdentityChanged);
     }
     Ok(())
+}
+
+fn read_journal_file(
+    directory: &File,
+    transaction_id: &str,
+) -> Result<InstallJournalV1, InstallIoError> {
+    use std::os::unix::fs::MetadataExt;
+
+    ensure_transaction_id(transaction_id)?;
+    let file = openat_existing(directory.as_raw_fd(), JOURNAL_BASENAME)?;
+    let metadata = file.metadata().map_err(unavailable)?;
+    if !metadata.file_type().is_file()
+        || metadata.nlink() != 1
+        || metadata.uid() != 0
+        || metadata.gid() != 0
+        || metadata.mode() & 0o7777 != 0o600
+        || metadata.len() > 1024 * 1024
+    {
+        return Err(InstallIoError::UnsafeObject);
+    }
+    ensure_supported_metadata(&file)?;
+    let mut bytes = Vec::new();
+    file.take(1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(unavailable)?;
+    let journal: InstallJournalV1 =
+        serde_json::from_slice(&bytes).map_err(|_| InstallIoError::UnsafeObject)?;
+    if journal.transaction_id() != transaction_id {
+        return Err(InstallIoError::IdentityChanged);
+    }
+    Ok(journal)
+}
+
+fn read_transaction_ids(directory: &File) -> Result<Vec<String>, InstallIoError> {
+    let duplicated = unsafe { nix::libc::dup(directory.as_raw_fd()) };
+    if duplicated < 0 {
+        return Err(InstallIoError::Unavailable);
+    }
+    let stream = unsafe { nix::libc::fdopendir(duplicated) };
+    if stream.is_null() {
+        unsafe {
+            nix::libc::close(duplicated);
+        }
+        return Err(InstallIoError::Unavailable);
+    }
+
+    let result = (|| {
+        let mut ids = Vec::new();
+        loop {
+            unsafe {
+                *nix::libc::__errno_location() = 0;
+            }
+            let entry = unsafe { nix::libc::readdir(stream) };
+            if entry.is_null() {
+                if nix::errno::Errno::last_raw() != 0 {
+                    return Err(InstallIoError::Unavailable);
+                }
+                break;
+            }
+            let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }
+                .to_str()
+                .map_err(|_| InstallIoError::UnsafeObject)?;
+            if name == "." || name == ".." {
+                continue;
+            }
+            ensure_transaction_id(name)?;
+            let child = openat_directory(directory.as_raw_fd(), name)?;
+            validate_directory(&child, 0o700)?;
+            ids.push(name.to_owned());
+            if ids.len() > 128 {
+                return Err(InstallIoError::UnsafeObject);
+            }
+        }
+        ids.sort();
+        Ok(ids)
+    })();
+    unsafe {
+        nix::libc::closedir(stream);
+    }
+    result
 }
 
 fn bootstrap_basename(transaction_id: &str) -> Result<String, InstallIoError> {

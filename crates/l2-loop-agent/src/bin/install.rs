@@ -2,11 +2,9 @@ use std::process::ExitCode;
 
 use l2_loop_agent::{
     EXIT_INSTALLATION_INTERNAL, EXIT_INSTALLATION_SUCCESS, EXIT_INSTALLATION_USAGE,
-    InstallServiceError, InstallationCliAction, InstallationCliSourcePaths,
-    InstallationCommandRunner, execute_installation_command, installation_help,
-    parse_installation_args,
+    InstallationCliAction, execute_installation_command, installation_help,
+    linux::installation_runtime::SystemInstallationCommandRunner, parse_installation_args,
 };
-use l2_loop_core::InstallReportV1;
 
 fn main() -> ExitCode {
     let action = match parse_installation_args(std::env::args().skip(1)) {
@@ -21,7 +19,13 @@ fn main() -> ExitCode {
         return ExitCode::from(EXIT_INSTALLATION_SUCCESS);
     };
 
-    let mut runner = ProductionInstallationRunner;
+    let mut runner = match SystemInstallationCommandRunner::system() {
+        Ok(runner) => runner,
+        Err(_) => {
+            eprintln!("installation unavailable");
+            return ExitCode::from(EXIT_INSTALLATION_INTERNAL);
+        }
+    };
     let output = execute_installation_command(
         &mut runner,
         command,
@@ -36,39 +40,3 @@ fn main() -> ExitCode {
     }
     ExitCode::from(output.exit_code)
 }
-
-struct ProductionInstallationRunner;
-
-impl InstallationCommandRunner for ProductionInstallationRunner {
-    fn plan(
-        &mut self,
-        _source: &InstallationCliSourcePaths,
-    ) -> Result<InstallReportV1, InstallServiceError> {
-        unavailable()
-    }
-
-    fn apply(
-        &mut self,
-        _source: &InstallationCliSourcePaths,
-    ) -> Result<InstallReportV1, InstallServiceError> {
-        unavailable()
-    }
-
-    fn status(&mut self) -> Result<InstallReportV1, InstallServiceError> {
-        unavailable()
-    }
-
-    fn rollback(
-        &mut self,
-        _transaction_id: &str,
-        _authorization: &std::path::Path,
-    ) -> Result<InstallReportV1, InstallServiceError> {
-        unavailable()
-    }
-}
-
-fn unavailable<T>() -> Result<T, InstallServiceError> {
-    Err(InstallServiceError::InputUnavailable)
-}
-
-const _: u8 = EXIT_INSTALLATION_INTERNAL;
