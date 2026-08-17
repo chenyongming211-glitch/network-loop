@@ -1,6 +1,7 @@
 #![cfg(target_os = "linux")]
 
 use std::{
+    env,
     fs::{self, File, OpenOptions},
     io::Cursor,
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
@@ -261,7 +262,18 @@ impl TestRoot {
             return None;
         }
         static NEXT: AtomicU64 = AtomicU64::new(0);
-        let path = std::env::temp_dir().join(format!(
+        let parent = env::var_os("L2_LOOP_INSTALL_ACCEPTANCE_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(env::temp_dir);
+        if env::var_os("L2_LOOP_INSTALL_ACCEPTANCE_ROOT").is_some() {
+            let metadata = fs::symlink_metadata(&parent).unwrap();
+            assert!(parent.is_absolute());
+            assert!(metadata.file_type().is_dir());
+            assert!(!metadata.file_type().is_symlink());
+            assert_eq!(metadata.permissions().mode() & 0o7777, 0o700);
+            assert_eq!((metadata.uid(), metadata.gid()), (0, 0));
+        }
+        let path = parent.join(format!(
             "l2-loop-installation-{label}-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
@@ -300,15 +312,47 @@ impl Drop for TestRoot {
         if Arc::strong_count(&self.path) != 1 {
             return;
         }
-        let expected_prefix = format!("l2-loop-installation-{}-", "");
-        let safe = self
+        let safe_name = self
             .path
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with(expected_prefix.trim_end_matches('-')))
-            && self.path.parent() == Some(std::env::temp_dir().as_path());
-        if safe && self.path.exists() {
-            fs::remove_dir_all(self.path.as_path()).unwrap();
+            .is_some_and(|name| name.starts_with("l2-loop-installation-"));
+        assert!(safe_name);
+        for relative in [
+            "usr/bin/.l2-loop-cli-new",
+            "usr/bin/.l2-loop-cli-backup",
+            "usr/bin/l2-loopctl",
+            "etc/l2-loop/foreign",
+            "var/lib/.l2-loop-install-ffeeddccbbaa99887766554433221100/.journal-v1.json.new",
+            "var/lib/.l2-loop-install-ffeeddccbbaa99887766554433221100/journal-v1.json",
+            "var/lib/l2-loop/install/transactions/ffeeddccbbaa99887766554433221100/.journal-v1.json.new",
+            "var/lib/l2-loop/install/transactions/ffeeddccbbaa99887766554433221100/journal-v1.json",
+        ] {
+            let path = self.path.join(relative);
+            if path.exists() || path.is_symlink() {
+                fs::remove_file(path).unwrap();
+            }
+        }
+        for relative in [
+            "var/lib/l2-loop/install/transactions/ffeeddccbbaa99887766554433221100",
+            "var/lib/.l2-loop-install-ffeeddccbbaa99887766554433221100",
+            "var/lib/l2-loop/install/transactions",
+            "var/lib/l2-loop/install",
+            "var/lib/l2-loop",
+            "var/lib",
+            "var",
+            "etc/l2-loop",
+            "etc",
+            "usr/bin",
+            "usr",
+        ] {
+            let path = self.path.join(relative);
+            if path.exists() {
+                fs::remove_dir(path).unwrap();
+            }
+        }
+        if self.path.exists() {
+            fs::remove_dir(self.path.as_path()).unwrap();
         }
     }
 }

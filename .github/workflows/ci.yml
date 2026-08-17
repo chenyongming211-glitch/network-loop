@@ -200,3 +200,21 @@ jobs:
           path: .artifacts/bundle/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Download exact release bundle for generated-root acceptance
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: l2-loop-linux-x86_64-${{ github.sha }}
+          path: ${{ runner.temp }}/l2-loop-install-artifact-${{ github.sha }}
+
+      - name: Run generated-root installation acceptance
+        env:
+          CARGO_HOME: /home/runner/.cargo
+          RUSTUP_HOME: /home/runner/.rustup
+          CARGO_TARGET_DIR: ${{ runner.temp }}/l2-loop-install-acceptance-target
+        run: >-
+          sudo env "PATH=$PATH" "CARGO_HOME=$CARGO_HOME" "RUSTUP_HOME=$RUSTUP_HOME"
+          "CARGO_TARGET_DIR=$CARGO_TARGET_DIR" pwsh -NoProfile
+          -File scripts/verify-installation.ps1
+          -Commit "${{ github.sha }}"
+          -ArtifactDirectory "${{ runner.temp }}/l2-loop-install-artifact-${{ github.sha }}"

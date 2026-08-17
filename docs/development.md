@@ -51,7 +51,7 @@ The resulting object targets `bpfel-unknown-none`. This job proves that all decl
 
 ### Bundle job
 
-After Userspace and eBPF both pass, the Bundle job builds `l2-loopd`, `l2-loopctl`, `l2-loop-deploycheck`, and `l2-loop-hostcheck` for `x86_64-unknown-linux-musl`, combines them with the exact eBPF object and deterministic deployment assets from the same workflow run, and publishes:
+After Userspace and eBPF both pass, the Bundle job builds `l2-loopd`, `l2-loopctl`, `l2-loop-deploycheck`, `l2-loop-install`, and `l2-loop-hostcheck` for `x86_64-unknown-linux-musl`, combines them with the exact eBPF object and deterministic deployment assets from the same workflow run, and publishes:
 
 ```text
 cargo build --locked --release --target x86_64-unknown-linux-musl
@@ -63,6 +63,7 @@ l2-loop-linux-x86_64-<full-commit-sha>
 ├── l2-loop-deploycheck
 ├── l2-loop-ebpf.o
 ├── l2-loop-hostcheck
+├── l2-loop-install
 ├── l2-loop.service
 ├── l2-loopctl
 ├── l2-loopd
@@ -81,7 +82,11 @@ gh run download $L2LoopRun --name "l2-loop-linux-x86_64-$L2LoopCommit" --dir ".a
 Get-ChildItem ".artifacts/$L2LoopCommit"
 ```
 
-Keep `.artifacts/` local and ignored. After transfer to Linux, verify `SHA256SUMS` before setting mode `0755` on `l2-loopd`, `l2-loopctl`, `l2-loop-deploycheck`, and `l2-loop-hostcheck`; GitHub artifact extraction does not preserve executable permission bits.
+Keep `.artifacts/` local and ignored. After transfer to Linux, verify `SHA256SUMS` before setting mode `0755` on `l2-loopd`, `l2-loopctl`, `l2-loop-deploycheck`, `l2-loop-install`, and `l2-loop-hostcheck`; GitHub artifact extraction does not preserve executable permission bits.
+
+The Bundle job then downloads that exact just-uploaded artifact and runs `scripts/verify-installation.ps1` as root. The harness verifies the ten-file inventory, manifest identity, and all nine checksums before creating anything below the fixed temporary parent. It uses only generated chroot roots to exercise fresh install, repeatable planning, exact-owned upgrade, interrupted and process-restart recovery, exact rollback, three refusal paths, and zero residue. The production installer receives no root override; `chroot` supplies the test-only filesystem boundary.
+
+The same acceptance step runs the complete privileged installation filesystem test plus all fourteen fixed Task 5 fault selectors. Every generated name is cryptographic lower-hex, cleanup targets are registered before creation, each deletion is a literal known path, and an outside-root sentinel must retain its device, inode, ownership, mode, size, and SHA-256 identity. The harness never invokes SSH, a service manager, network tooling, eBPF attachment, or a physical interface, and it fails closed on symlinks, foreign objects, unsafe metadata, identity disagreement, cleanup residue, or an artifact mismatch.
 
 ## Build input update policy
 
