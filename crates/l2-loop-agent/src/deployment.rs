@@ -514,8 +514,7 @@ where
                 );
             }
         };
-        if let Some(code) =
-            staged_performance_failure(&performance, &artifact, captured_at_unix_ms)
+        if let Some(code) = staged_performance_failure(&performance, &artifact, captured_at_unix_ms)
         {
             return blocked_report(
                 DeploymentCommandV1::Installed,

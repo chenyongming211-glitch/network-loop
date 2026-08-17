@@ -113,8 +113,7 @@ where
             || before.mac_address_sha256 != authorization.interface.mac_address_sha256
             || before.driver != authorization.interface.driver
             || before.device_identity_sha256 != authorization.interface.device_identity_sha256
-            || before.network_namespace_sha256
-                != authorization.interface.network_namespace_sha256
+            || before.network_namespace_sha256 != authorization.interface.network_namespace_sha256
         {
             return Err(DeploymentIoError::Unavailable);
         }
@@ -378,10 +377,13 @@ fn deployment_link_snapshot(message: LinkMessage) -> Option<DeploymentLinkSnapsh
             LinkAttribute::Link(_) | LinkAttribute::LinkNetNsId(_)
         )
     });
-    let mac_address = message.attributes.iter().find_map(|attribute| match attribute {
-        LinkAttribute::Address(address) if address.len() == 6 => Some(address.clone()),
-        _ => None,
-    })?;
+    let mac_address = message
+        .attributes
+        .iter()
+        .find_map(|attribute| match attribute {
+            LinkAttribute::Address(address) if address.len() == 6 => Some(address.clone()),
+            _ => None,
+        })?;
     let record = link_record(message)?;
     let (driver, device_identity_sha256, network_namespace_sha256) =
         inspect_private_link_identity(&record.name).ok()?;
@@ -415,8 +417,8 @@ fn inspect_private_link_identity(
     let device = fs::canonicalize(interface_root.join("device"))
         .map_err(|_| DeploymentIoError::Unavailable)?;
     let device = device.to_str().ok_or(DeploymentIoError::Unavailable)?;
-    let namespace = fs::read_link("/proc/self/ns/net")
-        .map_err(|_| DeploymentIoError::Unavailable)?;
+    let namespace =
+        fs::read_link("/proc/self/ns/net").map_err(|_| DeploymentIoError::Unavailable)?;
     let namespace = namespace.to_str().ok_or(DeploymentIoError::Unavailable)?;
     Ok((
         driver,
@@ -431,18 +433,15 @@ fn inspect_driver_queue_readiness(
     let interface_root = Path::new("/sys/class/net").join(interface.as_str());
     let driver_ready = fs::read_link(interface_root.join("device/driver")).is_ok();
     let mut receive_queue_count = 0_u32;
-    for entry in fs::read_dir(interface_root.join("queues"))
-        .map_err(|_| DeploymentIoError::Unavailable)?
+    for entry in
+        fs::read_dir(interface_root.join("queues")).map_err(|_| DeploymentIoError::Unavailable)?
     {
         let entry = entry.map_err(|_| DeploymentIoError::Unavailable)?;
         let name = entry.file_name();
         let name = name.to_str().ok_or(DeploymentIoError::Unavailable)?;
-        if name
-            .strip_prefix("rx-")
-            .is_some_and(|suffix| {
-                !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
-            })
-        {
+        if name.strip_prefix("rx-").is_some_and(|suffix| {
+            !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+        }) {
             receive_queue_count = receive_queue_count
                 .checked_add(1)
                 .filter(|count| *count <= MAX_RECEIVE_QUEUES)
@@ -465,12 +464,12 @@ fn deployment_capabilities_sufficient() -> Result<bool, DeploymentIoError> {
         return Err(DeploymentIoError::Unavailable);
     }
     let text = String::from_utf8(bytes).map_err(|_| DeploymentIoError::Unavailable)?;
-    let mut matches = text.lines().filter_map(|line| line.strip_prefix("CapEff:\t"));
-    let capabilities = u64::from_str_radix(
-        matches.next().ok_or(DeploymentIoError::Unavailable)?,
-        16,
-    )
-    .map_err(|_| DeploymentIoError::Unavailable)?;
+    let mut matches = text
+        .lines()
+        .filter_map(|line| line.strip_prefix("CapEff:\t"));
+    let capabilities =
+        u64::from_str_radix(matches.next().ok_or(DeploymentIoError::Unavailable)?, 16)
+            .map_err(|_| DeploymentIoError::Unavailable)?;
     if matches.next().is_some() {
         return Err(DeploymentIoError::Unavailable);
     }

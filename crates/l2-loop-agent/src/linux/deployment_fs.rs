@@ -8,8 +8,8 @@ use std::{
 
 use l2_loop_common::ABI_VERSION;
 use l2_loop_core::{
-    DeploymentArtifactIdentityV1, DeploymentAuthorizationV1, InstallJournalStateV1,
-    InstallRoleV1, PerformanceEvidenceV1,
+    DeploymentArtifactIdentityV1, DeploymentAuthorizationV1, InstallJournalStateV1, InstallRoleV1,
+    PerformanceEvidenceV1,
 };
 use serde::{Deserialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
@@ -294,7 +294,10 @@ fn journal_entry_sha256(
     journal: &l2_loop_core::InstallJournalV1,
     role: InstallRoleV1,
 ) -> Option<&str> {
-    let mut matches = journal.entries().iter().filter(|entry| entry.role() == role);
+    let mut matches = journal
+        .entries()
+        .iter()
+        .filter(|entry| entry.role() == role);
     let digest = matches.next()?.current_identity()?.sha256()?;
     if matches.next().is_some() {
         return None;
