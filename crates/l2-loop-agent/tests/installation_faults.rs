@@ -58,6 +58,31 @@ fn every_file_publication_fault_preserves_the_unrelated_sentinel() {
 }
 
 #[test]
+fn final_publication_never_replaces_a_foreign_file_created_after_preflight() {
+    if !fault_is_selected(InstallFaultPointV1::FinalRename) {
+        return;
+    }
+    let Some(root) = FaultRoot::new_if_privileged(InstallFaultPointV1::FinalRename) else {
+        return;
+    };
+    let destination = root.path.join("usr/bin/l2-loopctl");
+    let mut filesystem = LinuxInstallationFilesystem::new(
+        root.clone(),
+        InsertForeignAtFinalRename::new(destination.clone()),
+    );
+    let payload = b"owned payload";
+
+    assert!(
+        filesystem
+            .apply_entry(&absent_cli_entry(payload), Some(&mut Cursor::new(payload)))
+            .is_err(),
+        "a final no-replace publication must reject the raced destination"
+    );
+    assert_eq!(fs::read(destination).unwrap(), b"foreign");
+    assert_eq!(fs::read(root.path.join("sentinel")).unwrap(), b"unchanged");
+}
+
+#[test]
 fn backup_rename_and_rollback_faults_never_guess_at_foreign_state() {
     for point in [
         InstallFaultPointV1::BackupRename,
@@ -239,6 +264,32 @@ impl InstallFaultInjector for FailOnce {
         if !self.fired && self.selected == Some(point) {
             self.fired = true;
             return Err(InstallIoError::FaultInjected(point));
+        }
+        Ok(())
+    }
+}
+
+struct InsertForeignAtFinalRename {
+    destination: PathBuf,
+    fired: bool,
+}
+
+impl InsertForeignAtFinalRename {
+    const fn new(destination: PathBuf) -> Self {
+        Self {
+            destination,
+            fired: false,
+        }
+    }
+}
+
+impl InstallFaultInjector for InsertForeignAtFinalRename {
+    fn check(&mut self, point: InstallFaultPointV1) -> Result<(), InstallIoError> {
+        if !self.fired && point == InstallFaultPointV1::FinalRename {
+            self.fired = true;
+            fs::write(&self.destination, b"foreign").map_err(|_| InstallIoError::Unavailable)?;
+            fs::set_permissions(&self.destination, fs::Permissions::from_mode(0o755))
+                .map_err(|_| InstallIoError::Unavailable)?;
         }
         Ok(())
     }
