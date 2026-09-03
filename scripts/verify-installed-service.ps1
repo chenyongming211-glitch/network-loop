@@ -215,17 +215,17 @@ assert_owned() {
     test "$(cat -- "$work/ownership")" = "$nonce" || fail 'service ownership marker changed'
 }
 snapshot() {
-    python3 - "$run" <<'PY'
+    b=$(/usr/libexec/l2-loop/l2-loop-hostcheck snapshot | sha256sum)
+    b=${b%% *}
+    python3 - "$run" "$b" <<'PY'
 import hashlib,json,subprocess,sys
 run=sys.argv[1]
 def get(argv):
     p=subprocess.run(argv,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True)
     if len(p.stdout)>1048576: raise SystemExit('snapshot output bound exceeded')
     return p.stdout
-parts=[]
-for argv in (['ip','-j','link','show'],['bpftool','-j','prog','show'],['bpftool','-j','map','show'],['bpftool','-j','link','show'],['ip','netns','list']):
-    parts.append(get(argv))
-print(json.dumps({'network':hashlib.sha256(parts[0]+b'\0'+parts[4]).hexdigest(),'ebpf':hashlib.sha256(b'\0'.join(parts[1:4])).hexdigest(),'run':run},separators=(',',':')))
+n=get(['ip','-j','link','show'])+b'\0'+get(['ip','netns','list'])
+print(json.dumps({'network':hashlib.sha256(n).hexdigest(),'ebpf':sys.argv[2],'run':run},separators=(',',':')))
 PY
 }
 cleanup_generated() {
@@ -270,7 +270,8 @@ case "$phase" in precheck|residue) ;; *) assert_owned ;; esac
 case "$phase" in
 precheck)
     test "$(id -u)" -eq 0 || fail 'service acceptance requires root'
-    for name in systemctl journalctl ip bpftool python3 sha256sum awk grep stat install chmod unlink rmdir mkdir sleep date kill; do command -v "$name" >/dev/null || fail 'required command unavailable'; done
+    for name in systemctl journalctl ip python3 sha256sum awk grep stat install chmod unlink rmdir mkdir sleep date kill; do command -v "$name" >/dev/null || fail 'required command unavailable'; done
+    test -x /usr/libexec/l2-loop/l2-loop-hostcheck || fail 'installed host checker is unavailable'
     test -x "$ctl" && test -x "$daemon" && test -f /usr/lib/systemd/system/l2-loop.service || fail 'installed service layout incomplete'
     test ! -e "$work_parent" && test ! -e "$work" && test ! -e "$runtime" || fail 'generated service root occupied'
     install -d -m 0700 -- "$work_parent" "$work"

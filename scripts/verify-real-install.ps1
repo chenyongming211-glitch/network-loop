@@ -219,15 +219,16 @@ assert_owned() {
     test "$(cat -- "$root/ownership")" = "$nonce" || fail 'install ownership marker changed'
 }
 snapshot() {
-    python3 <<'PY'
-import hashlib,json,subprocess
+    b=$("$bundle/l2-loop-hostcheck" snapshot | sha256sum)
+    b=${b%% *}
+    python3 - "$b" <<'PY'
+import hashlib,json,subprocess,sys
 def get(argv):
     p=subprocess.run(argv,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True)
     if len(p.stdout)>1048576: raise SystemExit('snapshot output bound exceeded')
     return p.stdout
 n=get(['ip','-j','link','show'])+b'\0'+get(['ip','netns','list'])
-b=b'\0'.join(get(x) for x in (['bpftool','-j','prog','show'],['bpftool','-j','map','show'],['bpftool','-j','link','show']))
-print(json.dumps({'network':hashlib.sha256(n).hexdigest(),'ebpf':hashlib.sha256(b).hexdigest()},separators=(',',':')))
+print(json.dumps({'network':hashlib.sha256(n).hexdigest(),'ebpf':sys.argv[1]},separators=(',',':')))
 PY
 }
 cleanup_generated() {
@@ -247,7 +248,7 @@ case "$phase" in precheck|residue) ;; *) assert_owned ;; esac
 case "$phase" in
 precheck)
     test "$(id -u)" -eq 0 || fail 'real installation acceptance requires root'
-    for name in ip bpftool python3 sha256sum install chmod unlink rmdir mkdir; do command -v "$name" >/dev/null || fail 'required command unavailable'; done
+    for name in ip python3 sha256sum install chmod unlink rmdir mkdir; do command -v "$name" >/dev/null || fail 'required command unavailable'; done
     test ! -e "$root" || fail 'generated install root occupied'
     install -d -m 0700 -- "$root" "$bundle" "$inputs"
     printf '%s\n' "$nonce" >"$root/ownership"
