@@ -77,6 +77,7 @@ foreach ($Required in @(
     '[Security.Cryptography.RandomNumberGenerator]::Create()',
     "[ValidatePattern('^[0-9a-f]{40}$')]",
     '[ValidateRange(60, 1800)]',
+    '[string] $PerformanceEvidenceOutputPath',
     '$MAX_OUTPUT_BYTES = 1048576',
     '$PERFORMANCE_FRAME_SIZES = @(64, 512, 1514)',
     '$PERFORMANCE_FRAMES_PER_SIZE = 65536',
@@ -133,6 +134,9 @@ foreach ($Required in @(
     'clock-ms) date +%s%3N',
     'lower-median-of-five',
     'performance result: $($Evidence.result)',
+    'Publish-PerformanceEvidence',
+    '[IO.FileMode]::CreateNew',
+    'performance_evidence_sha256',
     'packets_per_second',
     'bytes_per_second',
     'daemon_cpu_time_ns',
@@ -238,6 +242,9 @@ Assert-True ($Harness.Contains('if output=$("$checker" staging')) 'negative chec
 Assert-True ($Harness.Contains('positive checker blocked: decision=')) 'positive checker failure does not emit bounded gate diagnostics'
 Assert-True ($Harness.Contains("-Phase 'clock-ms'")) 'performance evidence does not use the checker host clock domain'
 Assert-True (-not $Harness.Contains('[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()')) 'performance evidence uses the controller clock domain'
+$PostcheckIndex = $Harness.IndexOf('$Postcheck =', [StringComparison]::Ordinal)
+$PublishEvidenceIndex = $Harness.IndexOf('$PublishedEvidenceSha256 = Publish-PerformanceEvidence', [StringComparison]::Ordinal)
+Assert-True ($PostcheckIndex -ge 0 -and $PublishEvidenceIndex -gt $PostcheckIndex) 'performance evidence can be published before exact cleanup and zero-residue verification'
 $PassThroughStart = $Harness.IndexOf('start_pass_through() {')
 $PassThroughStop = $Harness.IndexOf('stop_pass_through() {', $PassThroughStart)
 Assert-True ($PassThroughStart -ge 0 -and $PassThroughStop -gt $PassThroughStart) 'pass-through lifecycle functions are missing or out of order'
