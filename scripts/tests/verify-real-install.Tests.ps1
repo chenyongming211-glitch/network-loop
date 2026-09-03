@@ -46,6 +46,7 @@ else {
         'Assert-StrictInstallAuthorization',
         'Get-StableRealInstallState',
         'Assert-RealInstallStateUnchanged',
+        '"$bundle/l2-loop-hostcheck" snapshot',
         'Register-RealInstallCleanup',
         'Unregister-RealInstallCleanup',
         'PowerShell.Exiting',
@@ -120,6 +121,8 @@ else {
         Assert-True (-not [regex]::IsMatch($Harness, $Prohibited)) "real installation harness contains prohibited pattern: $Prohibited"
     }
     Assert-True (-not [regex]::IsMatch($Harness, '(?im)\b(?:Remove-Item|rm|unlink)\b[^\r\n]*[\*\?]')) 'real installation cleanup uses a wildcard target'
+    Assert-True (-not $Harness.Contains("['bpftool','-j','prog','show']")) 'real installation identity snapshot invokes bpftool and can create transient PID iterator objects'
+    Assert-True (-not $Harness.Contains('for name in ip bpftool python3')) 'real installation precheck unnecessarily requires host bpftool'
 }
 
 foreach ($WorkflowMarker in @(

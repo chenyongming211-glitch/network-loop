@@ -51,6 +51,7 @@ else {
         'Assert-StrictInstallAuthorization',
         'Get-StableRealInstallState',
         'Assert-RealInstallStateUnchanged',
+        '"$bundle/l2-loop-hostcheck" snapshot',
         'ControllerOwnershipNonce',
         'Register-RealInstallCleanup',
         'Unregister-RealInstallCleanup',
@@ -107,12 +108,16 @@ else {
         Assert-True (-not [regex]::IsMatch($Harness, $Prohibited)) "real service acceptance harness contains prohibited pattern: $Prohibited"
     }
     Assert-True (-not [regex]::IsMatch($Harness, '(?im)\b(?:Remove-Item|rm|unlink)\b[^\r\n]*[\*\?]')) 'real service acceptance cleanup uses a wildcard target'
+    Assert-True (-not $Harness.Contains("['bpftool','-j','prog','show']")) 'real service outer identity snapshot invokes bpftool and can create transient PID iterator objects'
+    Assert-True (-not $Harness.Contains('for name in ip bpftool python3')) 'real service outer precheck unnecessarily requires host bpftool'
     Assert-True (-not $Harness.Contains('physical_canary_ready')) 'real service acceptance can claim physical readiness'
 }
 
 Assert-True (-not [string]::IsNullOrEmpty($InnerHarness)) 'narrow installed service harness is missing'
 Assert-True ($InnerHarness.Contains("'isolated-attach'")) 'inner service harness lacks generated-veth attach'
 Assert-True ($InnerHarness.Contains('generated_only')) 'inner service authorization is not generated-only'
+Assert-True ($InnerHarness.Contains('"$artifact/l2-loop-hostcheck" snapshot')) 'inner service identity snapshot does not use the exact staged host checker'
+Assert-True (-not $InnerHarness.Contains("['bpftool','-j','prog','show']")) 'inner service identity snapshot invokes bpftool and can create transient PID iterator objects'
 Assert-True (-not $InnerHarness.Contains('physical_interface')) 'inner service report exposes a physical interface'
 
 foreach ($WorkflowMarker in @(

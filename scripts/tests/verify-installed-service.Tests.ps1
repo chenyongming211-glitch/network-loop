@@ -61,6 +61,7 @@ else {
         'Get-StableServiceHostState',
         'Wait-StableServiceHostState',
         'Assert-ServiceHostStateUnchanged',
+        '"$artifact/l2-loop-hostcheck" snapshot',
         "'is-enabled'",
         "'is-active'",
         "'disabled'",
@@ -136,6 +137,7 @@ else {
         Assert-True (-not [regex]::IsMatch($Harness, $Prohibited)) "installed service harness contains prohibited pattern: $Prohibited"
     }
     Assert-True (-not [regex]::IsMatch($Harness, '(?im)\b(?:Remove-Item|rm|unlink)\b[^\r\n]*[\*\?]')) 'installed service cleanup uses a wildcard target'
+    Assert-True (-not $Harness.Contains("['bpftool','-j','prog','show']")) 'installed service identity snapshot invokes bpftool and can create transient PID iterator objects'
     Assert-True (-not $Harness.Contains('physical_interface')) 'installed service report exposes a physical-interface field'
 }
 
