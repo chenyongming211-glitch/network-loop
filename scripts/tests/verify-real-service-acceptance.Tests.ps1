@@ -116,7 +116,7 @@ else {
 Assert-True (-not [string]::IsNullOrEmpty($InnerHarness)) 'narrow installed service harness is missing'
 Assert-True ($InnerHarness.Contains("'isolated-attach'")) 'inner service harness lacks generated-veth attach'
 Assert-True ($InnerHarness.Contains('generated_only')) 'inner service authorization is not generated-only'
-Assert-True ($InnerHarness.Contains('"$artifact/l2-loop-hostcheck" snapshot')) 'inner service identity snapshot does not use the exact staged host checker'
+Assert-True ($InnerHarness.Contains('/usr/libexec/l2-loop/l2-loop-hostcheck snapshot')) 'inner service identity snapshot does not use the exact installed host checker'
 Assert-True (-not $InnerHarness.Contains("['bpftool','-j','prog','show']")) 'inner service identity snapshot invokes bpftool and can create transient PID iterator objects'
 Assert-True (-not $InnerHarness.Contains('physical_interface')) 'inner service report exposes a physical interface'
 

@@ -61,7 +61,7 @@ else {
         'Get-StableServiceHostState',
         'Wait-StableServiceHostState',
         'Assert-ServiceHostStateUnchanged',
-        '"$artifact/l2-loop-hostcheck" snapshot',
+        '/usr/libexec/l2-loop/l2-loop-hostcheck snapshot',
         "'is-enabled'",
         "'is-active'",
         "'disabled'",
