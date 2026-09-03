@@ -5,7 +5,9 @@ param(
     [string] $Commit,
 
     [ValidateRange(60, 1800)]
-    [int] $TimeoutSeconds = 900
+    [int] $TimeoutSeconds = 900,
+
+    [string] $PerformanceEvidenceOutputPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -1160,6 +1162,47 @@ function Write-StrictJsonFile {
     [IO.File]::WriteAllText($Path, $Json, [Text.UTF8Encoding]::new($false))
 }
 
+function Publish-PerformanceEvidence {
+    param(
+        [Parameter(Mandatory)] [string] $SourcePath,
+        [AllowEmptyString()] [string] $OutputPath
+    )
+    if ([string]::IsNullOrWhiteSpace($OutputPath)) { return $null }
+    if (-not [IO.Path]::IsPathFullyQualified($OutputPath) -or
+        [IO.Path]::GetFileName($OutputPath) -cnotmatch '^[A-Za-z0-9._-]+\.json$') {
+        throw 'performance evidence output path must be an absolute JSON file path'
+    }
+    $ParentPath = [IO.Path]::GetDirectoryName($OutputPath)
+    $Parent = Get-Item -LiteralPath $ParentPath
+    Assert-NoSymlink -Item $Parent
+    if (-not $Parent.PSIsContainer -or (Test-Path -LiteralPath $OutputPath)) {
+        throw 'performance evidence output must be a new file in an existing real directory'
+    }
+    $Bytes = [IO.File]::ReadAllBytes($SourcePath)
+    if ($Bytes.Length -gt $MAX_OUTPUT_BYTES) { throw 'performance evidence output exceeded the bound' }
+    $Stream = [IO.FileStream]::new(
+        $OutputPath,
+        [IO.FileMode]::CreateNew,
+        [IO.FileAccess]::Write,
+        [IO.FileShare]::None
+    )
+    try {
+        $Stream.Write($Bytes, 0, $Bytes.Length)
+        $Stream.Flush($true)
+    }
+    finally {
+        $Stream.Dispose()
+    }
+    $Output = Get-Item -LiteralPath $OutputPath
+    Assert-NoSymlink -Item $Output
+    $SourceSha256 = (Get-FileHash -LiteralPath $SourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $OutputSha256 = (Get-FileHash -LiteralPath $OutputPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($Output.Length -ne $Bytes.Length -or $OutputSha256 -cne $SourceSha256) {
+        throw 'published performance evidence identity mismatch'
+    }
+    $OutputSha256
+}
+
 function Send-GeneratedFile {
     param(
         [Parameter(Mandatory)] [string] $LocalPath,
@@ -1327,6 +1370,7 @@ try {
     Assert-DeploymentRemoteStateUnchanged -Before $BeforeState -After $script:CleanupFinalState
     $Postcheck = (Invoke-DeploymentRemotePhase -Phase 'postcheck' -Names $Names -Target $Target -KeyPath $KeyPath -TimeoutSeconds $TimeoutSeconds).Stdout | ConvertFrom-Json
     if ([uint32]$Postcheck.generated_residue -ne 0) { throw 'generated residue remained after cleanup' }
+    $PublishedEvidenceSha256 = Publish-PerformanceEvidence -SourcePath $LocalEvidencePath -OutputPath $PerformanceEvidenceOutputPath
     [pscustomobject]@{
         commit_sha = $Commit
         artifact_run_id = $Artifact.RunId
@@ -1341,6 +1385,7 @@ try {
         network_identity_restored = $true
         ebpf_identity_restored = $true
         generated_residue = 0
+        performance_evidence_sha256 = $PublishedEvidenceSha256
     } | ConvertTo-Json -Depth 8
 }
 finally {
