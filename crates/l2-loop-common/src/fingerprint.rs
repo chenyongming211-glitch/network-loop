@@ -157,7 +157,9 @@ pub fn fingerprint_prefix_may_be_selected(
     lanes ^= word!(32);
     lanes ^= word!(40);
     lanes ^= word!(48);
-    lanes ^= u64::from(u32::from_le_bytes([frame[56], frame[57], frame[58], frame[59]]));
+    lanes ^= u64::from(u32::from_le_bytes([
+        frame[56], frame[57], frame[58], frame[59],
+    ]));
     let folded = lanes ^ (lanes >> 32);
     let pairs = folded ^ (folded >> 16);
     let even = pairs as u8;
