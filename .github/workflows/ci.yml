@@ -198,6 +198,7 @@ jobs:
           export L2_DIAGNOSTIC_COUNTERS=$(sha256sum .artifacts/layered-diagnostics/counters/*.o | cut -d ' ' -f 1)
           export L2_DIAGNOSTIC_FULL=$(sha256sum .artifacts/layered-diagnostics/fingerprints/*.o | cut -d ' ' -f 1)
           cargo build --locked --package xtask --features diagnostic-runtime --bin l2-loop-diagnostic
+          cargo clippy --locked --package xtask --features diagnostic-runtime --all-targets -- -D warnings
 
       - name: Test real isolated diagnostic loader and precise rollback
         run: >-
@@ -241,6 +242,30 @@ jobs:
         with:
           name: l2-loop-ebpf-object-${{ github.sha }}
           path: .artifacts/ebpf
+
+      - name: Download exact separate diagnostic objects
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: l2-loop-layered-diagnostics-${{ github.sha }}
+          path: .artifacts/layered-diagnostics
+
+      - name: Build separate MUSL diagnostic loader
+        env:
+          L2_DIAGNOSTIC_COMMIT: ${{ github.sha }}
+        run: |
+          export L2_DIAGNOSTIC_HOOKS=$(sha256sum .artifacts/layered-diagnostics/hooks_only/*.o | cut -d ' ' -f 1)
+          export L2_DIAGNOSTIC_CONFIG=$(sha256sum .artifacts/layered-diagnostics/config_lookup/*.o | cut -d ' ' -f 1)
+          export L2_DIAGNOSTIC_COUNTERS=$(sha256sum .artifacts/layered-diagnostics/counters/*.o | cut -d ' ' -f 1)
+          export L2_DIAGNOSTIC_FULL=$(sha256sum .artifacts/layered-diagnostics/fingerprints/*.o | cut -d ' ' -f 1)
+          cargo build --locked --release --target x86_64-unknown-linux-musl --package xtask --features diagnostic-runtime --bin l2-loop-diagnostic
+
+      - name: Upload separate MUSL diagnostic loader
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: l2-loop-diagnostic-runtime-${{ github.sha }}
+          path: target/x86_64-unknown-linux-musl/release/l2-loop-diagnostic
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Create release bundle
         run: >-

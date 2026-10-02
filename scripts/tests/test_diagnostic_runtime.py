@@ -73,7 +73,32 @@ class DiagnosticRuntime(unittest.TestCase):
             self.assertTrue((root / "diagnostic-lease.json").is_file())
             link = json.loads(command("ip", "-j", "-d", "link", "show", "dev", host))[0]
             self.assertIn("xdp", link)
+            if stop == "foreign_tc":
+                command("tc", "filter", "add", "dev", host, "egress", "protocol", "all",
+                        "pref", "10", "handle", "1", "matchall", "action", "pass")
+                process.stdin.write("stop\n")
+                process.stdin.flush()
+                stdout, stderr = process.communicate(timeout=20)
+                self.assertNotEqual(process.returncode, 0, stdout)
+                self.assertIn("DX_SESSION", stderr)
+                self.assertTrue((root / "diagnostic-lease.json").is_file())
+                filters = json.loads(command("tc", "-j", "filter", "show", "dev", host, "egress"))
+                self.assertTrue(any(f.get("pref") == 10 for f in filters))
+                self.assertFalse(any(f.get("pref") == 49600 for f in filters))
+                link = json.loads(command("ip", "-j", "-d", "link", "show", "dev", host))[0]
+                self.assertNotIn("xdp", link)
+                return
             if stop == "stop":
+                command("ip", "link", "set", host, "up")
+                command("ip", "-n", ns, "link", "set", peer, "up")
+                sender = ("import socket,sys;src=bytes.fromhex(sys.argv[2].replace(':',''));"
+                          "dst=bytes.fromhex(sys.argv[3].replace(':',''));"
+                          "frame=dst+src+bytes.fromhex('08060001080006040001')+src+bytes(4)+dst+bytes(4)+bytes(22);"
+                          "s=socket.socket(socket.AF_PACKET,socket.SOCK_RAW);s.bind((sys.argv[1],0));"
+                          "assert len(frame)==64;"
+                          "assert all(s.send(frame)==64 for _ in range(8))")
+                command("python3", "-c", sender, host, a["address"], b["address"])
+                command("ip", "netns", "exec", ns, "python3", "-c", sender, peer, b["address"], a["address"])
                 process.stdin.write("stop\n")
                 process.stdin.flush()
             elif stop == "eof":
@@ -88,6 +113,9 @@ class DiagnosticRuntime(unittest.TestCase):
             final = json.loads(stdout.strip())
             self.assertEqual(final["state"], "cleaned")
             self.assertEqual(final["stop_reason"], stop)
+            expected_packets = 8 if stop == "stop" and profile in ("counters", "fingerprints") else 0
+            self.assertEqual([row["packets"] for row in final["counters"]], [expected_packets] * 2)
+            self.assertEqual([row["bytes"] for row in final["counters"]], [expected_packets * 64] * 2)
             self.assertFalse((root / "diagnostic-lease.json").exists())
             link = json.loads(command("ip", "-j", "-d", "link", "show", "dev", host))[0]
             self.assertNotIn("xdp", link)
@@ -123,6 +151,9 @@ class DiagnosticRuntime(unittest.TestCase):
 
     def test_foreign_lease_is_never_overwritten(self):
         self.exercise("counters", "stop", "lease")
+
+    def test_foreign_tc_is_retained_and_other_cleanup_continues(self):
+        self.exercise("counters", "foreign_tc")
 
 
 if __name__ == "__main__":
