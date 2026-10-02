@@ -106,6 +106,9 @@ class DiagnosticRuntime(unittest.TestCase):
                 process.stdin = None
             elif stop == "signal":
                 process.send_signal(signal.SIGTERM)
+                # Keep stdin open so this tests the signal, not a racing EOF
+                # introduced by communicate() closing the input pipe.
+                process.wait(timeout=15)
             elif stop == "deadline":
                 process.wait(timeout=15)
             stdout, stderr = process.communicate(timeout=20)
