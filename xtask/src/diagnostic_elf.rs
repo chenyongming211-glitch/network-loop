@@ -43,7 +43,7 @@ pub fn inspect_diagnostic_elf(
     {
         return Err(DiagnosticElfError("header"));
     }
-    let object = Object::parse(bytes).map_err(|_| DiagnosticElfError("parse"))?;
+    let mut object = Object::parse(bytes).map_err(|_| DiagnosticElfError("parse"))?;
     let (_, xdp, tc) = profile.declaration();
     let mut programs = object.programs.keys().cloned().collect::<Vec<_>>();
     programs.sort();
@@ -52,15 +52,37 @@ pub fn inspect_diagnostic_elf(
     if programs != expected {
         return Err(DiagnosticElfError("program set"));
     }
-    // The pinned linker retains these support functions in .text. Entry points
-    // below must contain only helper calls, so none can call these functions.
+    // The ordinary product already calls this shared parser out of line. Do not
+    // change its inlining just to satisfy a diagnostic inspection assumption.
+    let is_parser = |name: &str| {
+        name.starts_with("_RNvNtCs")
+            && name.ends_with("_14l2_loop_common6packet13parse_l2_word")
+    };
     if object.functions.values().any(|function| {
         function.name != xdp
             && function.name != tc
             && !matches!(function.name.as_str(), "memcpy" | "memmove" | "memset")
+            && !is_parser(&function.name)
     }) {
         return Err(DiagnosticElfError("unexpected support function"));
     }
+    let parsers = object.functions.values()
+        .filter(|function| is_parser(&function.name)).collect::<Vec<_>>();
+    let needs_parser = matches!(profile, DiagnosticProfile::Counters | DiagnosticProfile::Fingerprints);
+    if parsers.len() != usize::from(needs_parser) {
+        return Err(DiagnosticElfError("parser set"));
+    }
+    let parser_code = parsers.first().map(|function| function.instructions.clone()).unwrap_or_default();
+    if parser_code.iter().any(|insn| insn.code == 0x85) {
+        return Err(DiagnosticElfError("parser must not call helpers or functions"));
+    }
+    let entry_lengths = object.programs.iter().map(|(name, program)| {
+        object.functions.get(&program.function_key())
+            .map(|function| (name.clone(), function.instructions.len()))
+            .ok_or(DiagnosticElfError("function"))
+    }).collect::<Result<BTreeMap<_, _>, _>>()?;
+    let text_sections = object.functions.keys().map(|(section, _)| *section).collect();
+    object.relocate_calls(&text_sections).map_err(|_| DiagnosticElfError("call relocation"))?;
     let xdp_program = &object.programs[xdp];
     let tc_program = &object.programs[tc];
     if !matches!(
@@ -109,12 +131,25 @@ pub fn inspect_diagnostic_elf(
             .ok_or(DiagnosticElfError("function"))?;
         let mut calls = Vec::new();
         let mut exits = 0;
-        for (index, insn) in function.instructions.iter().enumerate() {
+        let entry_length = entry_lengths[name];
+        let linked_tail = &function.instructions[entry_length..];
+        if linked_tail.len() != parser_code.len()
+            || linked_tail.iter().zip(&parser_code).any(|(left, right)| {
+                (left.code, left.dst_reg(), left.src_reg(), left.off, left.imm)
+                    != (right.code, right.dst_reg(), right.src_reg(), right.off, right.imm)
+            })
+        {
+            return Err(DiagnosticElfError("linked parser"));
+        }
+        for (index, insn) in function.instructions[..entry_length].iter().enumerate() {
             if insn.code == 0x85 {
-                if insn.src_reg() != 0 {
+                if insn.src_reg() == 0 {
+                    calls.push(insn.imm);
+                } else if insn.src_reg() != 1 || !needs_parser
+                    || index as i64 + 1 + i64::from(insn.imm) != entry_length as i64
+                {
                     return Err(DiagnosticElfError("non-helper call"));
                 }
-                calls.push(insn.imm);
             }
             if insn.code == 0x95 {
                 exits += 1;

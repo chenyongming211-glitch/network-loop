@@ -30,8 +30,8 @@ def run(*args):
     )
 
 
-def program_range(elf, name):
-    """Independently locate a function's bytes using the ELF64 symbol table."""
+def symbol_range(elf, name):
+    """Independently locate symbol bytes and its name using the ELF64 table."""
     shoff = struct.unpack_from("<Q", elf, 40)[0]
     shsize, count = struct.unpack_from("<HH", elf, 58)
     sections = [struct.unpack_from("<IIQQQQIIQQ", elf, shoff + index * shsize)
@@ -44,8 +44,8 @@ def program_range(elf, name):
         for offset in range(section[4], section[4] + section[5], section[9]):
             label, _, _, index, address, size = struct.unpack_from("<IBBHQQ", elf, offset)
             if names[label:].split(b"\0", 1)[0] == name.encode():
-                return sections[index][4] + address, size
-    raise AssertionError(f"missing ELF function {name}")
+                return sections[index][4] + address, size, strings[4] + label
+    raise AssertionError(f"missing ELF symbol {name}")
 
 
 class DiagnosticArtifacts(unittest.TestCase):
@@ -78,6 +78,7 @@ class DiagnosticArtifacts(unittest.TestCase):
                                 "--profile", profile)
                 self.assertEqual(inspected.returncode, 0, inspected.stderr)
                 report = json.loads(inspected.stdout)
+                print(f"verified {profile}: {inspected.stdout.strip()}", flush=True)
                 self.assertEqual(report["programs"], sorted([xdp, tc]))
                 self.assertEqual(report["maps"], ["FINGERPRINTS", "HOOK_STATS", "IFACE_CONFIG",
                                                  "PROBE_REGISTRY", "PROBE_STATS", "RATE_POLICY"])
@@ -85,8 +86,16 @@ class DiagnosticArtifacts(unittest.TestCase):
                 self.assertIs(report["deployment_gate_evidence"], False)
                 self.assertIs(report["elf_inventory_verified"], True)
                 original = (output / filename).read_bytes()
-                start, length = program_range(original, xdp)
+                start, length, _ = symbol_range(original, xdp)
                 mutations = []
+                map_start, _, _ = symbol_range(original, "HOOK_STATS")
+                wrong_map_layout = bytearray(original)
+                struct.pack_into("<I", wrong_map_layout, map_start + 8, 17)
+                mutations.append(wrong_map_layout)
+                _, _, support_name = symbol_range(original, "memcpy")
+                wrong_support = bytearray(original)
+                wrong_support[support_name:support_name + 6] = b"evilxx"
+                mutations.append(wrong_support)
                 wrong_header = bytearray(original)
                 wrong_header[18] = 62  # x86-64 is not BPF
                 mutations.append(wrong_header)

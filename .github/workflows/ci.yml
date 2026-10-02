@@ -168,7 +168,7 @@ jobs:
         run: |
           for object in .artifacts/diagnostic-target/bpfel-unknown-none/release/l2-loop-diag-*; do
             if test -f "$object" && test "${object##*.}" != d; then
-              readelf --file-header --sections --symbols "$object"
+              readelf --wide --file-header --sections --symbols "$object"
             fi
           done
 
