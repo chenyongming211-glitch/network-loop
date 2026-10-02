@@ -103,6 +103,9 @@ jobs:
       - name: Verify locked dependency graph
         run: cargo metadata --locked --no-deps
 
+      - name: Test diagnostic identity boundary
+        run: cargo test --locked --package xtask --test diagnostic_identity
+
       - name: Install pinned cargo-audit
         run: cargo install cargo-audit --version 0.22.2 --locked
 
