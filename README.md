@@ -184,3 +184,10 @@ three-mode comparison completed with zero drops/errors; diagnostic throughput wa
 No throughput gain or production readiness is claimed; the original 95%/90% gate is
 unchanged. See the [2026-10-02 diagnostic evidence](docs/performance-diagnostics-2026-10-02.md).
 
+The first layered-attribution increment adds a build-tool-only, read-only diagnostic
+manifest and byte-identity verifier for four fixed profiles. It does not yet build
+diagnostic eBPF objects, validate ELF inventory or trusted CI provenance, or authorize
+loading. The product packet path and release bundle remain unchanged. See the
+[diagnostic identity contract](docs/superpowers/plans/2026-10-02-layered-diagnostic-identity.md)
+for its interface and remaining safety layers.
+

@@ -35,8 +35,8 @@
 - [x] Commit behavioral CLI tests before implementation. Positive fixtures use independently known SHA-256 of `abc`; mutation cases reject schema drift, relabeled profiles, production names, changed bytes, unsafe file kinds and size overflow.
 - [x] Verify RED on GitHub with `cargo test --locked --package xtask --test diagnostic_identity`. Run `37011025828`, Userspace job `110850515054`: all six tests failed as expected because the existing xtask rejected the new command (usage exit 2).
 - [x] Implement strict Deserialize models and validation, reuse the bounded reader without changing release behavior, and wire only the xtask verifier command. No loader or diagnostic object is introduced in this increment.
-- [ ] Verify GREEN for the same tests, then full formatting, lint, tests, ordinary eBPF build and unchanged MUSL bundle checks on GitHub.
-- [ ] Record exact CI evidence and remaining scope. Do not claim layered measurements or throughput improvements from the identity verifier.
+- [x] Verify GREEN for the same tests, then full formatting, lint, tests, ordinary eBPF build and unchanged MUSL bundle checks on GitHub. Commit `e5b87012dfa4935c7bde0e4fd94aea02ecae6539`, run [37011741122](https://github.com/chenyongming211-glitch/network-loop/actions/runs/37011741122): Userspace (including all six identity tests, rustfmt, Clippy, RustSec and privileged generated-root tests), eBPF, both script-safety jobs and Bundle all succeeded. The first implementation run passed the six behavioral tests but failed formatting; this green revision contains the GitHub-reported formatting corrections.
+- [x] Record exact CI evidence and remaining scope. Inline review preserved the ordinary release reader policy, found no new dependency or product runtime path, and clarified that matching byte identity proves neither ELF validity nor trusted CI provenance. No node was contacted, no diagnostic object loaded, and no throughput improvement is claimed in this increment.
 
 ## Subsequent independently reviewed deliverables
 
