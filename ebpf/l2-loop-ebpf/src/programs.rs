@@ -1,7 +1,10 @@
+#[cfg(not(feature = "diagnostics"))]
 use aya_ebpf::{
     bindings::{TC_ACT_OK, xdp_action},
-    helpers::bpf_ktime_get_ns,
     macros::{classifier, xdp},
+};
+use aya_ebpf::{
+    helpers::bpf_ktime_get_ns,
     programs::{TcContext, XdpContext},
 };
 use l2_loop_common::{
@@ -338,7 +341,13 @@ fn account_fingerprint(
 }
 
 #[inline(always)]
-fn account(ifindex: u32, hook_role: u8, bytes: u64, data: usize, data_end: usize) {
+fn account_layer<const WITH_FINGERPRINTS: bool>(
+    ifindex: u32,
+    hook_role: u8,
+    bytes: u64,
+    data: usize,
+    data_end: usize,
+) {
     let (interface_generation, current_vlan_visibility, sample_shift) = {
         let Some(config) = IFACE_CONFIG.get_ptr(&ifindex) else {
             return;
@@ -383,7 +392,7 @@ fn account(ifindex: u32, hook_role: u8, bytes: u64, data: usize, data_end: usize
                 }
             }
         }
-        if sample_shift == FINGERPRINT_SAMPLE_SHIFT {
+        if WITH_FINGERPRINTS && sample_shift == FINGERPRINT_SAMPLE_SHIFT {
             let fingerprint_direction = match hook_role {
                 hook_role::EXTERNAL_XDP_INGRESS => direction::INGRESS,
                 hook_role::PHYSICAL_TC_EGRESS => direction::EGRESS,
@@ -403,12 +412,17 @@ fn account(ifindex: u32, hook_role: u8, bytes: u64, data: usize, data_end: usize
 
 #[inline(always)]
 fn account_xdp(ctx: &XdpContext, hook_role: u8) {
+    account_xdp_layer::<true>(ctx, hook_role);
+}
+
+#[inline(always)]
+fn account_xdp_layer<const WITH_FINGERPRINTS: bool>(ctx: &XdpContext, hook_role: u8) {
     let data = ctx.data();
     let data_end = ctx.data_end();
     let Some(bytes) = data_end.checked_sub(data) else {
         return;
     };
-    account(
+    account_layer::<WITH_FINGERPRINTS>(
         ctx.ingress_ifindex() as u32,
         hook_role,
         bytes as u64,
@@ -419,8 +433,13 @@ fn account_xdp(ctx: &XdpContext, hook_role: u8) {
 
 #[inline(always)]
 fn account_tc(ctx: &TcContext, hook_role: u8) {
+    account_tc_layer::<true>(ctx, hook_role);
+}
+
+#[inline(always)]
+fn account_tc_layer<const WITH_FINGERPRINTS: bool>(ctx: &TcContext, hook_role: u8) {
     let ifindex = unsafe { (*ctx.skb.skb).ifindex };
-    account(
+    account_layer::<WITH_FINGERPRINTS>(
         ifindex,
         hook_role,
         u64::from(ctx.len()),
@@ -429,24 +448,54 @@ fn account_tc(ctx: &TcContext, hook_role: u8) {
     );
 }
 
+#[cfg(feature = "diagnostics")]
+#[inline(always)]
+pub(crate) fn diagnostic_xdp<const LAYER: u8>(ctx: &XdpContext) {
+    if LAYER == 1 {
+        // The ELF contract requires this helper call to survive optimization.
+        let _ = IFACE_CONFIG.get_ptr(&(ctx.ingress_ifindex() as u32));
+    } else if LAYER == 2 {
+        account_xdp_layer::<false>(ctx, hook_role::EXTERNAL_XDP_INGRESS);
+    } else if LAYER == 3 {
+        account_xdp(ctx, hook_role::EXTERNAL_XDP_INGRESS);
+    }
+}
+
+#[cfg(feature = "diagnostics")]
+#[inline(always)]
+pub(crate) fn diagnostic_tc<const LAYER: u8>(ctx: &TcContext) {
+    if LAYER == 1 {
+        let ifindex = unsafe { (*ctx.skb.skb).ifindex };
+        let _ = IFACE_CONFIG.get_ptr(&ifindex);
+    } else if LAYER == 2 {
+        account_tc_layer::<false>(ctx, hook_role::PHYSICAL_TC_EGRESS);
+    } else if LAYER == 3 {
+        account_tc(ctx, hook_role::PHYSICAL_TC_EGRESS);
+    }
+}
+
+#[cfg(not(feature = "diagnostics"))]
 #[xdp]
 pub fn l2_loop_xdp_ingress(ctx: XdpContext) -> u32 {
     account_xdp(&ctx, hook_role::EXTERNAL_XDP_INGRESS);
     xdp_action::XDP_PASS
 }
 
+#[cfg(not(feature = "diagnostics"))]
 #[classifier]
 pub fn l2_loop_tc_egress(ctx: TcContext) -> i32 {
     account_tc(&ctx, hook_role::PHYSICAL_TC_EGRESS);
     TC_ACT_OK
 }
 
+#[cfg(not(feature = "diagnostics"))]
 #[classifier]
 pub fn l2_loop_tc_path_ingress(ctx: TcContext) -> i32 {
     account_tc(&ctx, hook_role::TEMPORARY_PATH_INGRESS);
     TC_ACT_OK
 }
 
+#[cfg(not(feature = "diagnostics"))]
 #[classifier]
 pub fn l2_loop_tc_path_egress(ctx: TcContext) -> i32 {
     account_tc(&ctx, hook_role::TEMPORARY_PATH_EGRESS);

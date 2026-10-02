@@ -6,6 +6,8 @@ use std::{
 use xtask::{
     bundle::{BundleInputs, create_bundle},
     diagnostic::{DiagnosticProfile, verify_diagnostic_identity},
+    diagnostic_build::build_diagnostic_ebpf,
+    diagnostic_elf::verify_diagnostic_elf,
     ebpf::build_ebpf_args,
 };
 
@@ -15,9 +17,58 @@ fn main() -> ExitCode {
         Some("build-ebpf") if args.len() == 1 => build_ebpf(),
         Some("bundle") => build_bundle(&args[1..]),
         Some("verify-diagnostic-identity") => verify_diagnostic(&args[1..]),
+        Some("verify-diagnostic-elf") => inspect_diagnostic(&args[1..]),
+        Some("build-diagnostic-ebpf") => build_diagnostic(&args[1..]),
         _ => {
             print_usage();
             ExitCode::from(2)
+        }
+    }
+}
+
+fn inspect_diagnostic(args: &[String]) -> ExitCode {
+    let [object_flag, object, profile_flag, profile] = args else {
+        print_usage();
+        return ExitCode::from(2);
+    };
+    let Some(profile) = DiagnosticProfile::parse(profile) else {
+        print_usage();
+        return ExitCode::from(2);
+    };
+    if object_flag != "--object" || profile_flag != "--profile" {
+        print_usage();
+        return ExitCode::from(2);
+    }
+    match verify_diagnostic_elf(Path::new(object), profile) {
+        Ok(report) => {
+            println!("{}", serde_json::to_string(&report).expect("fixed report"));
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn build_diagnostic(args: &[String]) -> ExitCode {
+    let [profile_flag, profile, commit_flag, commit, output_flag, output] = args else {
+        print_usage();
+        return ExitCode::from(2);
+    };
+    let Some(profile) = DiagnosticProfile::parse(profile) else {
+        print_usage();
+        return ExitCode::from(2);
+    };
+    if profile_flag != "--profile" || commit_flag != "--commit-sha" || output_flag != "--output" {
+        print_usage();
+        return ExitCode::from(2);
+    }
+    match build_diagnostic_ebpf(profile, commit, Path::new(output)) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
         }
     }
 }
@@ -146,6 +197,8 @@ fn build_bundle(args: &[String]) -> ExitCode {
 
 fn print_usage() {
     eprintln!("usage: cargo xtask build-ebpf");
+    eprintln!("       cargo xtask verify-diagnostic-elf --object <PATH> --profile <PROFILE>");
+    eprintln!("       cargo xtask build-diagnostic-ebpf --profile <PROFILE> --commit-sha <SHA> --output <NEW_DIR>");
     eprintln!(
         "       cargo xtask verify-diagnostic-identity --manifest <PATH> --object <PATH> --commit-sha <SHA> --profile <hooks_only|config_lookup|counters|fingerprints>"
     );

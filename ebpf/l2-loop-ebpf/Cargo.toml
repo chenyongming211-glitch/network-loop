@@ -9,6 +9,29 @@ repository.workspace = true
 name = "l2-loop-ebpf"
 path = "src/main.rs"
 
+[features]
+diagnostics = []
+
+[[bin]]
+name = "l2-loop-diag-hooks-only"
+path = "src/bin/hooks_only.rs"
+required-features = ["diagnostics"]
+
+[[bin]]
+name = "l2-loop-diag-config-lookup"
+path = "src/bin/config_lookup.rs"
+required-features = ["diagnostics"]
+
+[[bin]]
+name = "l2-loop-diag-counters"
+path = "src/bin/counters.rs"
+required-features = ["diagnostics"]
+
+[[bin]]
+name = "l2-loop-diag-fingerprints"
+path = "src/bin/fingerprints.rs"
+required-features = ["diagnostics"]
+
 [dependencies]
 aya-ebpf.workspace = true
 aya-log-ebpf.workspace = true

@@ -29,7 +29,7 @@ impl DiagnosticProfile {
         }
     }
 
-    fn declaration(self) -> (&'static str, &'static str, &'static str) {
+    pub(crate) fn declaration(self) -> (&'static str, &'static str, &'static str) {
         match self {
             Self::HooksOnly => ("l2-loop-diag-hooks-only.o", "l2d_hooks_xdp", "l2d_hooks_tc"),
             Self::ConfigLookup => (
@@ -138,7 +138,7 @@ pub fn verify_diagnostic_identity(
     })
 }
 
-fn lower_hex(value: &str, length: usize) -> bool {
+pub(crate) fn lower_hex(value: &str, length: usize) -> bool {
     value.len() == length
         && value
             .bytes()

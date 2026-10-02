@@ -475,6 +475,7 @@ name = "l2-loop-agent"
 version = "0.1.0"
 dependencies = [
  "aya",
+ "aya-obj",
  "futures-util",
  "l2-loop-common",
  "l2-loop-core",
@@ -1011,6 +1012,7 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "aya-obj",
  "l2-loop-common",
  "serde",
  "serde_json",

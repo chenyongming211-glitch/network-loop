@@ -35,3 +35,6 @@ sha2.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 
+[dev-dependencies]
+aya-obj = "=0.3.0"
+

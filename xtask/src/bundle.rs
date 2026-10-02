@@ -254,7 +254,7 @@ fn validate_metadata(commit_sha: &str, package_version: &str) -> Result<(), Bund
     Ok(())
 }
 
-fn read_bounded_regular(path: &Path, maximum: u64) -> Result<Vec<u8>, BundleError> {
+pub(crate) fn read_bounded_regular(path: &Path, maximum: u64) -> Result<Vec<u8>, BundleError> {
     read_bounded_regular_with_policy(path, maximum, false)
 }
 

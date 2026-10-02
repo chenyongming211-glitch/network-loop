@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -27,6 +28,24 @@ def run(*args):
         [str(XTASK), *map(str, args)], cwd=ROOT,
         capture_output=True, text=True, timeout=300, check=False,
     )
+
+
+def program_range(elf, name):
+    """Independently locate a function's bytes using the ELF64 symbol table."""
+    shoff = struct.unpack_from("<Q", elf, 40)[0]
+    shsize, count = struct.unpack_from("<HH", elf, 58)
+    sections = [struct.unpack_from("<IIQQQQIIQQ", elf, shoff + index * shsize)
+                for index in range(count)]
+    for section in sections:
+        if section[1] != 2:
+            continue
+        strings = sections[section[6]]
+        names = elf[strings[4]:strings[4] + strings[5]]
+        for offset in range(section[4], section[4] + section[5], section[9]):
+            label, _, _, index, address, size = struct.unpack_from("<IBBHQQ", elf, offset)
+            if names[label:].split(b"\0", 1)[0] == name.encode():
+                return sections[index][4] + address, size
+    raise AssertionError(f"missing ELF function {name}")
 
 
 class DiagnosticArtifacts(unittest.TestCase):
@@ -65,6 +84,33 @@ class DiagnosticArtifacts(unittest.TestCase):
                 self.assertIs(report["load_authorized"], False)
                 self.assertIs(report["deployment_gate_evidence"], False)
                 self.assertIs(report["elf_inventory_verified"], True)
+                original = (output / filename).read_bytes()
+                start, length = program_range(original, xdp)
+                mutations = []
+                wrong_header = bytearray(original)
+                wrong_header[18] = 62  # x86-64 is not BPF
+                mutations.append(wrong_header)
+                for offset in range(start, start + length, 8):
+                    code = original[offset]
+                    if code == 0x85:
+                        wrong_helper = bytearray(original)
+                        struct.pack_into("<i", wrong_helper, offset + 4, 127)
+                        mutations.append(wrong_helper)
+                        break
+                for offset in range(start, start + length, 8):
+                    if original[offset] == 0x95:
+                        wrong_verdict = bytearray(original)
+                        struct.pack_into("<i", wrong_verdict, offset - 4, 1)
+                        mutations.append(wrong_verdict)
+                        break
+                damaged = root / "damaged.o"
+                for mutation in mutations:
+                    damaged.write_bytes(mutation)
+                    result = run("verify-diagnostic-elf", "--object", damaged,
+                                 "--profile", profile)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn("DX_ELF", result.stderr)
+                damaged.unlink()
                 for wrong in PROFILES:
                     if wrong != profile:
                         rejected = run("verify-diagnostic-elf", "--object", output / filename,
@@ -77,6 +123,16 @@ class DiagnosticArtifacts(unittest.TestCase):
                 self.assertEqual(again.returncode, 1, again.stderr)
                 self.assertEqual(before, {p.name: p.read_bytes() for p in output.iterdir()})
             self.assertEqual(ORDINARY.read_bytes(), ordinary_before)
+            forbidden = subprocess.run(
+                ["cargo", "+nightly-2026-08-10", "build", "--locked", "-Z", "build-std=core",
+                 "--release", "--target", "bpfel-unknown-none", "--package", "l2-loop-ebpf",
+                 "--features", "diagnostics", "--bin", "l2-loop-ebpf",
+                 "--target-dir", ".artifacts/diagnostic-target"], cwd=ROOT,
+                capture_output=True, text=True, timeout=300, check=False,
+            )
+            self.assertNotEqual(forbidden.returncode, 0)
+            self.assertIn("diagnostic features must never build the ordinary product binary",
+                          forbidden.stderr)
             published.parent.mkdir(exist_ok=True)
             shutil.copytree(root, published)
 
