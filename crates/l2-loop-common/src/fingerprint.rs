@@ -55,8 +55,7 @@ pub const fn fingerprint_selected(fingerprint: u64) -> bool {
     fingerprint & ((1_u64 << FINGERPRINT_SAMPLE_SHIFT) - 1) == 0
 }
 
-// Keep packet offsets static for the BPF verifier; use the same offsets for the
-// low-bit screen and the unchanged complete hash.
+// Keep complete-hash packet offsets static for the BPF verifier.
 macro_rules! each_prefix_byte {
     ($step:ident) => {
         $step!(0);
@@ -122,55 +121,78 @@ macro_rules! each_prefix_byte {
     };
 }
 
-/// Necessary low-two-bit condition; implementation follows RED verification.
+/// Exact low-two-bit FNV condition, not the final four-bit selection decision.
+///
+/// Modulo 4 each step has a' = a XOR input_bit_0 and
+/// b' = b XOR input_bit_1 XOR a'. Across the fixed 62 bytes (length plus prefix),
+/// the initial low bits (a=1,b=0) give final a = 1 XOR all low bits and final b =
+/// XOR all bit_1 values XOR the low bits at odd zero-based byte positions.
+/// XOR folding computes these in parallel instead of a serial multiply chain.
+#[inline(always)]
 pub fn fingerprint_prefix_may_be_selected(
-    _frame_len: u16,
-    _frame: &[u8; FINGERPRINT_PREFIX_LEN],
+    frame_len: u16,
+    frame: &[u8; FINGERPRINT_PREFIX_LEN],
 ) -> bool {
-    false
+    if usize::from(frame_len) < FINGERPRINT_PREFIX_LEN {
+        return false;
+    }
+    macro_rules! word {
+        ($offset:literal) => {
+            u64::from_le_bytes([
+                frame[$offset],
+                frame[$offset + 1],
+                frame[$offset + 2],
+                frame[$offset + 3],
+                frame[$offset + 4],
+                frame[$offset + 5],
+                frame[$offset + 6],
+                frame[$offset + 7],
+            ])
+        };
+    }
+    let mut lanes = word!(0);
+    lanes ^= word!(8);
+    lanes ^= word!(16);
+    lanes ^= word!(24);
+    lanes ^= word!(32);
+    lanes ^= word!(40);
+    lanes ^= word!(48);
+    lanes ^= u64::from(u32::from_le_bytes([frame[56], frame[57], frame[58], frame[59]]));
+    let folded = lanes ^ (lanes >> 32);
+    let pairs = folded ^ (folded >> 16);
+    let even = pairs as u8;
+    let odd = (pairs >> 8) as u8;
+    let length = frame_len.to_be_bytes();
+    let all = length[0] ^ length[1] ^ even ^ odd;
+    let odd_positions = length[1] ^ odd;
+    (all ^ (odd_positions << 1)) & 3 == 1
 }
 
 /// Return exactly the existing 64-bit fingerprint for selected fixed prefixes.
 ///
-/// FNV's low four bits depend only on the low four bits at each preceding step.
-/// Modulo 16 its basis is 5 and prime is 3. Wrapping u32 arithmetic therefore
-/// screens with the identical predicate, avoiding full-width FNV multiplication
-/// for unselected packets. Selected packets still use the unchanged full hash.
+/// A parallel necessary-condition screen can reject only packets whose full
+/// hash is unselected. Remaining packets use the unchanged full hash and the
+/// original four-bit predicate. Neither membership nor identity is approximate.
 #[inline(always)]
 pub fn selected_fingerprint_hash(
     frame_len: u16,
     frame: &[u8; FINGERPRINT_PREFIX_LEN],
 ) -> Option<u64> {
-    if usize::from(frame_len) < FINGERPRINT_PREFIX_LEN {
-        return None;
-    }
-    let length = frame_len.to_be_bytes();
-    let mut screen =
-        ((5_u32 ^ u32::from(length[0])).wrapping_mul(3) ^ u32::from(length[1])).wrapping_mul(3);
-    macro_rules! screen_step {
-        ($offset:literal) => {
-            // SAFETY: the reference covers every static offset. Volatile reads
-            // prevent LLVM retaining all 60 bytes across the second pass and
-            // spilling them beyond the BPF stack bound. No helpers or packet
-            // mutation occur between the two passes.
-            let byte = unsafe { core::ptr::read_volatile(&frame[$offset]) };
-            screen = (screen ^ u32::from(byte)).wrapping_mul(3);
-        };
-    }
-    each_prefix_byte!(screen_step);
-    if screen & 15 != 0 {
+    if !fingerprint_prefix_may_be_selected(frame_len, frame) {
         return None;
     }
     let mut hash = fingerprint_hash_init(frame_len);
     macro_rules! hash_step {
         ($offset:literal) => {
-            // SAFETY: same bounded immutable prefix as the screen above.
+            // SAFETY: each static offset is inside the immutable prefix.
+            // Reload rather than keeping 60 bytes live across the screen.
+            // No helper or packet mutation occurs between these reads.
             hash =
                 fingerprint_hash_step(hash, unsafe { core::ptr::read_volatile(&frame[$offset]) });
         };
     }
     each_prefix_byte!(hash_step);
-    Some(hash)
+    fingerprint_selected(hash).then_some(hash)
 }
 
 pub fn parse_fingerprint_metadata(frame: &[u8]) -> Option<FingerprintMetadata> {
