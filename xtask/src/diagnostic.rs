@@ -31,26 +31,14 @@ impl DiagnosticProfile {
 
     fn declaration(self) -> (&'static str, &'static str, &'static str) {
         match self {
-            Self::HooksOnly => (
-                "l2-loop-diag-hooks-only.o",
-                "l2d_hooks_xdp",
-                "l2d_hooks_tc",
-            ),
+            Self::HooksOnly => ("l2-loop-diag-hooks-only.o", "l2d_hooks_xdp", "l2d_hooks_tc"),
             Self::ConfigLookup => (
                 "l2-loop-diag-config-lookup.o",
                 "l2d_config_xdp",
                 "l2d_config_tc",
             ),
-            Self::Counters => (
-                "l2-loop-diag-counters.o",
-                "l2d_count_xdp",
-                "l2d_count_tc",
-            ),
-            Self::Fingerprints => (
-                "l2-loop-diag-fingerprints.o",
-                "l2d_full_xdp",
-                "l2d_full_tc",
-            ),
+            Self::Counters => ("l2-loop-diag-counters.o", "l2d_count_xdp", "l2d_count_tc"),
+            Self::Fingerprints => ("l2-loop-diag-fingerprints.o", "l2d_full_xdp", "l2d_full_tc"),
         }
     }
 }
@@ -99,6 +87,7 @@ pub struct VerifiedDiagnosticIdentity {
 }
 
 /// Checks caller-bound declaration and exact bytes, not actual ELF inventory.
+/// A matching manifest is not proof of trusted CI provenance.
 /// Host authorization, object inventory and verifier checks remain separate gates.
 pub fn verify_diagnostic_identity(
     manifest_path: &Path,
@@ -132,8 +121,8 @@ pub fn verify_diagnostic_identity(
     if !lower_hex(&manifest.object_sha256, 64) {
         return Err(DigestError);
     }
-    let payload = read_bounded_single_link_regular(object_path, 16 * 1024 * 1024)
-        .map_err(|_| Input)?;
+    let payload =
+        read_bounded_single_link_regular(object_path, 16 * 1024 * 1024).map_err(|_| Input)?;
     if payload.is_empty() {
         return Err(Input);
     }

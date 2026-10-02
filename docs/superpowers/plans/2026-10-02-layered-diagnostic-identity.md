@@ -17,6 +17,7 @@
 - Commit is exactly 40 lowercase hex characters; payload digest is exactly 64 lowercase hex characters. Both caller-specified commit/profile and actual object basename must match the manifest.
 - Manifest bound 65,536 bytes; object bound 16 MiB and nonempty. Reuse the stable regular-file reader with an explicit single-link policy for diagnostics; preserve the existing release-reader behavior. Diagnostic verification fails closed on non-Unix platforms, where this reader cannot establish the same identity guarantees. Verifier performs no writes and reports no load authorization.
 - The SHA-256 verifier is not an ELF inventory, kernel-verifier or host-ownership check. Those are mandatory later layers before any diagnostic attachment. A correctly bound arbitrary byte fixture may pass this step without being loadable.
+- A caller-supplied commit and matching digest do not establish trusted CI provenance. Artifact origin must be verified independently before a later loader may consume it.
 
 ## Task: Read-only diagnostic manifest verifier
 

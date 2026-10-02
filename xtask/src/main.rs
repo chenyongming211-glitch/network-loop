@@ -23,8 +23,16 @@ fn main() -> ExitCode {
 }
 
 fn verify_diagnostic(args: &[String]) -> ExitCode {
-    let [manifest_flag, manifest, object_flag, object, commit_flag, commit, profile_flag, profile] =
-        args
+    let [
+        manifest_flag,
+        manifest,
+        object_flag,
+        object,
+        commit_flag,
+        commit,
+        profile_flag,
+        profile,
+    ] = args
     else {
         print_usage();
         return ExitCode::from(2);
