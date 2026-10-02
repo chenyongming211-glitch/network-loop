@@ -190,8 +190,16 @@ classification/counters, and full fingerprints. Offline checks validate actual E
 inventories and helper strata; CI proves that the ordinary product contract rejects
 diagnostic objects and that the full-profile entry/support instructions match the
 ordinary object. The ordinary product interfaces and ten-file release bundle remain
-unchanged. This does not establish trusted CI provenance, kernel acceptance or load
-authorization. The isolated diagnostic loader and paired host measurements remain
-unfinished. See the [artifact plan and evidence](docs/superpowers/plans/2026-10-02-layered-diagnostic-objects.md)
+unchanged. The separate acceptance-only diagnostic loader now binds exact CI
+object digests, generated namespace/veth identity and empty hooks, and performs
+identity-exact reverse cleanup without shared Map pins. GitHub tests cover actual
+packet counts, bounded exits and foreign TC retention. These diagnostics are not
+production deployment evidence or physical-interface authorization. All 25 isolated
+layered trials completed with exact forwarding and cleanup; relative median
+throughput was 94.0% hooks, 91.9% config, 91.9% counters and 87.4% fingerprints.
+No hot-path optimization gain is claimed. See the
+[measurement report](docs/performance-diagnostics-2026-10-02.md#completed-isolated-five-layer-attribution),
+[loader plan and evidence](docs/superpowers/plans/2026-10-02-isolated-diagnostic-loader.md),
+[artifact plan](docs/superpowers/plans/2026-10-02-layered-diagnostic-objects.md)
 and [build-tool usage](docs/development.md#offline-layered-diagnostic-artifacts).
 

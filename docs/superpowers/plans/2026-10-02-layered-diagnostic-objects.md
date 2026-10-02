@@ -39,12 +39,14 @@ map update and monotonic clock helpers. These are static call sites, not counts 
 packet. Counters/full call only the existing shared L2 parser after offline call
 resolution. All objects preserve the six exact Map definitions.
 
-Next implement an acceptance-only diagnostic loader with byte/provenance checks,
+The next increment was an acceptance-only diagnostic loader with byte/provenance checks,
 exact generated namespace/veth ownership, empty-hook refusal and precise reverse
-rollback. Then execute bounded paired measurements using the exact accepted
-artifact. Kernel-verifier acceptance, live packet counters and performance benefit
-remain unverified for these new diagnostic objects. No physical interface or
-production deployment permission is implied.
+rollback and bounded paired measurements using the exact accepted artifact.
+That [follow-up](2026-10-02-isolated-diagnostic-loader.md) is now complete at
+`34c152e517b7a77f90655a0f20d343a323f87485`: actual kernel loading, live packet
+counters and all 25 layered measurements passed their safety/accounting checks.
+No throughput improvement, physical-interface permission or production readiness
+is implied; see the [measurement report](../../performance-diagnostics-2026-10-02.md#completed-isolated-five-layer-attribution).
 
 ## Test interface
 
@@ -54,4 +56,4 @@ python3 -m unittest discover -s scripts/tests -p 'test_diagnostic_artifacts.py' 
 L2_LOOP_DIAGNOSTIC_ROOT=<test-created-root> cargo test --locked --package l2-loop-agent --test diagnostic_object_rejection
 ```
 
-The Python suite uses a generated temporary directory, then preserves verified profile outputs in `.artifacts/layered-diagnostics` for the subsequent actual-contract test and upload. Failure must not publish a diagnostic artifact. Build/validation exit 1; malformed command usage exit 2; success exit 0.
+The Python suite uses a generated temporary directory, then preserves verified profile outputs in `.artifacts/layered-diagnostics` for the subsequent actual-contract test and upload. Failed profile build/validation must not publish diagnostic outputs. An upload is not runtime acceptance: later workflow steps may fail, so node use requires the whole successful run. Build/validation exit 1; malformed command usage exit 2; success exit 0.

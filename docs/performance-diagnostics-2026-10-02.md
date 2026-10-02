@@ -78,4 +78,44 @@ These results are **diagnostic measurements of the unchanged product artifact**,
 
 The pass-through path already loses about 7.3% relative to the baseline. Complete observe is about 5.8% below pass-through in this diagnostic. The stronger difference on the ingress direction makes generic-XDP attachment plus its early configuration lookup the first attribution target, followed by classification/counting and sampled fingerprint work. This is an investigation priority, **not proof that any one instruction or Map causes the measured gap**.
 
-Next, add isolated-only layered attribution while keeping the formal pass-through definition and public command surface unchanged. Select a correctness-tested hot-path change only after that evidence. Preserve ownership, exact counter and fingerprint contracts, then rerun the original formal gate on the exact new artifact. This corpus does not cover VLAN/offload behavior, realistic LRU churn, physical/native-XDP, concurrent bidirectional traffic or sustained production load.
+The isolated-only layered attribution below completes the next diagnostic step without changing the formal pass-through definition or public command surface. Select a correctness-tested hot-path change only after that evidence. Preserve ownership, exact counter and fingerprint contracts, then rerun the original formal gate on the exact new artifact. This corpus does not cover VLAN/offload behavior, realistic LRU churn, physical/native-XDP, concurrent bidirectional traffic or sustained production load.
+
+## Completed isolated five-layer attribution
+
+The acceptance-only loader and real-object tests are verified at commit `34c152e517b7a77f90655a0f20d343a323f87485`, [GitHub run 37021840057](https://github.com/chenyongming211-glitch/network-loop/actions/runs/37021840057), attempt 2, all five jobs successful. Compilation and automated code tests ran only on GitHub. Attempt 1's Bundle checkout failed TLS certificate verification before compilation; the failed job was retried without weakening TLS checks. The seven privileged runtime cases verify actual profile traffic/counters, bounded exits, byte mismatch refusal, foreign lease refusal and retention of a foreign TC filter during cleanup.
+
+The separate diagnostic runtime artifact is `11232898895`, the four-object artifact is `11233467575`, and the unchanged-inventory ordinary bundle is `11233293502`. The executable SHA-256 is `a328afbe677831428fa0b231be900bdf0546007d4dffef9428c70b76006cb6ea`. The runtime embeds this source commit and the four object digests, checks an immutable object buffer before Aya loading, and accepts only a fixed generated namespace/veth context. Fresh unpinned Maps and an exclusive identity lease are private to each trial; reverse cleanup checks owned identities. See the [loader plan and safety contract](superpowers/plans/2026-10-02-isolated-diagnostic-loader.md) and [runtime usage](development.md#acceptance-only-diagnostic-loader).
+
+### Method and retained evidence
+
+The authorized node was ostack7 (`10.58.146.7`), kernel `6.6.0-159.4.8.161.oe2403sp4.x86_64`, 40 logical CPUs. No installation, systemd action, physical attachment or existing eBPF replacement was performed. A fresh generated namespace/veth and the previously authorized reversible per-generated-port LLDP exclusion were used. The same bounded mixed ARP sender from `dfb34a445ce651add19f03456ed94200ca81ee9c` supplied all layers.
+
+- Smoke run `70b3623c6f254b0da6e91f1863669806`: one trial per layer, excluded from performance statistics. Raw report SHA-256 `36986d91f06e4c3dac848eff2b9d0ec677704846a5c5776d53e347dcee675069`.
+- Measurement run `ec9eac972fa34da998a6d01a52910264`: five rotating-order repetitions of baseline and four layers, all 25 trials retained, with no outlier removal. Raw report SHA-256 `700f2f90ad47c1393122fb1371f05143799eb804f814bad692054ec58abc786a`.
+- Task-local transport controller `.artifacts/ostack7-layered-run.py` SHA-256 `96cfc27605851621dc0522af3252eebeda7715157d6eaebd34b16699820d4f01`. Raw reports are retained locally as `.artifacts/ostack7-layered-<run-id>.json`; they are not checked into the repository.
+
+Each attached trial initializes the same 16 stats keys and fixed configuration, but **no daemon or background sampler runs**. Host-to-peer TC and peer-to-host generic-XDP traffic run sequentially, with separate warm-up and five-second / two-million-packet measurement bounds. Warm-up is excluded from PPS and included in packet/byte reconciliation. This is not simultaneous duplex capacity or a replacement for the earlier steady-state daemon comparison.
+
+### Results
+
+PPS is calculated from each trial's measured packet total divided by the sum of its two direction durations. Percentages below are ratios of five-trial medians, not a mean of per-trial percentages.
+
+| Layer | Median PPS | Five-trial min–max PPS | Relative to baseline |
+| --- | ---: | ---: | ---: |
+| No attachment | 317,786 | 317,632–322,106 | 100.0% |
+| Hooks only | 298,722 | 289,666–301,914 | 94.0% |
+| Configuration lookup | 292,083 | 268,921–293,532 | 91.9% |
+| Classification and counters | 291,968 | 288,632–297,281 | 91.9% |
+| Complete fingerprint path | 277,777 | 275,438–282,046 | 87.4% |
+
+For comparison, medians of within-round paired ratios to baseline are 93.3%, 92.0%, 91.9% and 87.4% respectively. The complete fingerprint layer is slower than counters in all five rounds; its median paired ratio to counters is 95.1% (ratio of medians: 95.14%). These are descriptive results, not confidence intervals.
+
+All 25 trials have zero observed link drops/errors. Independent reconciliation of the retained records confirms exact transmitted/received packets **and bytes**, including warm-up, in both directions. Counters/full-profile Maps match actual traffic; hooks/config-profile counters remain zero as intended. Both runs completed cleanup and restored the measured network/eBPF identities and LLDP state, with zero generated residue. Snapshot coverage is program/map IDs, pin roots and interface XDP/TC state, **not exhaustive global BPF-link-ID enumeration**. No foreign attachment was removed.
+
+### Decision and limits
+
+Pure hooks account for an approximately 6% difference from the unattached baseline in this environment. This is not all product packet-processing logic; generic-XDP direction is more affected. Configuration and counter medians are almost identical, with overlapping ranges and a low configuration trial, so this does not establish that classification/counting is free or justify a Map redesign.
+
+The next priority is to separate the fingerprint path's per-packet prefix/hash work from selected-only clock and Map operations using selected/unselected corpora. The existing hash implementation is already unrolled, and the selection decision follows hash computation; blindly recommending loop unrolling would not address the current code. Choose an equivalent, correctness-tested optimization only after narrowing that cost, without changing sampling, fingerprint identity, counter or ownership semantics.
+
+**No product hot-path optimization or throughput gain has been delivered by this diagnostic increment.** The original formal gate remains failed and unchanged. Repeated synthetic ARP on a shared host without CPU affinity does not establish physical/native-XDP performance, realistic LRU churn, VLAN/offload behavior or production readiness.

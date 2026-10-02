@@ -12,9 +12,9 @@
 
 ## Safety contract
 
-- Request schema rejects unknown/duplicate fields. Run ID is 32 lowercase hex; host/peer/namespace/root are derived, never arbitrary CLI targets. Bind both ifindices, MACs and namespace device/inode. Deadline is 1–120 seconds.
+- Request schema rejects unknown/duplicate fields. Run ID is 32 lowercase hex; host/peer/namespace/root are derived, never arbitrary CLI targets. Bind both ifindices, MACs and namespace device/inode. Deadline is 1–120 seconds after ready.
 - Require root-owned private generated root, regular single-link bounded inputs, no symlink components, dedicated namespace containing only loopback and the peer, reciprocal veth indices, no masters or addresses. Both veth ends must be down before load/attach. The harness alone controls their up/down state.
-- Read the payload once; verify manifest, compiled commit/digest and offline ELF against those same bytes before any BPF creation. CI provenance is established through the trusted Actions run/download and digest-bound loader, not a self-declared manifest.
+- Read a bounded payload buffer and verify its compiled digest and offline ELF before any BPF creation. Reuse the existing separate manifest verifier; pass the same verified buffer directly to Aya rather than reopening a path for loading. CI provenance is established through the trusted Actions run/download and digest-bound loader, not a self-declared manifest.
 - Require empty native/generic XDP, absent clsact and no TC filters. Generic XDP uses atomic no-replace. TC uses exclusive create with explicit priority/handle. Existing safe detach checks exact program identities; TC query/delete is not an atomic kernel compare-and-delete and exclusive generated-interface control remains necessary.
 - Initialize the ordinary 16 stats keys and fixed config in private Maps for all profiles. No daemon sampler runs in these attribution trials. This differs from end-to-end daemon measurements and must be labeled.
 - Record loaded program and Map IDs before attach; retain lease on incomplete cleanup or process crash. Normal stop, EOF, malformed input, deadline and termination signals run reverse cleanup. SIGKILL/power loss cannot promise automatic cleanup; do not automatically replay a stale lease.
@@ -25,24 +25,24 @@
 
 Files: `xtask/src/diagnostic_session.rs`, `xtask/tests/diagnostic_session.rs`, `xtask/src/lib.rs`, CI.
 
-- [ ] RED on GitHub: strict schema and identity cases; success sequence; fault at every forward step; reverse cleanup continues after an error; final lease closure only after all cleanup succeeds.
-- [ ] GREEN: `validate_request(bytes) -> Result<DiagnosticRequest, DiagnosticSessionError>` and `run_session(&mut impl DiagnosticBackend)`. Backend methods receive explicit `SessionStep`; state belongs to the runtime adapter, not to caller-supplied cleanup IDs.
-- [ ] Full CI verification and inline review.
+- [x] RED: run `37018726946`, Userspace job `110876307193`: four expected lifecycle/request failures. Additional namespace-binding RED in run `37021519560`, job `110885999444`: wrong peer namespace accepted before the new guard.
+- [x] GREEN: `validate_request(bytes) -> Result<DiagnosticRequest, DiagnosticSessionError>` and `run_session(&mut impl DiagnosticBackend)`. Five tests cover strict inputs, namespace binding, every forward fault, reverse cleanup continuation and retained leases.
+- [x] Full CI and inline review: code `34c152e517b7a77f90655a0f20d343a323f87485`, run `37021840057`, attempt 2, all five jobs succeeded. Attempt 1's Bundle checkout failed certificate verification before compilation; retry retained TLS verification. No ordinary runtime, eBPF hot-path or ABI changes. Only three dependency edges to already locked packages were added.
 
 ## Task 2: Separate runtime and artifact
 
 Files: `xtask/src/diagnostic_runtime.rs`, `xtask/src/bin/diagnostic.rs`, Cargo manifests/lock, CI, real-object integration tests.
 
-- [ ] Implement validated-byte identity API; runtime validates fixed generated context and exclusive lease, loads exact bytes and records identities before hook mutation.
-- [ ] Implement XDP/TC attach, private Map initialization, ready/control deadline and precise reverse cleanup. Check each current interface/namespace identity before mutation and cleanup.
-- [ ] Build a separate MUSL diagnostic executable with compiled four-profile SHA256 allowlist. Upload separately; do not change the ordinary ten-file bundle.
-- [ ] GitHub tests cover real-object rejection before kernel load; privileged generated-veth tests cover all profiles, stop/EOF/deadline and retained foreign state.
+- [x] Reused the manifest verifier and checked the immutable load buffer against the compiled digest/ELF contract; no second load-by-path operation. Fixed generated context and exclusive lease precede hook mutation.
+- [x] XDP/TC attach, private Map initialization, ready/control deadline and precise reverse cleanup. Fresh interface/namespace identity checks precede mutation and cleanup; the namespace-ID binding discovered during review is required, not inferred from peer ifindices.
+- [x] Separate MUSL executable with compiled four-profile SHA256 allowlist, artifact ID `11232898895`; executable SHA256 `a328afbe677831428fa0b231be900bdf0546007d4dffef9428c70b76006cb6ea`. Four-profile artifact ID `11233467575`; ordinary bundle ID `11233293502`, unchanged inventory.
+- [x] Runtime RED: run `37019303206`, eBPF job `110877946617`, six expected not-implemented failures. GREEN: run `37021840057`, eBPF attempt-1 job `110887009781`: seven tests passed, including four actual profiles with bidirectional packet/byte counts, stop/EOF/deadline/signal, changed bytes, foreign lease and foreign TC retention. Feature-enabled Clippy also passed. The signal fixture keeps stdin open so EOF cannot race the signal being tested.
 
 ## Task 3: Authorized node measurements
 
 Files: isolated diagnostic host harness and `docs/performance-diagnostics-2026-10-02.md`.
 
-- [ ] Download exact full-green artifacts and verify GitHub commit/digests. Recheck ostack7 current state and coexistence prerequisites.
-- [ ] Run correctness/cleanup smoke before performance. If any check fails, stop and retain evidence.
-- [ ] Measure baseline plus four layers, five rotating-order repetitions, same bounded sender/corpus and per-generated-port LLDP guard. Record raw directions, packet/byte accounting, drops/errors, profile and loaded IDs.
-- [ ] Compare before/after network and enumerable BPF identities, exact cleanup and LLDP restoration; report scope limitations and paired ratios, not production readiness.
+- [x] Exact full-green artifacts downloaded and identities checked. Current ostack7 prechecks passed without changes to existing attachments.
+- [x] Five-layer smoke run `70b3623c6f254b0da6e91f1863669806`: exact forwarding and counter semantics, zero drops/errors, complete cleanup and LLDP restoration. Report SHA256 `36986d91f06e4c3dac848eff2b9d0ec677704846a5c5776d53e347dcee675069`. Excluded from repeated measurement statistics.
+- [x] Run `ec9eac972fa34da998a6d01a52910264`: baseline plus four layers, five rotating-order repetitions, same bounded sender/corpus and per-generated-port LLDP guard. All 25 trials retained; raw directions, packet/byte accounting, drops/errors, profile and loaded IDs recorded. Report SHA256 `700f2f90ad47c1393122fb1371f05143799eb804f814bad692054ec58abc786a`.
+- [x] Before/after measured network and enumerable BPF identities match, exact cleanup and LLDP restoration complete, generated residue zero. All trials have exact packets/bytes and zero observed drops/errors. Relative median throughput: hooks 94.0%, config 91.9%, counters 91.9%, fingerprints 87.4%. [Evidence and limitations](../../performance-diagnostics-2026-10-02.md#completed-isolated-five-layer-attribution) include paired ratios and non-exhaustive global BPF-link coverage. This completes the diagnostic increment, not hot-path optimization or production readiness.

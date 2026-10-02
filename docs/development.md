@@ -384,7 +384,8 @@ GitHub runs only the self-contained static/unit safety tests for this harness. C
 The build-tool-only diagnostic path is separate from the product bundle. Its four
 profiles are `hooks_only`, `config_lookup`, `counters` and `fingerprints`. They use
 distinct two-program inventories and the existing six-Map ABI. No production CLI
-flag or diagnostic loader is introduced. Compilation and these integration tests
+flag is introduced; the diagnostic loader is a separate required-feature binary.
+Compilation and these integration tests
 run only on GitHub, never on the development PC or a test server.
 
 ```text
@@ -396,8 +397,10 @@ cargo xtask verify-diagnostic-elf --object <NEW_DIR>/l2-loop-diag-hooks-only.o -
 The builder refuses an existing destination and uses `.artifacts/diagnostic-target`
 instead of the ordinary eBPF target directory. CI publishes four two-file profile
 directories under `l2-loop-layered-diagnostics-<commit>`, independently of the ordinary
-ten-file release bundle. Partial or failed outputs are not uploaded as diagnostic
-artifacts. Do not point the ordinary daemon at these objects: its program contract
+ten-file release bundle. Only completely built and offline-verified profile
+outputs are uploaded. An upload alone is not acceptance: a later runtime test or
+bundle job can still fail, so node use requires the complete successful run.
+Do not point the ordinary daemon at these objects: its program contract
 intentionally rejects them.
 
 ELF inspection checks actual names/types, Map layout, fixed helper strata and entry
@@ -411,9 +414,56 @@ layout and support names to exercise rejection.
 Neither manifest hashing nor this offline inspection proves trusted CI provenance,
 kernel-verifier acceptance, packet behavior on a host, or attachment authorization.
 Both verifier outputs retain `load_authorized: false` and
-`deployment_gate_evidence: false`. The future acceptance-only loader and bounded
-paired measurements remain separate work; no diagnostic artifact is production
-deployment evidence.
+`deployment_gate_evidence: false`. No diagnostic artifact is production deployment
+evidence.
+
+### Acceptance-only diagnostic loader
+
+`l2-loop-diagnostic` is built only with xtask's `diagnostic-runtime` feature. CI
+embeds its exact commit and four object SHA256 values and publishes it separately
+as `l2-loop-diagnostic-runtime-<commit>`. A build without these bindings refuses
+loading. Neither the normal daemon nor the ten-file product bundle gains this
+capability. Obtain the executable and objects from the same complete successful
+Actions run, not from an intermediate artifact of a failed run.
+
+The only invocation is `l2-loop-diagnostic --run-id <32-lowercase-hex>`. A separately
+authorized harness must create the private root `/run/l2-loop/accept/<run-id>`,
+`diagnostic-request.json` and `object/` containing the exact profile object and
+`diagnostic.json`. The loader does not create or delete network interfaces or
+namespaces and does not control LLDP. It derives `l2h<first-10>`, `l2n<first-10>`
+and `l2ns-<first-12>`; there are no arbitrary interface/root overrides.
+
+The strict request has `schema_version: 1`, `run_id`, `profile`, `ifindex`,
+`peer_ifindex`, `host_mac`, `peer_mac`, `namespace_device`, `namespace_inode` and
+`duration_seconds` (1–120 seconds after ready). Both ends must be down, addressless
+veths without masters; the namespace must contain only loopback and the peer.
+Reciprocal peer indices are insufficient: the host's kernel `link_netnsid` must
+also resolve to the exact generated namespace. Root/namespace identities are
+rechecked before attachment and cleanup. Symlinks, non-private or non-root-owned context,
+unknown identity, occupied XDP, pre-existing clsact or TC filters cause refusal.
+
+The exact bounded payload buffer is checked against the compiled SHA256 and
+offline ELF contract and is then passed directly to Aya. The existing declaration
+verifier separately validates the manifest. Fresh Maps have no pins; all profiles
+receive the same 16 initialized statistics keys and fixed interface config. An
+exclusive, private `diagnostic-lease.json` records program IDs/tag, six Map IDs,
+request, artifact identity and fixed TC slot before hook attachment.
+
+The loader emits a `ready` JSON line, waits for exactly `stop\n`, EOF, SIGTERM,
+SIGINT or its deadline, and performs TC → XDP → owned FD cleanup. A final `cleaned`
+line includes stop reason and cumulative hook totals. Invalid control input also
+triggers cleanup but exits unsuccessfully. A foreign filter is never deleted and
+a nonempty clsact is never cleared; incomplete cleanup retains the lease and
+fails. SIGKILL/power loss can leave hooks and a lease: do not blindly delete the
+lease or replay it. Inspect current kernel identities and obtain scoped recovery
+approval. TC uses a fresh identity check followed by delete, not an atomic kernel
+compare-and-delete; exclusive control of the generated pair remains required.
+
+These trials run no daemon/background sampler and are attribution experiments,
+not a replacement for end-to-end or physical-interface performance gates. The
+outer harness must enforce host coexistence, bounded traffic, before/after state
+comparison, precise generated-resource cleanup and any separately authorized
+per-generated-port LLDP exclusion.
 
 ## Review evidence
 
