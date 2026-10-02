@@ -106,6 +106,9 @@ jobs:
       - name: Test diagnostic identity boundary
         run: cargo test --locked --package xtask --test diagnostic_identity
 
+      - name: Test diagnostic session boundary
+        run: cargo test --locked --package xtask --test diagnostic_session
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
