@@ -53,7 +53,7 @@
 
 Tasks 2 and 3 are conditional on Task 1 verification and external safety state; no performance improvement is claimed by adding instrumentation alone.
 
-Current checkpoint: the corrected sender's 16 behavioral tests passed in GitHub run `37001826503`. Task 2 stopped before eBPF attachment: no-eBPF baseline diagnostics and an idle capture demonstrate unsolicited LLDP on the generated host veth. Do not mutate the host LLDP service under the current scope. See [the evidence and authorization boundary](../../performance-diagnostics-2026-10-02.md).
+Current checkpoint: the corrected sender's 16 behavioral tests passed in GitHub run `37001826503`. Unsolicited LLDP was demonstrated on the generated host veth. The user subsequently authorized a temporary transmit exclusion for only each new test veth, with original-status restoration; no global configuration, service restart, persistent setting or existing-port mutation is allowed. A scoped idle validation succeeded; complete the three-mode diagnostic next. See [the evidence and authorization boundary](../../performance-diagnostics-2026-10-02.md).
 
 ## Diagnostic corpus correction
 
