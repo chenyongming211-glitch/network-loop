@@ -78,11 +78,21 @@ fn unicast_mac(value: &str) -> bool {
 
 /// Namespace-relative peer ifindices alone do not identify the peer namespace.
 pub fn namespace_binding_matches(
-    _host: &serde_json::Value,
-    _namespaces: &serde_json::Value,
-    _expected_name: &str,
+    host: &serde_json::Value,
+    namespaces: &serde_json::Value,
+    expected_name: &str,
 ) -> bool {
-    true
+    let Some(id) = host["link_netnsid"].as_u64() else {
+        return false;
+    };
+    let Some(namespaces) = namespaces.as_array() else {
+        return false;
+    };
+    let matches = namespaces
+        .iter()
+        .filter(|namespace| namespace["name"] == expected_name)
+        .collect::<Vec<_>>();
+    matches.len() == 1 && matches[0]["id"].as_u64() == Some(id)
 }
 
 pub fn run_session(backend: &mut impl DiagnosticBackend) -> Result<(), DiagnosticSessionError> {

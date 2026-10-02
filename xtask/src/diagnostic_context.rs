@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use crate::{
     diagnostic::lower_hex,
-    diagnostic_session::{DiagnosticRequest, validate_request},
+    diagnostic_session::{DiagnosticRequest, namespace_binding_matches, validate_request},
 };
 
 pub(crate) fn checked<T, E: std::fmt::Debug>(result: Result<T, E>) -> Result<T, String> {
@@ -167,6 +167,10 @@ impl DiagnosticContext {
             .iter()
             .find(|p| p["ifname"] == self.peer)
             .ok_or("DX_CONTEXT: peer absent")?;
+        require(
+            namespace_binding_matches(&hosts[0], &ip(&["-j", "netns", "list"])?, &self.namespace),
+            "veth peer is not bound to the generated namespace",
+        )?;
         validate_link(
             &hosts[0],
             &self.host,
