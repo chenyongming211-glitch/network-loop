@@ -189,6 +189,22 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Build separate diagnostic loader with exact object allowlist
+        env:
+          L2_DIAGNOSTIC_COMMIT: ${{ github.sha }}
+        run: |
+          export L2_DIAGNOSTIC_HOOKS=$(sha256sum .artifacts/layered-diagnostics/hooks_only/*.o | cut -d ' ' -f 1)
+          export L2_DIAGNOSTIC_CONFIG=$(sha256sum .artifacts/layered-diagnostics/config_lookup/*.o | cut -d ' ' -f 1)
+          export L2_DIAGNOSTIC_COUNTERS=$(sha256sum .artifacts/layered-diagnostics/counters/*.o | cut -d ' ' -f 1)
+          export L2_DIAGNOSTIC_FULL=$(sha256sum .artifacts/layered-diagnostics/fingerprints/*.o | cut -d ' ' -f 1)
+          cargo build --locked --package xtask --features diagnostic-runtime --bin l2-loop-diagnostic
+
+      - name: Test real isolated diagnostic loader and precise rollback
+        run: >-
+          sudo env L2_DIAGNOSTIC_BINARY="${{ github.workspace }}/target/debug/l2-loop-diagnostic"
+          L2_DIAGNOSTIC_OBJECTS="${{ github.workspace }}/.artifacts/layered-diagnostics"
+          python3 -m unittest discover -s scripts/tests -p 'test_diagnostic_runtime.py' -v
+
       - name: Upload eBPF object for bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:

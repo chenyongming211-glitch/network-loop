@@ -1012,8 +1012,11 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "aya",
  "aya-obj",
+ "l2-loop-agent",
  "l2-loop-common",
+ "nix",
  "serde",
  "serde_json",
  "sha2",

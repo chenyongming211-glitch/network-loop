@@ -4,10 +4,22 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+default-run = "xtask"
+
+[features]
+diagnostic-runtime = ["dep:aya", "dep:l2-loop-agent", "dep:nix"]
+
+[[bin]]
+name = "l2-loop-diagnostic"
+path = "src/bin/diagnostic.rs"
+required-features = ["diagnostic-runtime"]
 
 [dependencies]
+aya = { workspace = true, optional = true }
 aya-obj = "=0.3.0"
+l2-loop-agent = { path = "../crates/l2-loop-agent", optional = true }
 l2-loop-common = { path = "../crates/l2-loop-common" }
+nix = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sha2.workspace = true
