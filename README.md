@@ -178,8 +178,9 @@ See [development.md](docs/development.md) for the CI workflow.
 
 Performance optimization is in the measurement/attribution stage. A bounded persistent
 diagnostic sender is available. Unsolicited LLDP on the generated veth was isolated through
-a separately authorized, reversible per-generated-port adjustment and idle validation;
-the long-window three-mode comparison remains to be completed.
+a separately authorized, reversible per-generated-port adjustment. The five-trial,
+three-mode comparison completed with zero drops/errors; diagnostic throughput was
+92.7% of baseline for pass-through and 87.3% for steady-state observe.
 No throughput gain or production readiness is claimed; the original 95%/90% gate is
 unchanged. See the [2026-10-02 diagnostic evidence](docs/performance-diagnostics-2026-10-02.md).
 

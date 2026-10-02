@@ -38,9 +38,9 @@
 
 - [x] Bind the sender digest and exact green source revision in the report; bind the product artifact separately when product bytes are unchanged.
 - [x] Reuse the existing generated-veth transaction and snapshot phases. Do not install or invoke systemd.
-- [ ] Keep each daemon alive for at least 75 seconds before a measured steady-state observe run. Record observe/status before and after to prove windows and baseline state rather than assuming readiness from elapsed time.
-- [ ] Compare baseline/pass-through/observe using the same mixed corpus and retain all results; selected/unselected comparisons are separate diagnostics, not substitutes for the formal gate.
-- [ ] Record forwarding/drop/error deltas, actual sample selection, bounded sender timing, daemon and relevant system CPU observations with their distinct meanings. Stop on changed foreign identity or failed cleanup.
+- [x] Keep each daemon alive for at least 75 seconds before a measured steady-state observe run. All five observe measurements proved ready windows and baseline state. Independent run `3fa8e841bacf4f01b3ab68ceba4dca2a` recorded and reconciled real observe/status before and after traffic; it is excluded from the five-trial statistics.
+- [x] Compare baseline/pass-through/observe using the same mixed corpus and retain all results; run `b53848788514430cb36320ff8bb44745` completed all 15 trials. Selected/unselected comparisons remain separate diagnostics, not substitutes for the formal gate.
+- [x] Record forwarding/drop/error deltas, actual sample selection, bounded sender timing, daemon and relevant system CPU observations with their distinct meanings. All 15 trials passed forwarding and zero-drop/error checks; measured identity and LLDP state restored, generated residue zero.
 
 ## Task 3: Evidence-directed optimization and regression
 
@@ -53,7 +53,7 @@
 
 Tasks 2 and 3 are conditional on Task 1 verification and external safety state; no performance improvement is claimed by adding instrumentation alone.
 
-Current checkpoint: the corrected sender's 16 behavioral tests passed in GitHub run `37001826503`. Unsolicited LLDP was demonstrated on the generated host veth. The user subsequently authorized a temporary transmit exclusion for only each new test veth, with original-status restoration; no global configuration, service restart, persistent setting or existing-port mutation is allowed. A scoped idle validation succeeded; complete the three-mode diagnostic next. See [the evidence and authorization boundary](../../performance-diagnostics-2026-10-02.md).
+Current checkpoint: Tasks 1 and 2 are complete. The corrected sender's 16 behavioral tests passed in GitHub run `37001826503`; later documentation-only run `37008596976` also passed all CI jobs. The separately authorized generated-port-only LLDP exclusion was validated and restored. All 15 diagnostic trials completed: median pass-through 92.7%, steady-state observe 87.3% of baseline, with no product-code change. Independent observe/status consistency verification passed. No global configuration, service restart, persistent setting or existing-port mutation is allowed. Next is Task 3 layered attribution before selecting a hot-path change. See [the evidence and authorization boundary](../../performance-diagnostics-2026-10-02.md).
 
 ## Diagnostic corpus correction
 
