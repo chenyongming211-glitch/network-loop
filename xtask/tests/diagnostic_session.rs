@@ -1,5 +1,5 @@
-use xtask::diagnostic_session::{DiagnosticBackend, SessionStep, run_session, validate_request};
 use SessionStep::*;
+use xtask::diagnostic_session::{DiagnosticBackend, SessionStep, run_session, validate_request};
 
 fn request() -> serde_json::Value {
     serde_json::json!({"schema_version":1,"run_id":"0123456789abcdef0123456789abcdef",
@@ -26,7 +26,10 @@ fn accepts_only_bounded_generated_identity() {
     ] {
         let mut value_request = request();
         value_request[key] = value;
-        assert!(validate_request(&serde_json::to_vec(&value_request).unwrap()).is_err(), "{key}");
+        assert!(
+            validate_request(&serde_json::to_vec(&value_request).unwrap()).is_err(),
+            "{key}"
+        );
     }
     assert!(validate_request(br#"{"schema_version":1,"schema_version":1}"#).is_err());
     assert!(validate_request(&vec![b' '; 65537]).is_err());
@@ -40,33 +43,56 @@ struct KernelBoundary {
 impl DiagnosticBackend for KernelBoundary {
     fn perform(&mut self, step: SessionStep) -> Result<(), String> {
         self.calls.push(step);
-        if self.faults.contains(&step) { Err(format!("{step:?}")) } else { Ok(()) }
+        if self.faults.contains(&step) {
+            Err(format!("{step:?}"))
+        } else {
+            Ok(())
+        }
     }
 }
 
 #[test]
 fn successful_session_cleans_in_reverse_before_finishing_lease() {
-    let mut io = KernelBoundary { faults: vec![], calls: vec![] };
+    let mut io = KernelBoundary {
+        faults: vec![],
+        calls: vec![],
+    };
     assert_eq!(run_session(&mut io), Ok(()));
-    assert_eq!(io.calls, [Prepare, AttachXdp, AttachTc, Verify, Activate, Observe, DetachTc, DetachXdp, Release, Finish]);
+    assert_eq!(
+        io.calls,
+        [
+            Prepare, AttachXdp, AttachTc, Verify, Activate, Observe, DetachTc, DetachXdp, Release,
+            Finish
+        ]
+    );
 }
 
 #[test]
 fn every_forward_fault_stops_forward_work_and_attempts_all_precise_cleanup() {
     let forward = [Prepare, AttachXdp, AttachTc, Verify, Activate, Observe];
     for (index, fault) in forward.iter().enumerate() {
-        let mut io = KernelBoundary { faults: vec![*fault], calls: vec![] };
+        let mut io = KernelBoundary {
+            faults: vec![*fault],
+            calls: vec![],
+        };
         let error = run_session(&mut io).unwrap_err();
         assert_eq!(error.primary, Some(format!("{fault:?}")));
         assert!(error.cleanup.is_empty());
-        let expected = forward[..=index].iter().copied().chain([DetachTc, DetachXdp, Release, Finish]).collect::<Vec<_>>();
+        let expected = forward[..=index]
+            .iter()
+            .copied()
+            .chain([DetachTc, DetachXdp, Release, Finish])
+            .collect::<Vec<_>>();
         assert_eq!(io.calls, expected);
     }
 }
 
 #[test]
 fn cleanup_faults_are_all_reported_and_lease_is_retained() {
-    let mut io = KernelBoundary { faults: vec![Observe, DetachTc, DetachXdp, Release], calls: vec![] };
+    let mut io = KernelBoundary {
+        faults: vec![Observe, DetachTc, DetachXdp, Release],
+        calls: vec![],
+    };
     let error = run_session(&mut io).unwrap_err();
     assert_eq!(error.primary.as_deref(), Some("Observe"));
     assert_eq!(error.cleanup, ["DetachTc", "DetachXdp", "Release"]);
