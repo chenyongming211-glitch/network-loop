@@ -203,3 +203,12 @@ No hot-path optimization gain is claimed. See the
 [artifact plan](docs/superpowers/plans/2026-10-02-layered-diagnostic-objects.md)
 and [build-tool usage](docs/development.md#offline-layered-diagnostic-artifacts).
 
+Follow-up fingerprint attribution completed 20 selected/unselected trials and two
+30-trial same-context optimization comparisons. Both equivalent hash-prefilter
+candidates were rejected for insufficient/negative measured benefit; the original
+product hot path is restored. An independent real-kernel 192-key fingerprint
+regression test is retained. All three runs restored measured identity and cleaned
+up generated resources. No performance gain or new formal-gate pass is claimed;
+the next step is finer selected-only cost attribution and measurement-noise control.
+See the [candidate results and rejection decisions](docs/performance-diagnostics-2026-10-02.md#follow-up-selected-versus-unselected-fingerprint-cost).
+

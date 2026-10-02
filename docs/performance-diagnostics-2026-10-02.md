@@ -2,6 +2,10 @@
 
 ## Outcome
 
+Latest checkpoint (completed 2026-10-03 local time): the 20-trial selected/unselected attribution and two 30-trial same-context optimization comparisons are complete. Both semantically equivalent prefilter candidates were rejected: neither demonstrated a robust benefit across the three corpora. The original product hot path is restored exactly; the new eight-case real-kernel loader suite, including 192-key fingerprint Map readback, is retained. **No product speedup is claimed.** All three new node transactions completed exact forwarding, zero observed drops/errors, measured identity restoration, generated-port LLDP restoration and cleanup. See the [follow-up measurements](#follow-up-selected-versus-unselected-fingerprint-cost).
+
+### Earlier diagnostic checkpoint
+
 The bounded persistent traffic sender is implemented and its 16 behavioral tests passed on GitHub. **No product throughput improvement is claimed.** After a separately authorized, reversible generated-port-only LLDP transmit exclusion, all 15 steady-state diagnostic trials completed with exact forwarding, zero drops/errors and cleanup. Relative to the no-attachment baseline, median diagnostic throughput was **92.7% for pass-through and 87.3% for observe**. No daemon-wide LLDP setting, physical interface, or foreign eBPF attachment was changed.
 
 The existing formal gate remains unchanged: five trials, pass-through at least 950 permille and observe at least 900 permille of baseline, with zero observed drops/errors and exact cleanup. Its prior isolated result was 940/905 permille respectively; the pass-through gate remains failed. New diagnostics neither replace that result nor authorize installation or a physical canary.
@@ -119,3 +123,62 @@ Pure hooks account for an approximately 6% difference from the unattached baseli
 The next priority is to separate the fingerprint path's per-packet prefix/hash work from selected-only clock and Map operations using selected/unselected corpora. The existing hash implementation is already unrolled, and the selection decision follows hash computation; blindly recommending loop unrolling would not address the current code. Choose an equivalent, correctness-tested optimization only after narrowing that cost, without changing sampling, fingerprint identity, counter or ownership semantics.
 
 **No product hot-path optimization or throughput gain has been delivered by this diagnostic increment.** The original formal gate remains failed and unchanged. Repeated synthetic ARP on a shared host without CPU affinity does not establish physical/native-XDP performance, realistic LRU churn, VLAN/offload behavior or production readiness.
+
+## Follow-up: selected versus unselected fingerprint cost
+
+Run `8cec068663784925bbe4fbd6e46ddaf0` used the same verified `34c152e517b7a77f90655a0f20d343a323f87485` objects/loader on ostack7. It retained all 20 trials: five rotating-order repetitions of counters/full fingerprints, each with selected and unselected corpora. All measured windows completed their five-second duration; sender records prove selection was exactly 100% or 0% respectively. All trials reconciled packets and bytes, observed zero drops/errors and completed precise cleanup, measured identity restoration and generated-port/global LLDP restoration. No daemon, production attachment or host-wide profiling was enabled.
+
+| Corpus | Counters median PPS | Full fingerprint median PPS | Ratio of medians | Median paired ratio |
+| --- | ---: | ---: | ---: | ---: |
+| Unselected | 289,141 | 280,952 | 97.17% | 97.62% |
+| Selected | 290,780 | 274,106 | 94.27% | 94.46% |
+
+The unselected path never reaches the fingerprint clock/Map operations, so its difference includes prefix/hash/selection and generated-code effects. The selected path adds metadata construction, time reading, Map lookup/update and related code; **this does not isolate Map time alone**, nor can these throughput percentages simply be subtracted into per-operation CPU costs. Corpus cardinality also differs (720 unselected versus 48 selected frames per direction); each comparison uses its own counters control. Repeated keys exercise a warm Map rather than eviction-heavy LRU churn.
+
+Raw report `.artifacts/ostack7-fingerprint-8cec068663784925bbe4fbd6e46ddaf0.json` SHA256: `92c696575eef6afeb63d6e17731438b2f6f3794cba56239674b5694a2ac6ddd7`. Task-local controller `.artifacts/ostack7-fingerprint-run.py` SHA256: `efa6694607ded1c70fdd327b22cb6c0e86a720b1c7c4c8da5c382d6b4864eaae`. Reports/controllers remain local ignored evidence, not production commands.
+
+### Rejected candidate: serial low-four-bit prefilter
+
+The fixed selection predicate uses only four low hash bits. FNV modulo 16 has basis 5 and multiplier 3, so a wrapping 32-bit screen can preserve the exact selection decision before computing the original full-width hash for selected frames. Neither sample membership, full fingerprint identity, metadata, counters, Map ABI nor ownership rules may change. This is a candidate, not yet a demonstrated optimization: selected-heavy traffic performs additional work and must be measured alongside mixed and unselected traffic.
+
+Four new independent-oracle equivalence tests failed as intended at RED commit `3ab3db700f3633dbcac54124ac882dcdd0426a9c`, run `37026723306`, Userspace job `110903116088`. The GREEN implementation's tests passed in run `37027017795`, but that candidate failed eBPF compilation because keeping prefix bytes across two passes exceeded the BPF stack bound. Explicit bounded volatile byte reads address that register-lifetime issue without increasing stack limits or adding a scratch Map. Two old source-spelling assertions were replaced by the independent equivalence, actual ELF and kernel Map regressions rather than renamed textual checks.
+
+Candidate `0b264d42b3825c86d744ec520683f37b5ca53002` passed all five jobs in [run 37028222999](https://github.com/chenyongming211-glitch/network-loop/actions/runs/37028222999). Four equivalence tests and eight real-loader tests passed, including exact 192-key fingerprint readback for untagged/single-VLAN frames in both directions, insertion and repeat updates. The separate runtime artifact is `11236292171`, objects `11236571376`, ordinary bundle `11236257284`; executable SHA256 `5e3fcec60838d6f85aef8894473a6c573bab39b80aac1b009c25b78dfa37e6f9`. Only the complete successful run is eligible for node use.
+
+The GitHub-only kernel fixture reads only the Map ID returned by its still-running generated-veth loader and checks type, ID, ABI and capacity. It compares selected keys, metadata, timestamps and repeated-packet values to an independent FNV oracle. Its read-only syscall layouts follow the [Linux BPF UAPI](https://github.com/torvalds/linux/blob/v6.6/include/uapi/linux/bpf.h) and [x86-64 syscall table](https://github.com/torvalds/linux/blob/v6.6/arch/x86/entry/syscalls/syscall_64.tbl). No product diagnostic output or arbitrary Map-reading command is added.
+
+The same-context A/B run `79228842512c4baebf54bba510194e31` retained 30 trials, five per version/corpus, alternating the original `34c152e` and candidate `0b264d4` on the same generated endpoints. Every trial had exact packets/bytes and zero observed drops/errors; final measured identity and LLDP state matched and cleanup completed.
+
+| Corpus | Original median PPS | Serial-screen median PPS | Ratio of medians | Median paired change |
+| --- | ---: | ---: | ---: | ---: |
+| Mixed | 276,674 | 279,776 | 101.12% | +1.27% |
+| Unselected | 276,461 | 279,658 | 101.16% | −0.12% |
+| Selected | 271,590 | 265,149 | 97.63% | −1.97% |
+
+The selected case regressed in all five pairs. A small noisy mixed change does not justify that cost, especially since repeated selected frames can produce selected-heavy traffic. **The serial candidate is rejected, not counted as a shipped performance improvement.** Raw report SHA256: `e6dab5ad49cc0aac532748638eb7c0119feac62afc64aadf680a0ec24936e835`. Controller `.artifacts/ostack7-fingerprint-ab-run.py` SHA256: `bbdae93f5a64ebf14de1b1559b714c2e9038812a4bea470181a4770b71c66eeb`.
+
+### Rejected candidate: parallel necessary-condition screen
+
+Rather than performing another serial multiply chain, this candidate computes the full FNV hash's two low bits through parallel XOR folding. For the fixed 62 input bytes (two big-endian length bytes and the 60-byte prefix), the modulo-4 recurrence can be reduced to parity of bit 0/bit 1 over all bytes and bit 0 over odd zero-based positions. Failing that necessary condition can never discard a selected hash. Passing packets still compute the original complete hash and apply the original four-bit predicate; this is **not** a change to a one-in-four sampling policy.
+
+The new exact-low-two-bit test failed as expected in run `37029877103`, Userspace job `110913734721`, at RED `203672450078813c35fbb3c8e68e016028f82dfd` (one expected failure, four existing equivalence tests passed). Implementation `5860479c0081dd6f686edf117e7f808d9467e22a` passed all five equivalence tests and all eight real-kernel loader tests in run `37030239435`; a formatting-only Userspace failure prevented that run from qualifying for node use. Formatting correction `21146bc2e75596584b46613356009c5061e6303e` passed all five jobs in [run 37030847384](https://github.com/chenyongming211-glitch/network-loop/actions/runs/37030847384).
+
+The exact candidate runtime artifact is `11237403778`, four-object artifact `11237002954`, and ordinary bundle `11237223922`. The diagnostic executable SHA256 is `778b57824ac016aff1117fb130c423ae1841c7adb94852273e169a1048773bdf`. The same A/B controller and original `34c152e` objects were used.
+
+Run `e8944d95d23a4fdea78e4251f2c603c2` retained all 30 trials, with five-second measurement windows in each direction. No trial was removed as an outlier. Original and candidate shared the same generated endpoints and corpus within this run; candidate A and B ran in separate transactions and must not be compared as a directly paired experiment.
+
+| Corpus | Original median PPS | Parallel-screen median PPS | Ratio of medians | Median paired change |
+| --- | ---: | ---: | ---: | ---: |
+| Mixed | 269,238 | 273,315 | 101.51% | +0.83% |
+| Unselected | 275,385 | 270,767 | 98.32% | −1.23% |
+| Selected | 267,100 | 265,493 | 99.40% | −0.37% |
+
+Unselected traffic regressed in four of five pairs. Mixed paired ratios ranged from 97.03% to 114.04%; selected ratios from 96.81% to 104.95%. This shared-host variation and the absence of a consistent unselected benefit do not justify retaining the additional screen. **The parallel candidate is also rejected.** All packet/byte totals reconciled, all observed drop/error deltas were zero, and measured identity, LLDP state and generated-resource cleanup were restored. Raw report `.artifacts/ostack7-fingerprint-ab-e8944d95d23a4fdea78e4251f2c603c2.json` SHA256: `0505b459df2f9c3422e3875d2391978f005cf1b3a3e43001838715e78adc30a4`.
+
+### Retained result and next boundary
+
+The product hash/program source and pre-existing source-contract tests were restored byte-for-byte in Git to the pre-experiment `541d1aa` versions. Experimental prefilter helpers, their CI step and their tests were removed from the final tree; both candidates, their RED/GREEN evidence and their code remain recoverable in Git history. The independent real-kernel fingerprint readback fixture remains as a regression test for the original path.
+
+There is no retained hot-path change to submit to a new formal performance gate. Therefore this increment does **not** rerun or supersede the original failed 940/905-permille gate, and Task 3's accepted-optimization/formal-regression milestone remains open. The prepared task-local formal-regression controller was not executed. No new installation, service operation or physical-interface test was performed.
+
+Next, improve attribution rather than adding another speculative hash screen: use the same selected corpus to separate hash-only work, metadata/time work, and actual fingerprint Map work in acceptance-only objects, retaining the exact ordinary path as the control. Review the generated instructions and measurement variability before selecting another code change. Existing observations identify a combined selected-only cost, not Map lookup versus update costs individually; warm repeated keys do not establish insertion/eviction-heavy performance. Any later accepted optimization still requires independent equivalence tests, complete GitHub CI, paired isolated measurements and the unchanged formal gate. Production readiness remains unproven.

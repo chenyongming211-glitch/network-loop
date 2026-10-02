@@ -47,9 +47,11 @@
 **Files selected by evidence:** `ebpf/l2-loop-ebpf/src/programs.rs`, `ebpf/l2-loop-ebpf/src/maps.rs`, shared ABI/readers only if a reviewed Map change is justified.
 
 - [x] Complete stage-level attribution before selecting a code change. The isolated-only hooks/config/count/fingerprint comparison retained all 25 trials; fingerprints are slower than counters in every round. Next narrow per-packet hash versus selected-only work; no individual helper is yet proved responsible. These modes do not replace the formal pass-through definition.
-- [ ] For a justified hotspot change, add failing correctness tests on GitHub before implementation; preserve generation, exact counters, fingerprint direction correlation and ownership behavior.
+- [x] For a justified hotspot change, add failing correctness tests on GitHub before implementation; preserve generation, exact counters, fingerprint direction correlation and ownership behavior. Two prefilter candidates passed independent equivalence and real-kernel tests but were rejected after the paired measurements; no optimization is retained.
 - [ ] Re-run diagnostic comparisons with paired corpora, then run the unchanged formal performance gate on the new exact artifact.
-- [ ] Report measured benefit and remaining limits. Physical/native-XDP and installation authorization remain separate gates.
+- [x] Report measured benefit and remaining limits. Neither candidate established a robust benefit, so the original product hot path is restored and the new real-kernel regression fixture is retained. Physical/native-XDP and installation authorization remain separate gates.
+
+2026-10-03 follow-up: 20 selected/unselected attribution trials and 60 A/B trials completed, with all records retained and exact cleanup. Serial candidate selected-heavy paired median was −1.97%; parallel candidate mixed/unselected/selected changes were +0.83%/−1.23%/−0.37%, with substantial shared-host variation. Both were rejected. No formal regression run was performed because no changed hot path was accepted; this milestone remains open, not 100% complete. Next separate selected-only hash, metadata/time and Map work while controlling measurement variability. Full results and exact source/artifact/report identities are in the [measurement report](../../performance-diagnostics-2026-10-02.md#follow-up-selected-versus-unselected-fingerprint-cost).
 
 Tasks 2 and 3 are conditional on Task 1 verification and external safety state; no performance improvement is claimed by adding instrumentation alone.
 
