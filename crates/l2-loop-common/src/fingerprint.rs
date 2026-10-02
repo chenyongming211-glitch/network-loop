@@ -157,9 +157,8 @@ pub fn selected_fingerprint_hash(
     macro_rules! hash_step {
         ($offset:literal) => {
             // SAFETY: same bounded immutable prefix as the screen above.
-            hash = fingerprint_hash_step(hash, unsafe {
-                core::ptr::read_volatile(&frame[$offset])
-            });
+            hash =
+                fingerprint_hash_step(hash, unsafe { core::ptr::read_volatile(&frame[$offset]) });
         };
     }
     each_prefix_byte!(hash_step);
