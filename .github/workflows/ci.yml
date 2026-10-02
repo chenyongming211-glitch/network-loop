@@ -25,6 +25,9 @@ jobs:
         shell: pwsh
         run: pwsh -NoProfile -File scripts/tests/verify-isolated-host.Tests.ps1
 
+      - name: Test bounded diagnostic traffic behavior
+        run: python3 -m unittest discover -s scripts/tests -p 'test_diagnostic_traffic.py' -v
+
       - name: Test build supply-chain policy
         shell: pwsh
         run: pwsh -NoProfile -File scripts/tests/verify-build-supply-chain.Tests.ps1
