@@ -51,8 +51,12 @@ pub fn run(run_id: &str) -> Result<(), String> {
     STOP.store(false, Ordering::Relaxed);
     // SAFETY: the handlers only perform a lock-free atomic store and never unwind.
     unsafe {
-        libc::signal(libc::SIGTERM, request_stop as libc::sighandler_t);
-        libc::signal(libc::SIGINT, request_stop as libc::sighandler_t);
+        let handler = request_stop as *const () as libc::sighandler_t;
+        require(
+            libc::signal(libc::SIGTERM, handler) != libc::SIG_ERR
+                && libc::signal(libc::SIGINT, handler) != libc::SIG_ERR,
+            "signal handler registration failed",
+        )?;
     }
     let context = DiagnosticContext::open(run_id)?;
     let mut runtime = Runtime {
