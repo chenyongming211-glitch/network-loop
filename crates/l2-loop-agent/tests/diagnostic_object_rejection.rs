@@ -1,6 +1,6 @@
 #![cfg(target_os = "linux")]
 
-use std::{fs, path::Path};
+use std::{collections::BTreeMap, fs, path::Path};
 
 use aya_obj::{Object, ProgramSection};
 use l2_loop_agent::linux::bpf_object::{
@@ -42,9 +42,15 @@ fn description(object: &Object) -> ObjectDescription {
     }
 }
 
-fn instructions(object: &Object, name: &str) -> Vec<(u8, u8, u8, i16, i32)> {
+type Instruction = (u8, u8, u8, i16, i32);
+
+fn instructions(object: &Object, name: &str) -> Vec<Instruction> {
     let key = object.programs[name].function_key();
-    object.functions[&key]
+    function_instructions(&object.functions[&key])
+}
+
+fn function_instructions(function: &aya_obj::Function) -> Vec<Instruction> {
+    function
         .instructions
         .iter()
         .map(|insn| {
@@ -56,6 +62,15 @@ fn instructions(object: &Object, name: &str) -> Vec<(u8, u8, u8, i16, i32)> {
                 insn.imm,
             )
         })
+        .collect()
+}
+
+fn support_instructions(object: &Object) -> BTreeMap<String, Vec<Instruction>> {
+    object
+        .functions
+        .values()
+        .filter(|function| !object.programs.contains_key(&function.name))
+        .map(|function| (function.name.clone(), function_instructions(function)))
         .collect()
 }
 
@@ -84,6 +99,10 @@ fn actual_diagnostics_are_rejected_by_product_contract_and_full_path_is_identica
             Err(ObjectContractError::ProgramSet)
         );
         if profile == "fingerprints" {
+            assert_eq!(
+                support_instructions(&diagnostic),
+                support_instructions(&ordinary)
+            );
             assert_eq!(
                 instructions(&diagnostic, "l2d_full_xdp"),
                 instructions(&ordinary, "l2_loop_xdp_ingress")

@@ -174,8 +174,8 @@ jobs:
 
       - name: Verify actual diagnostic objects cannot satisfy product contract
         env:
-          L2_LOOP_DIAGNOSTIC_ROOT: .artifacts/layered-diagnostics
-          L2_LOOP_ORDINARY_OBJECT: target/bpfel-unknown-none/release/l2-loop-ebpf
+          L2_LOOP_DIAGNOSTIC_ROOT: ${{ github.workspace }}/.artifacts/layered-diagnostics
+          L2_LOOP_ORDINARY_OBJECT: ${{ github.workspace }}/target/bpfel-unknown-none/release/l2-loop-ebpf
         run: cargo test --locked --package l2-loop-agent --test diagnostic_object_rejection -- --ignored
 
       - name: Upload separate diagnostic objects
