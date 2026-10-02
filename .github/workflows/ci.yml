@@ -160,6 +160,9 @@ jobs:
       - name: Build eBPF object
         run: cargo xtask build-ebpf
 
+      - name: Test isolated diagnostic artifacts without loading BPF
+        run: python3 -m unittest discover -s scripts/tests -p 'test_diagnostic_artifacts.py' -v
+
       - name: Upload eBPF object for bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
