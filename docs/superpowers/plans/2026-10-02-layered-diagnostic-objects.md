@@ -18,6 +18,7 @@
 - `cargo xtask build-diagnostic-ebpf --profile <PROFILE> --commit-sha <SHA> --output <NEW_DIR>` builds one profile with the fixed nightly, --locked, release and bpfel target into a separate target directory. Refuse preexisting output before compilation. Emit only its object and `diagnostic.json`, after ELF checks; no overwrite.
 - `cargo xtask verify-diagnostic-elf --object <PATH> --profile <PROFILE>` checks ELF64 little-endian relocatable EM_BPF, exact two names/types, six exact Map layouts/capacities/flags, bounded input, helper strata and constant pass/continue exits. It reports no kernel verification, trusted provenance, attachment authority or deployment evidence.
 - ELF checking does not replace byte-identity verification or future host ownership checks. It is a build contract, not an arbitrary bytecode security proof. No server access, BPF syscall, attach, production option or threshold change.
+- The pinned linker retains `memcpy`, `memmove` and `memset` support functions in `.text`; these are not attachable programs. Permit only these optional support names in addition to the two exact entry points, and reject every non-helper call in the entry points so the support functions are unreachable from them. This distinction was established from failed run `37015312746`, job `110864618871`, not by relaxing the attachable program set.
 - The ordinary runtime object contract must reject each actual diagnostic program set. Test it using the same validator without invoking Ebpf::load (which can create Maps).
 
 ## Task: build and inspect actual objects

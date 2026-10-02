@@ -49,8 +49,17 @@ pub fn inspect_diagnostic_elf(
     programs.sort();
     let mut expected = vec![xdp.to_owned(), tc.to_owned()];
     expected.sort();
-    if programs != expected || object.functions.len() != 2 {
+    if programs != expected {
         return Err(DiagnosticElfError("program set"));
+    }
+    // The pinned linker retains these support functions in .text. Entry points
+    // below must contain only helper calls, so none can call these functions.
+    if object.functions.values().any(|function| {
+        function.name != xdp
+            && function.name != tc
+            && !matches!(function.name.as_str(), "memcpy" | "memmove" | "memset")
+    }) {
+        return Err(DiagnosticElfError("unexpected support function"));
     }
     let xdp_program = &object.programs[xdp];
     let tc_program = &object.programs[tc];
