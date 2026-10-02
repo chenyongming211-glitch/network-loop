@@ -2,6 +2,8 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import subprocess
+import sys
 
 PATH = Path(__file__).resolve().parents[1] / "diagnostic_traffic.py"
 MODULE = None
@@ -50,6 +52,24 @@ class DiagnosticTrafficTests(unittest.TestCase):
         for change in changes:
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.m.validate_link(dict(good, **change), self.run, "host", 42)
+
+    def test_peer_cannot_run_in_initial_or_foreign_namespace(self):
+        self.m.validate_namespace(self.run, "peer", (4, 20), (4, 10), (4, 20))
+        self.m.validate_namespace(self.run, "host", (4, 10), (4, 10), (4, 20))
+        for side, current, initial, generated in [
+            ("peer", (4, 10), (4, 10), (4, 20)),
+            ("host", (4, 20), (4, 10), (4, 20)),
+            ("peer", (4, 30), (4, 10), (4, 20)),
+            ("host", (4, 10), (4, 10), (4, 10))]:
+            with self.subTest(side=side, current=current), self.assertRaises(ValueError):
+                self.m.validate_namespace(self.run, side, current, initial, generated)
+
+    def test_cli_rejects_arbitrary_interface_flag_before_network_io(self):
+        result = subprocess.run([sys.executable, str(PATH), "--run-id", self.run,
+                                 "--side", "host", "--ifindex", "1", "--profile", "mixed",
+                                 "--interface", "eth0"], capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, b"")
 
     def test_corpus_has_fixed_sizes_and_no_kernel_protocol_responses(self):
         frames = self.m.build_corpus("mixed")
@@ -108,6 +128,14 @@ class DiagnosticTrafficTests(unittest.TestCase):
         self.assertEqual(result["measurement"]["packets_per_second"], 10)
         self.assertEqual(len(io.sent), 55)
         self.assertFalse(result["deployment_gate_evidence"])
+
+    def test_identity_failure_after_warmup_prevents_measurement(self):
+        io = SimulatedIo(step=100000000)
+        def changed():
+            raise ValueError("identity changed")
+        with self.assertRaises(ValueError):
+            self.m.run_windows(io.send, [bytes(64)], io.clock, changed)
+        self.assertEqual(len(io.sent), 5)
 
     def test_short_send_is_not_success(self):
         io = SimulatedIo()

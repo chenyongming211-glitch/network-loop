@@ -28,8 +28,8 @@
 **Interfaces:** `generated_interface(run_id, side)`, `validate_link(link, run_id, side, ifindex)`, `build_corpus(profile)`, `fingerprint_selected(frame)`, `measure_window(send, frames, clock, duration_ns, packet_limit)`, `run_windows(send, frames, clock)`.
 
 - [ ] Add behavioral tests for exact generated targets, foreign/unknown topology rejection, frame corpus selection, separate warm-up accounting, duration/count limits, short writes, failures and clock rollback.
-- [ ] Commit RED tests and run `python3 -m unittest discover -s scripts/tests -p 'test_diagnostic_traffic.py' -v` on GitHub. Confirm missing implementation, not a dependency/setup failure.
-- [ ] Implement the standard-library sender. Example engine assertion: three successful 64-byte writes in a 40 ns window report `packets=3`, `bytes=192`, and integer `pps=75000000`; no warm-up bytes are included.
+- [x] Commit RED tests and run `python3 -m unittest discover -s scripts/tests -p 'test_diagnostic_traffic.py' -v` on GitHub. Run 37000652008, Script safety job 110817344225: 12 expected missing-implementation assertion failures.
+- [x] Implement the standard-library sender. Example engine assertion: three successful 64-byte writes taking 30 ns report `packets=3`, `bytes=192`, and integer `pps=100000000`; no warm-up bytes are included.
 - [ ] Run the same tests on GitHub to GREEN and wait for existing CI checks. Local work uses static review only.
 
 ## Task 2: Diagnostic integration and first attribution measurements
