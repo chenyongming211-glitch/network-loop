@@ -1,4 +1,22 @@
 use SessionStep::*;
+
+#[test]
+fn namespace_binding_rejects_same_peer_index_in_a_different_namespace() {
+    use serde_json::json;
+    use xtask::diagnostic_session::namespace_binding_matches;
+    let host = json!({"link_index":42,"link_netnsid":7});
+    assert!(namespace_binding_matches(&host, &json!([{"name":"l2ns-0123456789ab","id":7}]), "l2ns-0123456789ab"));
+    for namespaces in [
+        json!([{"name":"l2ns-0123456789ab","id":8}]),
+        json!([{"name":"business","id":7}]),
+        json!([{"name":"l2ns-0123456789ab"}]),
+        json!([{"name":"l2ns-0123456789ab","id":7},{"name":"l2ns-0123456789ab","id":7}]),
+        json!(null),
+    ] {
+        assert!(!namespace_binding_matches(&host, &namespaces, "l2ns-0123456789ab"));
+    }
+    assert!(!namespace_binding_matches(&json!({"link_index":42}), &json!([{"name":"l2ns-0123456789ab"}]), "l2ns-0123456789ab"));
+}
 use xtask::diagnostic_session::{DiagnosticBackend, SessionStep, run_session, validate_request};
 
 fn request() -> serde_json::Value {

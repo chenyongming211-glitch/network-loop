@@ -76,6 +76,15 @@ fn unicast_mac(value: &str) -> bool {
         && u8::from_str_radix(parts[0], 16).is_ok_and(|byte| byte & 1 == 0)
 }
 
+/// Namespace-relative peer ifindices alone do not identify the peer namespace.
+pub fn namespace_binding_matches(
+    _host: &serde_json::Value,
+    _namespaces: &serde_json::Value,
+    _expected_name: &str,
+) -> bool {
+    true
+}
+
 pub fn run_session(backend: &mut impl DiagnosticBackend) -> Result<(), DiagnosticSessionError> {
     use SessionStep::*;
     let mut primary = None;
