@@ -176,3 +176,9 @@ this delivery derives rates, baseline-relative evidence, sampled ingress/egress 
 
 See [development.md](docs/development.md) for the CI workflow.
 
+Performance optimization is in the measurement/attribution stage. A bounded persistent
+diagnostic sender is available, but long-window isolated comparison on the current test
+node is blocked by unsolicited LLDP on the generated veth, observed even without eBPF.
+No throughput gain or production readiness is claimed; the original 95%/90% gate is
+unchanged. See the [2026-10-02 diagnostic evidence](docs/performance-diagnostics-2026-10-02.md).
+

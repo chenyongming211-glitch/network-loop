@@ -30,14 +30,14 @@
 - [x] Add behavioral tests for exact generated targets, foreign/unknown topology rejection, frame corpus selection, separate warm-up accounting, duration/count limits, short writes, failures and clock rollback.
 - [x] Commit RED tests and run `python3 -m unittest discover -s scripts/tests -p 'test_diagnostic_traffic.py' -v` on GitHub. Run 37000652008, Script safety job 110817344225: 12 expected missing-implementation assertion failures.
 - [x] Implement the standard-library sender. Example engine assertion: three successful 64-byte writes taking 30 ns report `packets=3`, `bytes=192`, and integer `pps=100000000`; no warm-up bytes are included.
-- [ ] Run the same tests on GitHub to GREEN and wait for existing CI checks. Local work uses static review only.
+- [x] Run the same tests on GitHub to GREEN and wait for existing CI checks. Run `37001826503` completed successfully: all 16 diagnostic tests plus Userspace, eBPF, Windows safety and Bundle jobs. Local work uses static review only.
 
 ## Task 2: Diagnostic integration and first attribution measurements
 
 **Files:** task-local controller under ignored `.artifacts/`, raw reports under `.artifacts/`, this plan and README documentation.
 
-- [ ] Bind the sender digest and exact green source revision in the report; bind the product artifact separately when product bytes are unchanged.
-- [ ] Reuse the existing generated-veth transaction and snapshot phases. Do not install or invoke systemd.
+- [x] Bind the sender digest and exact green source revision in the report; bind the product artifact separately when product bytes are unchanged.
+- [x] Reuse the existing generated-veth transaction and snapshot phases. Do not install or invoke systemd.
 - [ ] Keep each daemon alive for at least 75 seconds before a measured steady-state observe run. Record observe/status before and after to prove windows and baseline state rather than assuming readiness from elapsed time.
 - [ ] Compare baseline/pass-through/observe using the same mixed corpus and retain all results; selected/unselected comparisons are separate diagnostics, not substitutes for the formal gate.
 - [ ] Record forwarding/drop/error deltas, actual sample selection, bounded sender timing, daemon and relevant system CPU observations with their distinct meanings. Stop on changed foreign identity or failed cleanup.
@@ -52,6 +52,8 @@
 - [ ] Report measured benefit and remaining limits. Physical/native-XDP and installation authorization remain separate gates.
 
 Tasks 2 and 3 are conditional on Task 1 verification and external safety state; no performance improvement is claimed by adding instrumentation alone.
+
+Current checkpoint: the corrected sender's 16 behavioral tests passed in GitHub run `37001826503`. Task 2 stopped before eBPF attachment: no-eBPF baseline diagnostics and an idle capture demonstrate unsolicited LLDP on the generated host veth. Do not mutate the host LLDP service under the current scope. See [the evidence and authorization boundary](../../performance-diagnostics-2026-10-02.md).
 
 ## Diagnostic corpus correction
 
