@@ -137,12 +137,16 @@ pub fn selected_fingerprint_hash(
         return None;
     }
     let length = frame_len.to_be_bytes();
-    let mut screen = ((5_u32 ^ u32::from(length[0])).wrapping_mul(3)
-        ^ u32::from(length[1]))
-    .wrapping_mul(3);
+    let mut screen =
+        ((5_u32 ^ u32::from(length[0])).wrapping_mul(3) ^ u32::from(length[1])).wrapping_mul(3);
     macro_rules! screen_step {
         ($offset:literal) => {
-            screen = (screen ^ u32::from(frame[$offset])).wrapping_mul(3);
+            // SAFETY: the reference covers every static offset. Volatile reads
+            // prevent LLVM retaining all 60 bytes across the second pass and
+            // spilling them beyond the BPF stack bound. No helpers or packet
+            // mutation occur between the two passes.
+            let byte = unsafe { core::ptr::read_volatile(&frame[$offset]) };
+            screen = (screen ^ u32::from(byte)).wrapping_mul(3);
         };
     }
     each_prefix_byte!(screen_step);
@@ -152,7 +156,10 @@ pub fn selected_fingerprint_hash(
     let mut hash = fingerprint_hash_init(frame_len);
     macro_rules! hash_step {
         ($offset:literal) => {
-            hash = fingerprint_hash_step(hash, frame[$offset]);
+            // SAFETY: same bounded immutable prefix as the screen above.
+            hash = fingerprint_hash_step(hash, unsafe {
+                core::ptr::read_volatile(&frame[$offset])
+            });
         };
     }
     each_prefix_byte!(hash_step);

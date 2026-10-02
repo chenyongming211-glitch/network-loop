@@ -9,8 +9,8 @@ use aya_ebpf::{
 };
 use l2_loop_common::{
     CounterValue, FINGERPRINT_PREFIX_LEN, FINGERPRINT_SAMPLE_SHIFT, FingerprintKey,
-    FingerprintMetadata, FingerprintValue, NO_VLAN, ParsedL2Word, StatsKey, direction,
-    hook_role, parse_l2_word, selected_fingerprint_hash, vlan_visibility,
+    FingerprintMetadata, FingerprintValue, NO_VLAN, ParsedL2Word, StatsKey, direction, hook_role,
+    parse_l2_word, selected_fingerprint_hash, vlan_visibility,
 };
 
 use crate::maps::{FINGERPRINTS, HOOK_STATS, IFACE_CONFIG};
