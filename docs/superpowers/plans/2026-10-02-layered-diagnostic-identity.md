@@ -15,7 +15,7 @@
 - Four profiles: `hooks_only`, `config_lookup`, `counters`, `fingerprints`. No runtime product flag, physical-interface operation or kernel change.
 - Schema 1, purpose `isolated_layered_diagnostic`, `deployment_gate_evidence: false`, ABI 1, target `bpfel-unknown-none`; reject unknown, missing and duplicate fields, including nested fields.
 - Commit is exactly 40 lowercase hex characters; payload digest is exactly 64 lowercase hex characters. Both caller-specified commit/profile and actual object basename must match the manifest.
-- Manifest bound 65,536 bytes; object bound 16 MiB and nonempty. Reuse the regular-file/single-link/stable-identity reader. Verifier performs no writes and reports no load authorization.
+- Manifest bound 65,536 bytes; object bound 16 MiB and nonempty. Reuse the stable regular-file reader with an explicit single-link policy for diagnostics; preserve the existing release-reader behavior. Diagnostic verification fails closed on non-Unix platforms, where this reader cannot establish the same identity guarantees. Verifier performs no writes and reports no load authorization.
 - The SHA-256 verifier is not an ELF inventory, kernel-verifier or host-ownership check. Those are mandatory later layers before any diagnostic attachment. A correctly bound arbitrary byte fixture may pass this step without being loadable.
 
 ## Task: Read-only diagnostic manifest verifier
@@ -31,9 +31,9 @@
 | counters | l2-loop-diag-counters.o | l2d_count_xdp | l2d_count_tc |
 | fingerprints | l2-loop-diag-fingerprints.o | l2d_full_xdp | l2d_full_tc |
 
-- [ ] Commit behavioral CLI tests before implementation. Positive fixtures use independently known SHA-256 of `abc`; mutation cases reject schema drift, relabeled profiles, production names, changed bytes, unsafe file kinds and size overflow.
-- [ ] Verify RED on GitHub with `cargo test --locked --package xtask --test diagnostic_identity`. Expected failure: existing xtask rejects the new command rather than satisfying the identity contract.
-- [ ] Implement strict Deserialize models and validation, reuse the bounded reader without changing its behavior, and wire only the xtask verifier command. No loader or diagnostic object is introduced in this increment.
+- [x] Commit behavioral CLI tests before implementation. Positive fixtures use independently known SHA-256 of `abc`; mutation cases reject schema drift, relabeled profiles, production names, changed bytes, unsafe file kinds and size overflow.
+- [x] Verify RED on GitHub with `cargo test --locked --package xtask --test diagnostic_identity`. Run `37011025828`, Userspace job `110850515054`: all six tests failed as expected because the existing xtask rejected the new command (usage exit 2).
+- [x] Implement strict Deserialize models and validation, reuse the bounded reader without changing release behavior, and wire only the xtask verifier command. No loader or diagnostic object is introduced in this increment.
 - [ ] Verify GREEN for the same tests, then full formatting, lint, tests, ordinary eBPF build and unchanged MUSL bundle checks on GitHub.
 - [ ] Record exact CI evidence and remaining scope. Do not claim layered measurements or throughput improvements from the identity verifier.
 

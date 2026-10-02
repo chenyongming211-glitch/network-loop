@@ -255,9 +255,38 @@ fn validate_metadata(commit_sha: &str, package_version: &str) -> Result<(), Bund
 }
 
 fn read_bounded_regular(path: &Path, maximum: u64) -> Result<Vec<u8>, BundleError> {
+    read_bounded_regular_with_policy(path, maximum, false)
+}
+
+#[cfg(unix)]
+pub(crate) fn read_bounded_single_link_regular(
+    path: &Path,
+    maximum: u64,
+) -> Result<Vec<u8>, BundleError> {
+    read_bounded_regular_with_policy(path, maximum, true)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn read_bounded_single_link_regular(
+    path: &Path,
+    _maximum: u64,
+) -> Result<Vec<u8>, BundleError> {
+    Err(BundleError::InvalidInput {
+        path: path.to_path_buf(),
+    })
+}
+
+fn read_bounded_regular_with_policy(
+    path: &Path,
+    maximum: u64,
+    require_single_link: bool,
+) -> Result<Vec<u8>, BundleError> {
     let before = fs::symlink_metadata(path)
         .map_err(|source| io_error("reading input metadata", path, source))?;
-    if !before.file_type().is_file() || before.len() > maximum {
+    if !before.file_type().is_file()
+        || before.len() > maximum
+        || (require_single_link && !single_link(&before))
+    {
         return Err(BundleError::InvalidInput {
             path: path.to_path_buf(),
         });

@@ -5,6 +5,7 @@ use std::{
 
 use xtask::{
     bundle::{BundleInputs, create_bundle},
+    diagnostic::{DiagnosticProfile, verify_diagnostic_identity},
     ebpf::build_ebpf_args,
 };
 
@@ -13,9 +14,47 @@ fn main() -> ExitCode {
     match args.first().map(String::as_str) {
         Some("build-ebpf") if args.len() == 1 => build_ebpf(),
         Some("bundle") => build_bundle(&args[1..]),
+        Some("verify-diagnostic-identity") => verify_diagnostic(&args[1..]),
         _ => {
             print_usage();
             ExitCode::from(2)
+        }
+    }
+}
+
+fn verify_diagnostic(args: &[String]) -> ExitCode {
+    let [manifest_flag, manifest, object_flag, object, commit_flag, commit, profile_flag, profile] =
+        args
+    else {
+        print_usage();
+        return ExitCode::from(2);
+    };
+    let Some(profile) = DiagnosticProfile::parse(profile) else {
+        print_usage();
+        return ExitCode::from(2);
+    };
+    if manifest_flag != "--manifest"
+        || object_flag != "--object"
+        || commit_flag != "--commit-sha"
+        || profile_flag != "--profile"
+    {
+        print_usage();
+        return ExitCode::from(2);
+    }
+    match verify_diagnostic_identity(Path::new(manifest), Path::new(object), commit, profile) {
+        Ok(verified) => match serde_json::to_string(&verified) {
+            Ok(value) => {
+                println!("{value}");
+                ExitCode::SUCCESS
+            }
+            Err(_) => {
+                eprintln!("DX_SCHEMA: diagnostic result serialization failed");
+                ExitCode::FAILURE
+            }
+        },
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
         }
     }
 }
@@ -99,6 +138,9 @@ fn build_bundle(args: &[String]) -> ExitCode {
 
 fn print_usage() {
     eprintln!("usage: cargo xtask build-ebpf");
+    eprintln!(
+        "       cargo xtask verify-diagnostic-identity --manifest <PATH> --object <PATH> --commit-sha <SHA> --profile <hooks_only|config_lookup|counters|fingerprints>"
+    );
     eprintln!(
         "       cargo xtask bundle --commit-sha <SHA> --daemon <PATH> --cli <PATH> --deploy-checker <PATH> --installer <PATH> --host-check <PATH> --ebpf <PATH> --service-unit <PATH> --authorization-example <PATH> --output <DIR>"
     );

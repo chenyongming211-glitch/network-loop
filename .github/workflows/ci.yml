@@ -106,6 +106,9 @@ jobs:
       - name: Test diagnostic identity boundary
         run: cargo test --locked --package xtask --test diagnostic_identity
 
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
       - name: Install pinned cargo-audit
         run: cargo install cargo-audit --version 0.22.2 --locked
 
@@ -113,9 +116,6 @@ jobs:
         run: |
           cargo audit
           git -C "$CARGO_HOME/advisory-db" show -s --format='RustSec advisory database revision: %H' HEAD
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
 
       - name: Run Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
