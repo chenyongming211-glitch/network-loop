@@ -71,13 +71,16 @@ class DiagnosticTrafficTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertEqual(result.stdout, b"")
 
-    def test_corpus_has_fixed_sizes_and_no_kernel_protocol_responses(self):
+    def test_corpus_has_fixed_sizes_and_kernel_arp_receiver(self):
         frames = self.m.build_corpus("mixed")
         self.assertEqual(len(frames), 768)
         self.assertEqual({len(f) for f in frames}, {64, 512, 1514})
         self.assertEqual(len(set(frames)), 768)
         for frame in frames:
-            self.assertEqual(frame[:14], bytes.fromhex("02000000000202000000000188b5"))
+            self.assertEqual(frame[:14], bytes.fromhex("0200000000020200000000010806"))
+            self.assertEqual(frame[14:22], bytes.fromhex("0001080006040001"))
+            self.assertEqual(frame[28:32], bytes(4))
+            self.assertEqual(frame[38:42], bytes(4))
 
     def test_selection_profiles_are_content_deterministic(self):
         # Independent reference contract: length big-endian + first 60 bytes, FNV-1a.
