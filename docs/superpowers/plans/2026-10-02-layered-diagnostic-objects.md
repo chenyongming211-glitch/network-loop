@@ -25,11 +25,26 @@
 
 Files: `ebpf/l2-loop-ebpf/Cargo.toml`, `src/main.rs`, `src/programs.rs`, four `src/bin/` entry points; `xtask/src/diagnostic*.rs`, `xtask/src/main.rs`, parser dependencies/lock; `scripts/tests/test_diagnostic_artifacts.py`; `.github/workflows/ci.yml`; actual-contract integration test in agent tests.
 
-- [ ] RED: integration tests invoke the real xtask build/ELF commands. Correct builds must emit two files per profile and a matching digest, unchanged ordinary object bytes, strict profile mismatch/ordinary-object/invalid-ELF rejection, and no overwrite. Run after the ordinary eBPF build on GitHub; absent commands must fail assertions.
-- [ ] GREEN: implement fixed argument parsing, compile-time profiles, bounded ELF inspection and exclusive output creation. Keep ordinary wrapper semantics, and prevent product-with-diagnostics feature combinations.
-- [ ] Add actual ELF program-set rejection test through `validate_object_description`; run with paths to the four artifacts in the GitHub eBPF job, no kernel loading.
-- [ ] Verify full CI, inspect actual helper/Map inventories, upload diagnostic artifacts under a separate commit-bound name only after checks. Existing ordinary bundle path is unchanged.
-- [ ] Inline review and record exact commit/run, remaining loader/measurement scope. No performance improvement claim.
+- [x] RED: integration tests invoke the real xtask build/ELF commands. Run `37014338733`, eBPF job `110861400614`: all four tests failed with usage exit 2 for missing commands, after the ordinary object built successfully.
+- [x] GREEN: implement fixed argument parsing, compile-time profiles, bounded ELF inspection and exclusive output creation. Four real-artifact integration tests passed in run `37016853803`, job `110869729059`; output identities, no-overwrite, unchanged ordinary object bytes, mismatched profiles, invalid inputs, mutated Map layout/helper/verdict/support names and forbidden product-with-diagnostics compilation are covered.
+- [x] Add actual ELF program-set rejection test through `validate_object_description`. Run `37016853803`, job `110869729059`: one explicit actual-object test passed, proving ordinary contract acceptance, four diagnostic program-set rejections, and full-profile entry/support-function instruction equality with the ordinary object. Cargo test receives absolute workspace artifact paths; no kernel loading occurs.
+- [x] Verify full CI: commit `2e1885a18bcd2eea2e2dd6df66a5d042d7c083cf`, [run 37016853803](https://github.com/chenyongming211-glitch/network-loop/actions/runs/37016853803), all five jobs succeeded (Userspace, eBPF, Script safety, Windows PowerShell safety, Bundle). The separate diagnostic artifact is `l2-loop-layered-diagnostics-2e1885a18bcd2eea2e2dd6df66a5d042d7c083cf`, artifact ID `11231735058`; ordinary bundle construction and generated-root installation acceptance also passed.
+- [x] Inline review completed under the user's no-subagent requirement. Only two dependency edges to the already locked aya-obj 0.3.0 were added; no versions or Map ABI changed, no product runtime diagnostic flag/loader was added, and ordinary packet operations remain the full specialization. The checker distinguishes attachable programs from linker support/parser functions; it is not a bytecode security proof. No node was contacted, no BPF object was loaded into a kernel, and no performance improvement is claimed.
+
+## Verified static strata and remaining work
+
+Each hook has these helper IDs in its compiled entry: hooks `[]`; config `[1]`;
+counters `[1,1,1,1,1]`; fingerprints `[1,1,1,1,1,5,1,2]`. IDs 1/2/5 are map lookup,
+map update and monotonic clock helpers. These are static call sites, not counts per
+packet. Counters/full call only the existing shared L2 parser after offline call
+resolution. All objects preserve the six exact Map definitions.
+
+Next implement an acceptance-only diagnostic loader with byte/provenance checks,
+exact generated namespace/veth ownership, empty-hook refusal and precise reverse
+rollback. Then execute bounded paired measurements using the exact accepted
+artifact. Kernel-verifier acceptance, live packet counters and performance benefit
+remain unverified for these new diagnostic objects. No physical interface or
+production deployment permission is implied.
 
 ## Test interface
 

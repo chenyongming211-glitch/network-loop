@@ -379,6 +379,42 @@ All eighteen required scenarios use one exact GitHub artifact and independently 
 
 GitHub runs only the self-contained static/unit safety tests for this harness. CI never reads the task-scoped environment inputs and never contacts a test host.
 
+## Offline layered diagnostic artifacts
+
+The build-tool-only diagnostic path is separate from the product bundle. Its four
+profiles are `hooks_only`, `config_lookup`, `counters` and `fingerprints`. They use
+distinct two-program inventories and the existing six-Map ABI. No production CLI
+flag or diagnostic loader is introduced. Compilation and these integration tests
+run only on GitHub, never on the development PC or a test server.
+
+```text
+cargo xtask build-diagnostic-ebpf --profile hooks_only --commit-sha <40-lowercase-hex> --output <NEW_DIR>
+cargo xtask verify-diagnostic-identity --manifest <NEW_DIR>/diagnostic.json --object <NEW_DIR>/l2-loop-diag-hooks-only.o --commit-sha <40-lowercase-hex> --profile hooks_only
+cargo xtask verify-diagnostic-elf --object <NEW_DIR>/l2-loop-diag-hooks-only.o --profile hooks_only
+```
+
+The builder refuses an existing destination and uses `.artifacts/diagnostic-target`
+instead of the ordinary eBPF target directory. CI publishes four two-file profile
+directories under `l2-loop-layered-diagnostics-<commit>`, independently of the ordinary
+ten-file release bundle. Partial or failed outputs are not uploaded as diagnostic
+artifacts. Do not point the ordinary daemon at these objects: its program contract
+intentionally rejects them.
+
+ELF inspection checks actual names/types, Map layout, fixed helper strata and entry
+return instructions. Offline Aya call resolution permits only the existing shared
+L2 parser for the two upper layers; it does not force a product inlining change.
+Helper lists are static call sites, not per-packet invocation counts or performance
+measurements. CI also compares full-profile entry and support-function instructions
+with the ordinary object, and mutates headers, helper calls, return actions, Map
+layout and support names to exercise rejection.
+
+Neither manifest hashing nor this offline inspection proves trusted CI provenance,
+kernel-verifier acceptance, packet behavior on a host, or attachment authorization.
+Both verifier outputs retain `load_authorized: false` and
+`deployment_gate_evidence: false`. The future acceptance-only loader and bounded
+paired measurements remain separate work; no diagnostic artifact is production
+deployment evidence.
+
 ## Review evidence
 
 Each development handoff must include the GitHub Actions run URL and commit SHA for `main`. A local static inspection is useful for scope review but is never reported as compilation success.
