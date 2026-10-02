@@ -51,16 +51,28 @@ def fingerprint_selected(frame):
     return value & 15 == 0
 
 
-def build_corpus(profile):
+def parse_mac(value):
+    if not isinstance(value, str) or not re.fullmatch(r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}", value):
+        raise ValueError("invalid diagnostic MAC")
+    address = bytes.fromhex(value.replace(":", ""))
+    if address == bytes(6) or address[0] & 1:
+        raise ValueError("diagnostic MAC must be nonzero unicast")
+    return address
+
+
+def build_corpus(profile, source_mac="02:00:00:00:00:01", destination_mac="02:00:00:00:00:02"):
     if profile not in ("mixed", "selected", "unselected"):
         raise ValueError("invalid diagnostic corpus")
+    source, destination = parse_mac(source_mac), parse_mac(destination_mac)
+    header = (destination + source + bytes.fromhex("08060001080006040001")
+              + source + bytes(4) + destination + bytes(4))
     frames = []
-    # Interleave sizes. Both directions send identical content, independently of
-    # the random veth MAC, so deterministic sample selection is reproducible.
+    # ARP has a kernel receiver; an unhandled EtherType increments rx_dropped
+    # even without eBPF. Use peer MACs and zero IPs, matching the formal harness.
+    # The corpus stays identical across modes for each direction in a transaction.
     for variant in range(256):
         for size in (64, 512, 1514):
-            frame = (bytes.fromhex("02000000000202000000000188b5")
-                     + bytes(45) + bytes([variant]) + bytes(size - 60))
+            frame = header + bytes(17) + bytes([variant]) + bytes(size - 60)
             selected = fingerprint_selected(frame)
             if profile == "mixed" or selected == (profile == "selected"):
                 frames.append(frame)
@@ -145,10 +157,13 @@ def main(argv=None):
     parser.add_argument("--side", choices=("host", "peer"), required=True)
     parser.add_argument("--ifindex", type=int, required=True)
     parser.add_argument("--profile", choices=("mixed", "selected", "unselected"), required=True)
+    parser.add_argument("--destination-mac", required=True)
     args = parser.parse_args(argv)
     try:
         interface = inspect_target(args.run_id, args.side, args.ifindex)
-        frames = build_corpus(args.profile)
+        with open("/sys/class/net/" + interface + "/address", encoding="ascii") as address:
+            source_mac = address.read(64).strip()
+        frames = build_corpus(args.profile, source_mac, args.destination_mac)
         verify = lambda: inspect_target(args.run_id, args.side, args.ifindex)
         with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
             channel.settimeout(1.0)

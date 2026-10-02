@@ -67,9 +67,11 @@ class DiagnosticTrafficTests(unittest.TestCase):
     def test_cli_rejects_arbitrary_interface_flag_before_network_io(self):
         result = subprocess.run([sys.executable, str(PATH), "--run-id", self.run,
                                  "--side", "host", "--ifindex", "1", "--profile", "mixed",
+                                 "--destination-mac", "02:00:00:00:00:02",
                                  "--interface", "eth0"], capture_output=True, timeout=5)
         self.assertEqual(result.returncode, 2)
         self.assertEqual(result.stdout, b"")
+        self.assertIn(b"unrecognized arguments: --interface eth0", result.stderr)
 
     def test_corpus_has_fixed_sizes_and_kernel_arp_receiver(self):
         frames = self.m.build_corpus("mixed")
@@ -81,6 +83,20 @@ class DiagnosticTrafficTests(unittest.TestCase):
             self.assertEqual(frame[14:22], bytes.fromhex("0001080006040001"))
             self.assertEqual(frame[28:32], bytes(4))
             self.assertEqual(frame[38:42], bytes(4))
+
+    def test_corpus_binds_both_ethernet_and_arp_to_generated_peer_macs(self):
+        source, destination = "02:ab:cd:ef:12:34", "06:12:34:56:78:90"
+        src, dst = bytes.fromhex(source.replace(":", "")), bytes.fromhex(destination.replace(":", ""))
+        for frame in self.m.build_corpus("mixed", source, destination):
+            self.assertEqual(frame[:12], dst + src)
+            self.assertEqual(frame[22:28], src)
+            self.assertEqual(frame[32:38], dst)
+        for bad in ["00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff", "01:00:5e:00:00:01",
+                    "02:00:00:00:00", "020000000001", "../../eth0", None]:
+            with self.subTest(mac=bad), self.assertRaises(ValueError):
+                self.m.build_corpus("mixed", source, bad)
+            with self.subTest(source=bad), self.assertRaises(ValueError):
+                self.m.build_corpus("mixed", bad, destination)
 
     def test_selection_profiles_are_content_deterministic(self):
         # Independent reference contract: length big-endian + first 60 bytes, FNV-1a.
