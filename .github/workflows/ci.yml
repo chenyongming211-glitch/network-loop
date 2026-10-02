@@ -110,6 +110,10 @@ jobs:
         run: cargo test --locked --package xtask --test diagnostic_session
 
       - name: Check formatting
+        # Keep the equivalent hash contract's RED result visible before fmt/lint.
+        run: cargo test --locked --package l2-loop-common --test fingerprint_prefilter
+
+      - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Install pinned cargo-audit

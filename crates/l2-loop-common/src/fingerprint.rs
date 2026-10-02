@@ -55,6 +55,14 @@ pub const fn fingerprint_selected(fingerprint: u64) -> bool {
     fingerprint & ((1_u64 << FINGERPRINT_SAMPLE_SHIFT) - 1) == 0
 }
 
+/// Fixed-prefix selected fingerprint path; implementation follows RED verification.
+pub fn selected_fingerprint_hash(
+    _frame_len: u16,
+    _frame: &[u8; FINGERPRINT_PREFIX_LEN],
+) -> Option<u64> {
+    None
+}
+
 pub fn parse_fingerprint_metadata(frame: &[u8]) -> Option<FingerprintMetadata> {
     if frame.len() < 14 {
         return None;
