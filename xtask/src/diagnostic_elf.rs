@@ -54,8 +54,10 @@ pub fn inspect_diagnostic_elf(
     }
     let xdp_program = &object.programs[xdp];
     let tc_program = &object.programs[tc];
-    if !matches!(xdp_program.section, ProgramSection::Xdp { frags: false, .. })
-        || !matches!(tc_program.section, ProgramSection::SchedClassifier)
+    if !matches!(
+        xdp_program.section,
+        ProgramSection::Xdp { frags: false, .. }
+    ) || !matches!(tc_program.section, ProgramSection::SchedClassifier)
     {
         return Err(DiagnosticElfError("program type"));
     }
@@ -69,13 +71,21 @@ pub fn inspect_diagnostic_elf(
     ];
     let mut maps = object.maps.keys().cloned().collect::<Vec<_>>();
     maps.sort();
-    if maps.iter().map(String::as_str).ne(map_contract.iter().map(|item| item.0)) {
+    if maps
+        .iter()
+        .map(String::as_str)
+        .ne(map_contract.iter().map(|item| item.0))
+    {
         return Err(DiagnosticElfError("map set"));
     }
     for (name, kind, key, value, capacity) in map_contract {
         let map = &object.maps[name];
-        if (map.map_type(), map.key_size(), map.value_size(), map.max_entries())
-            != (kind, key, value, capacity)
+        if (
+            map.map_type(),
+            map.key_size(),
+            map.value_size(),
+            map.max_entries(),
+        ) != (kind, key, value, capacity)
             || map.map_flags() != 0
             || map.pinning() as u32 != 0
         {
@@ -84,7 +94,9 @@ pub fn inspect_diagnostic_elf(
     }
     let mut helpers = BTreeMap::new();
     for (name, program, verdict) in [(xdp, xdp_program, 2), (tc, tc_program, 0)] {
-        let function = object.functions.get(&program.function_key())
+        let function = object
+            .functions
+            .get(&program.function_key())
             .ok_or(DiagnosticElfError("function"))?;
         let mut calls = Vec::new();
         let mut exits = 0;
@@ -97,11 +109,13 @@ pub fn inspect_diagnostic_elf(
             }
             if insn.code == 0x95 {
                 exits += 1;
-                let previous = index.checked_sub(1)
+                let previous = index
+                    .checked_sub(1)
                     .and_then(|index| function.instructions.get(index))
                     .ok_or(DiagnosticElfError("exit"))?;
                 if !matches!(previous.code, 0xb7 | 0xb4)
-                    || previous.dst_reg() != 0 || previous.imm != verdict
+                    || previous.dst_reg() != 0
+                    || previous.imm != verdict
                 {
                     return Err(DiagnosticElfError("verdict"));
                 }
@@ -114,8 +128,12 @@ pub fn inspect_diagnostic_elf(
             DiagnosticProfile::HooksOnly => calls.is_empty() && function.instructions.len() == 2,
             DiagnosticProfile::ConfigLookup => calls == [1],
             DiagnosticProfile::Counters => calls.len() >= 3 && calls.iter().all(|id| *id == 1),
-            DiagnosticProfile::Fingerprints => calls.contains(&1) && calls.contains(&2)
-                && calls.contains(&5) && calls.iter().all(|id| matches!(id, 1 | 2 | 5)),
+            DiagnosticProfile::Fingerprints => {
+                calls.contains(&1)
+                    && calls.contains(&2)
+                    && calls.contains(&5)
+                    && calls.iter().all(|id| matches!(id, 1 | 2 | 5))
+            }
         };
         if !valid {
             return Err(DiagnosticElfError("helper layer"));
@@ -123,7 +141,11 @@ pub fn inspect_diagnostic_elf(
         helpers.insert(name.to_owned(), calls);
     }
     Ok(DiagnosticElfReport {
-        programs, maps, helpers, elf_inventory_verified: true,
-        load_authorized: false, deployment_gate_evidence: false,
+        programs,
+        maps,
+        helpers,
+        elf_inventory_verified: true,
+        load_authorized: false,
+        deployment_gate_evidence: false,
     })
 }

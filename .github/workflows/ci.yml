@@ -163,6 +163,15 @@ jobs:
       - name: Test isolated diagnostic artifacts without loading BPF
         run: python3 -m unittest discover -s scripts/tests -p 'test_diagnostic_artifacts.py' -v
 
+      - name: Inspect failed diagnostic ELF without loading it
+        if: failure()
+        run: |
+          for object in .artifacts/diagnostic-target/bpfel-unknown-none/release/l2-loop-diag-*; do
+            if test -f "$object" && test "${object##*.}" != d; then
+              readelf --file-header --sections --symbols "$object"
+            fi
+          done
+
       - name: Verify actual diagnostic objects cannot satisfy product contract
         env:
           L2_LOOP_DIAGNOSTIC_ROOT: .artifacts/layered-diagnostics

@@ -52,7 +52,15 @@ fn inspect_diagnostic(args: &[String]) -> ExitCode {
 }
 
 fn build_diagnostic(args: &[String]) -> ExitCode {
-    let [profile_flag, profile, commit_flag, commit, output_flag, output] = args else {
+    let [
+        profile_flag,
+        profile,
+        commit_flag,
+        commit,
+        output_flag,
+        output,
+    ] = args
+    else {
         print_usage();
         return ExitCode::from(2);
     };
@@ -198,7 +206,9 @@ fn build_bundle(args: &[String]) -> ExitCode {
 fn print_usage() {
     eprintln!("usage: cargo xtask build-ebpf");
     eprintln!("       cargo xtask verify-diagnostic-elf --object <PATH> --profile <PROFILE>");
-    eprintln!("       cargo xtask build-diagnostic-ebpf --profile <PROFILE> --commit-sha <SHA> --output <NEW_DIR>");
+    eprintln!(
+        "       cargo xtask build-diagnostic-ebpf --profile <PROFILE> --commit-sha <SHA> --output <NEW_DIR>"
+    );
     eprintln!(
         "       cargo xtask verify-diagnostic-identity --manifest <PATH> --object <PATH> --commit-sha <SHA> --profile <hooks_only|config_lookup|counters|fingerprints>"
     );
