@@ -109,7 +109,7 @@ jobs:
       - name: Test diagnostic session boundary
         run: cargo test --locked --package xtask --test diagnostic_session
 
-      - name: Check formatting
+      - name: Test exact fingerprint prefilter equivalence
         # Keep the equivalent hash contract's RED result visible before fmt/lint.
         run: cargo test --locked --package l2-loop-common --test fingerprint_prefilter
 

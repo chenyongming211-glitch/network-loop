@@ -10,8 +10,7 @@ use aya_ebpf::{
 use l2_loop_common::{
     CounterValue, FINGERPRINT_PREFIX_LEN, FINGERPRINT_SAMPLE_SHIFT, FingerprintKey,
     FingerprintMetadata, FingerprintValue, NO_VLAN, ParsedL2Word, StatsKey, direction,
-    fingerprint_hash_init, fingerprint_hash_step, fingerprint_selected, hook_role, parse_l2_word,
-    vlan_visibility,
+    hook_role, parse_l2_word, selected_fingerprint_hash, vlan_visibility,
 };
 
 use crate::maps::{FINGERPRINTS, HOOK_STATS, IFACE_CONFIG};
@@ -58,77 +57,6 @@ fn parse_packet(data: usize, data_end: usize) -> ParsedL2Word {
     } else {
         parse_l2_word(ethernet)
     }
-}
-
-#[inline(always)]
-fn fixed_fingerprint_hash(frame_len: u16, frame: &[u8; FINGERPRINT_PREFIX_LEN]) -> u64 {
-    let mut hash = fingerprint_hash_init(frame_len);
-    macro_rules! step {
-        ($offset:literal) => {
-            hash = fingerprint_hash_step(hash, frame[$offset]);
-        };
-    }
-    step!(0);
-    step!(1);
-    step!(2);
-    step!(3);
-    step!(4);
-    step!(5);
-    step!(6);
-    step!(7);
-    step!(8);
-    step!(9);
-    step!(10);
-    step!(11);
-    step!(12);
-    step!(13);
-    step!(14);
-    step!(15);
-    step!(16);
-    step!(17);
-    step!(18);
-    step!(19);
-    step!(20);
-    step!(21);
-    step!(22);
-    step!(23);
-    step!(24);
-    step!(25);
-    step!(26);
-    step!(27);
-    step!(28);
-    step!(29);
-    step!(30);
-    step!(31);
-    step!(32);
-    step!(33);
-    step!(34);
-    step!(35);
-    step!(36);
-    step!(37);
-    step!(38);
-    step!(39);
-    step!(40);
-    step!(41);
-    step!(42);
-    step!(43);
-    step!(44);
-    step!(45);
-    step!(46);
-    step!(47);
-    step!(48);
-    step!(49);
-    step!(50);
-    step!(51);
-    step!(52);
-    step!(53);
-    step!(54);
-    step!(55);
-    step!(56);
-    step!(57);
-    step!(58);
-    step!(59);
-    hash
 }
 
 #[inline(always)]
@@ -301,10 +229,9 @@ fn account_fingerprint(
         return;
     };
     let frame = unsafe { &*frame };
-    let fingerprint = fixed_fingerprint_hash(frame_len, frame);
-    if !fingerprint_selected(fingerprint) {
+    let Some(fingerprint) = selected_fingerprint_hash(frame_len, frame) else {
         return;
-    }
+    };
     let metadata = fixed_fingerprint_metadata(frame);
     let key = FingerprintKey {
         interface_generation,

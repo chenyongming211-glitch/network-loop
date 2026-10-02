@@ -55,12 +55,108 @@ pub const fn fingerprint_selected(fingerprint: u64) -> bool {
     fingerprint & ((1_u64 << FINGERPRINT_SAMPLE_SHIFT) - 1) == 0
 }
 
-/// Fixed-prefix selected fingerprint path; implementation follows RED verification.
+// Keep packet offsets static for the BPF verifier; use the same offsets for the
+// low-bit screen and the unchanged complete hash.
+macro_rules! each_prefix_byte {
+    ($step:ident) => {
+        $step!(0);
+        $step!(1);
+        $step!(2);
+        $step!(3);
+        $step!(4);
+        $step!(5);
+        $step!(6);
+        $step!(7);
+        $step!(8);
+        $step!(9);
+        $step!(10);
+        $step!(11);
+        $step!(12);
+        $step!(13);
+        $step!(14);
+        $step!(15);
+        $step!(16);
+        $step!(17);
+        $step!(18);
+        $step!(19);
+        $step!(20);
+        $step!(21);
+        $step!(22);
+        $step!(23);
+        $step!(24);
+        $step!(25);
+        $step!(26);
+        $step!(27);
+        $step!(28);
+        $step!(29);
+        $step!(30);
+        $step!(31);
+        $step!(32);
+        $step!(33);
+        $step!(34);
+        $step!(35);
+        $step!(36);
+        $step!(37);
+        $step!(38);
+        $step!(39);
+        $step!(40);
+        $step!(41);
+        $step!(42);
+        $step!(43);
+        $step!(44);
+        $step!(45);
+        $step!(46);
+        $step!(47);
+        $step!(48);
+        $step!(49);
+        $step!(50);
+        $step!(51);
+        $step!(52);
+        $step!(53);
+        $step!(54);
+        $step!(55);
+        $step!(56);
+        $step!(57);
+        $step!(58);
+        $step!(59);
+    };
+}
+
+/// Return exactly the existing 64-bit fingerprint for selected fixed prefixes.
+///
+/// FNV's low four bits depend only on the low four bits at each preceding step.
+/// Modulo 16 its basis is 5 and prime is 3. Wrapping u32 arithmetic therefore
+/// screens with the identical predicate, avoiding full-width FNV multiplication
+/// for unselected packets. Selected packets still use the unchanged full hash.
+#[inline(always)]
 pub fn selected_fingerprint_hash(
-    _frame_len: u16,
-    _frame: &[u8; FINGERPRINT_PREFIX_LEN],
+    frame_len: u16,
+    frame: &[u8; FINGERPRINT_PREFIX_LEN],
 ) -> Option<u64> {
-    None
+    if usize::from(frame_len) < FINGERPRINT_PREFIX_LEN {
+        return None;
+    }
+    let length = frame_len.to_be_bytes();
+    let mut screen = ((5_u32 ^ u32::from(length[0])).wrapping_mul(3)
+        ^ u32::from(length[1]))
+    .wrapping_mul(3);
+    macro_rules! screen_step {
+        ($offset:literal) => {
+            screen = (screen ^ u32::from(frame[$offset])).wrapping_mul(3);
+        };
+    }
+    each_prefix_byte!(screen_step);
+    if screen & 15 != 0 {
+        return None;
+    }
+    let mut hash = fingerprint_hash_init(frame_len);
+    macro_rules! hash_step {
+        ($offset:literal) => {
+            hash = fingerprint_hash_step(hash, frame[$offset]);
+        };
+    }
+    each_prefix_byte!(hash_step);
+    Some(hash)
 }
 
 pub fn parse_fingerprint_metadata(frame: &[u8]) -> Option<FingerprintMetadata> {

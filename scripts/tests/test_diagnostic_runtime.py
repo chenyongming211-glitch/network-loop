@@ -6,8 +6,11 @@ import selectors
 import signal
 import shutil
 import subprocess
+import struct
 import unittest
 import uuid
+
+from fingerprint_kernel_fixture import SENDER, expected_fingerprints, read_fingerprints
 
 
 def command(*args):
@@ -88,7 +91,28 @@ class DiagnosticRuntime(unittest.TestCase):
                 link = json.loads(command("ip", "-j", "-d", "link", "show", "dev", host))[0]
                 self.assertNotIn("xdp", link)
                 return
-            if stop == "stop":
+            fingerprint_case = stop == "fingerprint_contract"
+            if fingerprint_case:
+                command("ip", "link", "set", host, "up")
+                command("ip", "-n", ns, "link", "set", peer, "up")
+                fixture_path = str(Path(__file__).resolve().parent)
+                command("env", "PYTHONPATH=" + fixture_path, "python3", "-c", SENDER,
+                        host, a["address"], b["address"])
+                command("ip", "netns", "exec", ns, "env", "PYTHONPATH=" + fixture_path,
+                        "python3", "-c", SENDER, peer, b["address"], a["address"])
+                actual = read_fingerprints(ready["map_ids"]["FINGERPRINTS"])
+                expected = expected_fingerprints(a["ifindex"], a["address"], b["address"])
+                self.assertEqual(actual.keys(), expected.keys())
+                self.assertEqual(len(actual), 192)
+                for key, value in actual.items():
+                    first, last = struct.unpack_from("<QQ", value)
+                    self.assertGreater(first, 0)
+                    self.assertGreaterEqual(last, first)
+                    self.assertEqual(value[16:], expected[key])
+                stop = "stop"
+                process.stdin.write("stop\n")
+                process.stdin.flush()
+            elif stop == "stop":
                 command("ip", "link", "set", host, "up")
                 command("ip", "-n", ns, "link", "set", peer, "up")
                 sender = ("import socket,sys;src=bytes.fromhex(sys.argv[2].replace(':',''));"
@@ -116,9 +140,10 @@ class DiagnosticRuntime(unittest.TestCase):
             final = json.loads(stdout.strip())
             self.assertEqual(final["state"], "cleaned")
             self.assertEqual(final["stop_reason"], stop)
-            expected_packets = 8 if stop == "stop" and profile in ("counters", "fingerprints") else 0
+            expected_packets = 3072 if fingerprint_case else 8 if stop == "stop" and profile in ("counters", "fingerprints") else 0
             self.assertEqual([row["packets"] for row in final["counters"]], [expected_packets] * 2)
-            self.assertEqual([row["bytes"] for row in final["counters"]], [expected_packets * 64] * 2)
+            expected_bytes = 2140160 if fingerprint_case else expected_packets * 64
+            self.assertEqual([row["bytes"] for row in final["counters"]], [expected_bytes] * 2)
             self.assertFalse((root / "diagnostic-lease.json").exists())
             link = json.loads(command("ip", "-j", "-d", "link", "show", "dev", host))[0]
             self.assertNotIn("xdp", link)
@@ -142,6 +167,9 @@ class DiagnosticRuntime(unittest.TestCase):
 
     def test_eof_rolls_back(self):
         self.exercise("counters", "eof")
+
+    def test_actual_selected_fingerprints_preserve_keys_metadata_and_update_counts(self):
+        self.exercise("fingerprints", "fingerprint_contract")
 
     def test_deadline_rolls_back(self):
         self.exercise("counters", "deadline")
