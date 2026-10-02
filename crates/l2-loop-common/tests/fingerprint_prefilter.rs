@@ -1,15 +1,46 @@
-use l2_loop_common::selected_fingerprint_hash;
+use l2_loop_common::{fingerprint_prefix_may_be_selected, selected_fingerprint_hash};
+
+fn reference_hash(length: u16, frame: &[u8; 60]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in length.to_be_bytes().iter().chain(frame) {
+        hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
 
 // Independent straightforward FNV oracle, not a production hash/helper call.
 fn reference(length: u16, frame: &[u8; 60]) -> Option<u64> {
     if length < 60 {
         return None;
     }
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for byte in length.to_be_bytes().iter().chain(frame) {
-        hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
-    }
+    let hash = reference_hash(length, frame);
     (hash & 15 == 0).then_some(hash)
+}
+
+#[test]
+fn necessary_screen_is_exact_for_low_two_bits_without_rejecting_selected_frames() {
+    let mut frame = core::array::from_fn(|index| (index as u8).wrapping_mul(5).wrapping_add(11));
+    frame[59] = 1;
+    assert!(fingerprint_prefix_may_be_selected(64, &frame));
+    for length in 0..=u16::MAX {
+        assert_eq!(
+            fingerprint_prefix_may_be_selected(length, &frame),
+            length >= 60 && reference_hash(length, &frame) & 3 == 0,
+            "length {length}"
+        );
+    }
+    for offset in 0..60 {
+        for byte in 0..=u8::MAX {
+            frame[offset] = byte;
+            for length in [60, 64, 512, 1514, u16::MAX] {
+                assert_eq!(
+                    fingerprint_prefix_may_be_selected(length, &frame),
+                    reference_hash(length, &frame) & 3 == 0,
+                    "offset {offset}, byte {byte}, length {length}"
+                );
+            }
+        }
+    }
 }
 
 #[test]

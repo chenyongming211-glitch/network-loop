@@ -122,6 +122,14 @@ macro_rules! each_prefix_byte {
     };
 }
 
+/// Necessary low-two-bit condition; implementation follows RED verification.
+pub fn fingerprint_prefix_may_be_selected(
+    _frame_len: u16,
+    _frame: &[u8; FINGERPRINT_PREFIX_LEN],
+) -> bool {
+    false
+}
+
 /// Return exactly the existing 64-bit fingerprint for selected fixed prefixes.
 ///
 /// FNV's low four bits depend only on the low four bits at each preceding step.
