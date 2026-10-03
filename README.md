@@ -227,6 +227,14 @@ mode removed those calls; five ABBA/BAAB blocks showed a median 30.1% throughput
 increase on the unchanged diagnostic path. This is a **measurement-tool improvement,
 not product speedup**. Residual repeat drift reached 4.64%; scheduler/NUMA causality
 remains unresolved. All 22 trials completed precise cleanup and restored measured
-state. CPU-affinity experiments remain separately authorized; none were performed.
+state. No CPU-affinity change was made during that sender-mode investigation.
 See the [sender root-cause evidence and remaining limits](docs/sender-noise-investigation-2026-10-03.md).
+
+A separately authorized sender-only affinity follow-up completed 20 isolated
+trials. Pinning eliminated migrations but did not establish stable throughput or
+lower noise: combined within-block repeat drift reached 4.55% pinned versus 0.99%
+natural, and one zero-migration peer window still had 211 involuntary switches.
+All measured state and LLDP state were restored with zero generated residue.
+Residual jitter remains unresolved; product code and production admission are
+unchanged. See the [affinity results and next diagnostic step](docs/sender-affinity-investigation-2026-10-03.md).
 

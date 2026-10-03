@@ -495,6 +495,14 @@ in the private root, and retain normal packet/time limits and generated-target
 checks. These options do not exist in the product CLI or change a formal gate.
 See the [2026-10-03 sender investigation](sender-noise-investigation-2026-10-03.md).
 
+The separately authorized affinity follow-up applies a task-local launcher only
+to new senders, validates original/effective/final masks, and retains all 20 fixed
+natural/pinned trials. No permanent sender or product affinity option was added.
+CPU 29 pinning removed measured migrations but did not reduce repeat noise or
+resolve a throughput effect. Original network/eBPF and LLDP state were restored;
+the next measurement needs aligned runtime/interrupt accounting, not speculative
+product changes. See the [affinity evidence](sender-affinity-investigation-2026-10-03.md).
+
 These trials run no daemon/background sampler and are attribution experiments,
 not a replacement for end-to-end or physical-interface performance gates. The
 outer harness must enforce host coexistence, bounded traffic, before/after state
