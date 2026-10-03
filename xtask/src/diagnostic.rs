@@ -16,6 +16,10 @@ pub enum DiagnosticProfile {
     ConfigLookup,
     Counters,
     Fingerprints,
+    FpHash,
+    FpMetadata,
+    FpClock,
+    FpMap,
 }
 
 impl DiagnosticProfile {
@@ -25,8 +29,16 @@ impl DiagnosticProfile {
             "config_lookup" => Some(Self::ConfigLookup),
             "counters" => Some(Self::Counters),
             "fingerprints" => Some(Self::Fingerprints),
+            "fp_hash" => Some(Self::FpHash),
+            "fp_metadata" => Some(Self::FpMetadata),
+            "fp_clock" => Some(Self::FpClock),
+            "fp_map" => Some(Self::FpMap),
             _ => None,
         }
+    }
+
+    pub(crate) fn is_fingerprint_stage(self) -> bool {
+        matches!(self, Self::FpHash | Self::FpMetadata | Self::FpClock | Self::FpMap)
     }
 
     pub(crate) fn declaration(self) -> (&'static str, &'static str, &'static str) {
@@ -39,6 +51,10 @@ impl DiagnosticProfile {
             ),
             Self::Counters => ("l2-loop-diag-counters.o", "l2d_count_xdp", "l2d_count_tc"),
             Self::Fingerprints => ("l2-loop-diag-fingerprints.o", "l2d_full_xdp", "l2d_full_tc"),
+            Self::FpHash => ("l2-loop-diag-fp-hash.o", "l2d_hash_xdp", "l2d_hash_tc"),
+            Self::FpMetadata => ("l2-loop-diag-fp-metadata.o", "l2d_meta_xdp", "l2d_meta_tc"),
+            Self::FpClock => ("l2-loop-diag-fp-clock.o", "l2d_clock_xdp", "l2d_clock_tc"),
+            Self::FpMap => ("l2-loop-diag-fp-map.o", "l2d_map_xdp", "l2d_map_tc"),
         }
     }
 }

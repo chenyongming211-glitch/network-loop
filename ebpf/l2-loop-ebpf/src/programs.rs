@@ -16,6 +16,10 @@ use l2_loop_common::{
 
 use crate::maps::{FINGERPRINTS, HOOK_STATS, IFACE_CONFIG};
 
+#[cfg(feature = "fingerprint-stages")]
+#[path = "fingerprint_stages.rs"]
+pub(crate) mod fingerprint_stages;
+
 const BPF_NOEXIST: u64 = 1;
 
 #[inline(always)]

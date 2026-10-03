@@ -73,7 +73,7 @@ pub fn inspect_diagnostic_elf(
     let needs_parser = matches!(
         profile,
         DiagnosticProfile::Counters | DiagnosticProfile::Fingerprints
-    );
+    ) || profile.is_fingerprint_stage();
     if parsers.len() != usize::from(needs_parser) {
         return Err(DiagnosticElfError("parser set"));
     }
@@ -114,7 +114,7 @@ pub fn inspect_diagnostic_elf(
     {
         return Err(DiagnosticElfError("program type"));
     }
-    let map_contract = [
+    let mut map_contract = vec![
         ("FINGERPRINTS", 9, 32, 48, 8192),
         ("HOOK_STATS", 5, 16, 16, 4096),
         ("IFACE_CONFIG", 1, 4, 32, 64),
@@ -122,6 +122,9 @@ pub fn inspect_diagnostic_elf(
         ("PROBE_STATS", 5, 32, 16, 128),
         ("RATE_POLICY", 1, 16, 40, 256),
     ];
+    if profile.is_fingerprint_stage() {
+        map_contract.insert(0, ("DIAG_RESULTS", 5, 4, 64, 2));
+    }
     let mut maps = object.maps.keys().cloned().collect::<Vec<_>>();
     maps.sort();
     if maps
@@ -210,6 +213,18 @@ pub fn inspect_diagnostic_elf(
                 calls.contains(&1)
                     && calls.contains(&2)
                     && calls.contains(&5)
+                    && calls.iter().all(|id| matches!(id, 1 | 2 | 5))
+            }
+            DiagnosticProfile::FpHash | DiagnosticProfile::FpMetadata => {
+                calls.len() >= 5 && calls.iter().all(|id| *id == 1)
+            }
+            DiagnosticProfile::FpClock => {
+                calls.contains(&1) && calls.iter().filter(|id| **id == 5).count() == 1
+                    && calls.iter().all(|id| matches!(id, 1 | 5))
+            }
+            DiagnosticProfile::FpMap => {
+                calls.contains(&1) && calls.contains(&2)
+                    && calls.iter().filter(|id| **id == 5).count() == 1
                     && calls.iter().all(|id| matches!(id, 1 | 2 | 5))
             }
         };

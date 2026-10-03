@@ -210,7 +210,7 @@ fn print_usage() {
         "       cargo xtask build-diagnostic-ebpf --profile <PROFILE> --commit-sha <SHA> --output <NEW_DIR>"
     );
     eprintln!(
-        "       cargo xtask verify-diagnostic-identity --manifest <PATH> --object <PATH> --commit-sha <SHA> --profile <hooks_only|config_lookup|counters|fingerprints>"
+        "       cargo xtask verify-diagnostic-identity --manifest <PATH> --object <PATH> --commit-sha <SHA> --profile <PROFILE>"
     );
     eprintln!(
         "       cargo xtask bundle --commit-sha <SHA> --daemon <PATH> --cli <PATH> --deploy-checker <PATH> --installer <PATH> --host-check <PATH> --ebpf <PATH> --service-unit <PATH> --authorization-example <PATH> --output <DIR>"

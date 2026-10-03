@@ -11,6 +11,27 @@ path = "src/main.rs"
 
 [features]
 diagnostics = []
+fingerprint-stages = ["diagnostics"]
+
+[[bin]]
+name = "l2-loop-diag-fp-hash"
+path = "src/bin/fp_hash.rs"
+required-features = ["fingerprint-stages"]
+
+[[bin]]
+name = "l2-loop-diag-fp-metadata"
+path = "src/bin/fp_metadata.rs"
+required-features = ["fingerprint-stages"]
+
+[[bin]]
+name = "l2-loop-diag-fp-clock"
+path = "src/bin/fp_clock.rs"
+required-features = ["fingerprint-stages"]
+
+[[bin]]
+name = "l2-loop-diag-fp-map"
+path = "src/bin/fp_map.rs"
+required-features = ["fingerprint-stages"]
 
 [[bin]]
 name = "l2-loop-diag-hooks-only"

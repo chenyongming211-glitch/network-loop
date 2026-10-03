@@ -72,6 +72,7 @@ pub fn run(run_id: &str) -> Result<(), String> {
         map_ids: BTreeMap::new(),
         stop_reason: "not_started",
         counters: Value::Null,
+        stage_results: Value::Null,
     };
     run_session(&mut runtime).map_err(|error| format!("DX_SESSION: {error:?}"))
 }
@@ -89,6 +90,7 @@ struct Runtime {
     map_ids: BTreeMap<String, u32>,
     stop_reason: &'static str,
     counters: Value,
+    stage_results: Value,
 }
 
 impl Runtime {
@@ -105,6 +107,10 @@ impl Runtime {
             DiagnosticProfile::ConfigLookup => option_env!("L2_DIAGNOSTIC_CONFIG"),
             DiagnosticProfile::Counters => option_env!("L2_DIAGNOSTIC_COUNTERS"),
             DiagnosticProfile::Fingerprints => option_env!("L2_DIAGNOSTIC_FULL"),
+            DiagnosticProfile::FpHash => option_env!("L2_DIAGNOSTIC_FP_HASH"),
+            DiagnosticProfile::FpMetadata => option_env!("L2_DIAGNOSTIC_FP_METADATA"),
+            DiagnosticProfile::FpClock => option_env!("L2_DIAGNOSTIC_FP_CLOCK"),
+            DiagnosticProfile::FpMap => option_env!("L2_DIAGNOSTIC_FP_MAP"),
         }
         .unwrap_or("");
         require(
@@ -219,6 +225,15 @@ impl Runtime {
                 checked(stats.insert(key, values, 1))?;
             }
         }
+        if self.context.request.profile.is_fingerprint_stage() {
+            let mut results = checked(PerCpuHashMap::<_, u32, [u64; 8]>::try_from(
+                bpf.map_mut("DIAG_RESULTS").ok_or("DX_RUNTIME: observer absent")?,
+            ))?;
+            for key in 0..2_u32 {
+                let values = checked(PerCpuValues::try_from(vec![[0_u64; 8]; cpus]))?;
+                checked(results.insert(key, values, 1))?;
+            }
+        }
         let mut configs = checked(HashMap::<_, u32, InterfaceConfig>::try_from(
             bpf.map_mut("IFACE_CONFIG")
                 .ok_or("DX_RUNTIME: config absent")?,
@@ -244,7 +259,8 @@ impl Runtime {
             "commit_sha":option_env!("L2_DIAGNOSTIC_COMMIT"),
             "xdp_program_id":self.loaded_xdp.map(|program| program.program_id),
             "tc_program_id":self.loaded_tc.map(|program| program.program_id),
-            "map_ids":self.map_ids,"stop_reason":self.stop_reason,"counters":self.counters});
+            "map_ids":self.map_ids,"stop_reason":self.stop_reason,"counters":self.counters,
+            "stage_results":self.stage_results});
         let mut output = std::io::stdout().lock();
         checked(serde_json::to_writer(&mut output, &report))?;
         checked(output.write_all(b"\n"))?;
@@ -280,6 +296,18 @@ impl Runtime {
             totals.push(json!({"role":role,"packets":packets,"bytes":bytes}));
         }
         self.counters = json!(totals);
+        if self.context.request.profile.is_fingerprint_stage() {
+            let results = checked(PerCpuHashMap::<_, u32, [u64; 8]>::try_from(
+                bpf.map("DIAG_RESULTS").ok_or("DX_RUNTIME: observer absent")?,
+            ))?;
+            let mut rows = Vec::new();
+            for key in 0..2_u32 {
+                let values = checked(results.get(&key, 0))?;
+                let records = values.iter().filter(|value| value[5] != 0).copied().collect::<Vec<_>>();
+                rows.push(json!({"direction":key + 1,"records":records}));
+            }
+            self.stage_results = json!(rows);
+        }
         Ok(())
     }
 }
