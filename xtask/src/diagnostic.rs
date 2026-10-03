@@ -38,7 +38,10 @@ impl DiagnosticProfile {
     }
 
     pub(crate) fn is_fingerprint_stage(self) -> bool {
-        matches!(self, Self::FpHash | Self::FpMetadata | Self::FpClock | Self::FpMap)
+        matches!(
+            self,
+            Self::FpHash | Self::FpMetadata | Self::FpClock | Self::FpMap
+        )
     }
 
     pub(crate) fn declaration(self) -> (&'static str, &'static str, &'static str) {

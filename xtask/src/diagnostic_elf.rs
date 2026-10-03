@@ -175,6 +175,12 @@ pub fn inspect_diagnostic_elf(
                 )
             })
         {
+            eprintln!(
+                "DX_LINK: program={name} entry={entry_length} tail={} parser={} calls={:?}",
+                linked_tail.len(),
+                parser_code.len(),
+                function.instructions.iter().enumerate().filter(|(_, instruction)| instruction.code == 0x85).map(|(index, instruction)| (index, instruction.src_reg(), instruction.imm)).collect::<Vec<_>>()
+            );
             return Err(DiagnosticElfError("linked parser"));
         }
         for (index, insn) in function.instructions[..entry_length].iter().enumerate() {
@@ -219,11 +225,13 @@ pub fn inspect_diagnostic_elf(
                 calls.len() >= 5 && calls.iter().all(|id| *id == 1)
             }
             DiagnosticProfile::FpClock => {
-                calls.contains(&1) && calls.iter().filter(|id| **id == 5).count() == 1
+                calls.contains(&1)
+                    && calls.iter().filter(|id| **id == 5).count() == 1
                     && calls.iter().all(|id| matches!(id, 1 | 5))
             }
             DiagnosticProfile::FpMap => {
-                calls.contains(&1) && calls.contains(&2)
+                calls.contains(&1)
+                    && calls.contains(&2)
                     && calls.iter().filter(|id| **id == 5).count() == 1
                     && calls.iter().all(|id| matches!(id, 1 | 2 | 5))
             }

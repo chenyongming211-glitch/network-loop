@@ -227,7 +227,8 @@ impl Runtime {
         }
         if self.context.request.profile.is_fingerprint_stage() {
             let mut results = checked(PerCpuHashMap::<_, u32, [u64; 8]>::try_from(
-                bpf.map_mut("DIAG_RESULTS").ok_or("DX_RUNTIME: observer absent")?,
+                bpf.map_mut("DIAG_RESULTS")
+                    .ok_or("DX_RUNTIME: observer absent")?,
             ))?;
             for key in 0..2_u32 {
                 let values = checked(PerCpuValues::try_from(vec![[0_u64; 8]; cpus]))?;
@@ -298,12 +299,17 @@ impl Runtime {
         self.counters = json!(totals);
         if self.context.request.profile.is_fingerprint_stage() {
             let results = checked(PerCpuHashMap::<_, u32, [u64; 8]>::try_from(
-                bpf.map("DIAG_RESULTS").ok_or("DX_RUNTIME: observer absent")?,
+                bpf.map("DIAG_RESULTS")
+                    .ok_or("DX_RUNTIME: observer absent")?,
             ))?;
             let mut rows = Vec::new();
             for key in 0..2_u32 {
                 let values = checked(results.get(&key, 0))?;
-                let records = values.iter().filter(|value| value[5] != 0).copied().collect::<Vec<_>>();
+                let records = values
+                    .iter()
+                    .filter(|value| value[5] != 0)
+                    .copied()
+                    .collect::<Vec<_>>();
                 rows.push(json!({"direction":key + 1,"records":records}));
             }
             self.stage_results = json!(rows);

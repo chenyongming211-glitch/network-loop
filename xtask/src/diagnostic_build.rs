@@ -49,7 +49,11 @@ pub fn build_diagnostic_ebpf(
             "--package",
             "l2-loop-ebpf",
             "--features",
-            if profile.is_fingerprint_stage() { "fingerprint-stages" } else { "diagnostics" },
+            if profile.is_fingerprint_stage() {
+                "fingerprint-stages"
+            } else {
+                "diagnostics"
+            },
             "--bin",
             binary,
             "--target-dir",
