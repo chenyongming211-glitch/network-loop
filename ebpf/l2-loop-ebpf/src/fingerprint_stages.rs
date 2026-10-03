@@ -88,16 +88,17 @@ fn selected<const STAGE: u8>(ifindex: u32, direction: u8, bytes: u64, data: usiz
     if let Some(result) = DIAG_RESULTS.get_ptr_mut(&u32::from(direction - 1)) {
         unsafe {
             let count = (*result)[5].saturating_add(1);
-            *result = [
-                fingerprint,
-                packed_l2,
-                source,
-                destination,
-                now_ns,
-                count,
-                0,
-                0,
-            ];
+            // Fixed observable scalar stores prevent compiler-generated bulk
+            // memory calls and keep the sink shape identical across stages.
+            let words = result.cast::<u64>();
+            core::ptr::write_volatile(words, fingerprint);
+            core::ptr::write_volatile(words.add(1), packed_l2);
+            core::ptr::write_volatile(words.add(2), source);
+            core::ptr::write_volatile(words.add(3), destination);
+            core::ptr::write_volatile(words.add(4), now_ns);
+            core::ptr::write_volatile(words.add(5), count);
+            core::ptr::write_volatile(words.add(6), 0);
+            core::ptr::write_volatile(words.add(7), 0);
         }
     }
 }

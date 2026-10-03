@@ -179,7 +179,13 @@ pub fn inspect_diagnostic_elf(
                 "DX_LINK: program={name} entry={entry_length} tail={} parser={} calls={:?}",
                 linked_tail.len(),
                 parser_code.len(),
-                function.instructions.iter().enumerate().filter(|(_, instruction)| instruction.code == 0x85).map(|(index, instruction)| (index, instruction.src_reg(), instruction.imm)).collect::<Vec<_>>()
+                function
+                    .instructions
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, instruction)| instruction.code == 0x85)
+                    .map(|(index, instruction)| (index, instruction.src_reg(), instruction.imm))
+                    .collect::<Vec<_>>()
             );
             return Err(DiagnosticElfError("linked parser"));
         }
