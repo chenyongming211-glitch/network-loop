@@ -4,6 +4,7 @@ from pathlib import Path
 import unittest
 import subprocess
 import sys
+import socket
 
 PATH = Path(__file__).resolve().parents[1] / "diagnostic_traffic.py"
 MODULE = None
@@ -182,6 +183,68 @@ class DiagnosticTrafficTests(unittest.TestCase):
             with self.subTest(duration=duration, count=count), self.assertRaises(ValueError):
                 self.m.measure_window(io.send, frames, io.clock, duration, count)
             self.assertEqual(io.sent, [])
+
+    def test_noise_brackets_only_measured_loop_and_preserves_packet_contract(self):
+        self.assertIn("noise", __import__('inspect').signature(self.m.measure_window).parameters,
+                      "window lacks boundary-only telemetry")
+        io = SimulatedIo()
+        samples = []
+        def noise():
+            samples.append(len(io.sent))
+            n = len(samples) - 1
+            return dict(cpu_ns=100+n*20, user_ns=60+n*10, system_ns=40+n*10,
+                        voluntary=2+n, involuntary=3+n, minor_faults=4+n, major_faults=0,
+                        observed_start_ns=900+n*50, observed_end_ns=901+n*50,
+                        runqueue_ns=None, migrations=None, cpu_id=0)
+        result = self.m.measure_window(io.send, [bytes(64)], io.clock, 1000, 3, noise=noise)
+        self.assertEqual(samples, [0, 3])
+        self.assertEqual(result['packets'], 3)
+        self.assertEqual(result['noise']['cpu_ns'], 20)
+        self.assertIsNone(result['noise']['runqueue_ns'])
+
+    def test_send_modes_use_real_socket_and_nonblocking_backpressure_fails_closed(self):
+        configure = getattr(self.m, 'configure_socket', None)
+        self.assertIsNotNone(configure, 'bounded socket-mode selection missing')
+        with socket.socketpair()[0] as channel:
+            configure(channel, 'timeout')
+            self.assertEqual(channel.gettimeout(), 1.0)
+            configure(channel, 'nonblocking')
+            self.assertEqual(channel.gettimeout(), 0.0)
+            with self.assertRaises(ValueError): configure(channel, 'blocking')
+        def full(frame):
+            raise BlockingIOError('backpressure')
+        with self.assertRaises(BlockingIOError):
+            self.m.measure_window(full, [bytes(64)], lambda: 1, 100, 1)
+
+    def test_noise_delta_never_treats_unavailable_schedstats_as_zero(self):
+        sys.path.insert(0, str(PATH.parent))
+        import diagnostic_noise as noise
+        before = dict(cpu_ns=100, user_ns=60, system_ns=40, voluntary=2,
+                      involuntary=3, minor_faults=4, major_faults=0,
+                      observed_start_ns=1000, observed_end_ns=1010,
+                      runqueue_ns=None, migrations=5, cpu_id=0)
+        after = dict(before, cpu_ns=180, user_ns=90, system_ns=90, voluntary=3,
+                     involuntary=5, minor_faults=6, observed_start_ns=1100,
+                     observed_end_ns=1110, migrations=7, cpu_id=1)
+        result = noise.delta(before, after, 90)
+        self.assertEqual(result.get('cpu_ns'), 80)
+        self.assertEqual(result.get('involuntary'), 2)
+        self.assertEqual(result.get('migrations'), 2)
+        self.assertIsNone(result.get('runqueue_ns'))
+        self.assertEqual(result.get('boundary_overhead_upper_ns'), 20)
+        for change in [dict(cpu_ns=99), dict(involuntary=2), dict(migrations=4),
+                       dict(runqueue_ns=0)]:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                noise.delta(before, dict(after, **change), 90)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Linux telemetry only')
+    def test_real_boundary_snapshot_has_own_cpu_counters_and_bounded_read_span(self):
+        sys.path.insert(0, str(PATH.parent))
+        import diagnostic_noise as noise
+        row = noise.snapshot()
+        self.assertGreater(row.get('cpu_ns', 0), 0)
+        self.assertGreaterEqual(row.get('observed_end_ns', 0), row.get('observed_start_ns', 1))
+        self.assertGreaterEqual(row.get('voluntary', -1), 0)
 
 
 if __name__ == "__main__":
