@@ -198,4 +198,3 @@ ignored .artifacts, consistent with prior diagnostic runs.
 Independent arithmetic is saved in .artifacts/ostack7-domain-analysis.json.
 Raw-delta verification and calculation methods are retained in
 .artifacts/domain-projection.ps1 and .artifacts/domain-analysis-method.js.
-
