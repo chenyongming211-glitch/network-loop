@@ -221,3 +221,12 @@ The next priority is bounding sender/shared-host scheduling variability before
 selecting an optimization. The original production-admission result is unchanged.
 See the [2026-10-03 stage results and safety evidence](docs/performance-diagnostics-2026-10-03.md).
 
+A subsequent sender investigation proved that Python's positive socket timeout
+adds one readiness syscall per packet. An explicit fail-closed nonblocking sender
+mode removed those calls; five ABBA/BAAB blocks showed a median 30.1% throughput
+increase on the unchanged diagnostic path. This is a **measurement-tool improvement,
+not product speedup**. Residual repeat drift reached 4.64%; scheduler/NUMA causality
+remains unresolved. All 22 trials completed precise cleanup and restored measured
+state. CPU-affinity experiments remain separately authorized; none were performed.
+See the [sender root-cause evidence and remaining limits](docs/sender-noise-investigation-2026-10-03.md).
+
