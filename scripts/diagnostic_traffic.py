@@ -79,7 +79,7 @@ def build_corpus(profile, source_mac="02:00:00:00:00:01", destination_mac="02:00
     return tuple(frames)
 
 
-def measure_window(send, frames, clock, duration_ns, packet_limit):
+def measure_window(send, frames, clock, duration_ns, packet_limit, noise=None):
     if (type(duration_ns) is not int or not 0 < duration_ns <= MEASUREMENT_NS
             or type(packet_limit) is not int or not 0 < packet_limit <= MEASUREMENT_PACKET_LIMIT
             or not frames or len(frames) > 768
@@ -88,6 +88,7 @@ def measure_window(send, frames, clock, duration_ns, packet_limit):
     # Precompute content-selection and frame metadata OUTSIDE the timed window.
     corpus = tuple((frame, len(frame), fingerprint_selected(frame)) for frame in frames)
     packets = byte_count = selected_count = 0
+    before = noise() if noise else None
     started = previous = clock()
     deadline = started + duration_ns
     while packets < packet_limit:
@@ -104,10 +105,11 @@ def measure_window(send, frames, clock, duration_ns, packet_limit):
         byte_count += length
         selected_count += selected
     ended = clock()
+    after = noise() if noise else None
     if ended < previous or ended <= started or packets == 0:
         raise RuntimeError("invalid measurement clock or empty window")
     elapsed = ended - started
-    return {
+    result = {
         "packets": packets, "bytes": byte_count, "elapsed_ns": elapsed,
         "packets_per_second": packets * 1_000_000_000 // elapsed,
         "bytes_per_second": byte_count * 1_000_000_000 // elapsed,
@@ -115,12 +117,16 @@ def measure_window(send, frames, clock, duration_ns, packet_limit):
         "selected_ratio_permille": selected_count * 1000 // packets,
         "stop_reason": "duration" if ended >= deadline else "packet_limit",
     }
+    if noise:
+        from diagnostic_noise import delta
+        result['noise'] = delta(before, after, elapsed)
+    return result
 
 
-def run_windows(send, frames, clock, verify_identity=lambda: None):
-    warmup = measure_window(send, frames, clock, WARMUP_NS, WARMUP_PACKET_LIMIT)
+def run_windows(send, frames, clock, verify_identity=lambda: None, noise=None):
+    warmup = measure_window(send, frames, clock, WARMUP_NS, WARMUP_PACKET_LIMIT, noise)
     verify_identity()
-    measurement = measure_window(send, frames, clock, MEASUREMENT_NS, MEASUREMENT_PACKET_LIMIT)
+    measurement = measure_window(send, frames, clock, MEASUREMENT_NS, MEASUREMENT_PACKET_LIMIT, noise)
     verify_identity()
     return {"diagnostic_schema_version": 1, "deployment_gate_evidence": False,
             "warmup": warmup, "measurement": measurement}
@@ -151,6 +157,14 @@ def inspect_target(run_id, side, ifindex):
     return interface
 
 
+def configure_socket(channel, mode):
+    if mode not in ('timeout', 'nonblocking'):
+        raise ValueError('invalid bounded send mode')
+    # Both modes are OS-nonblocking. EAGAIN in the explicit nonblocking mode
+    # aborts the trial; never hide loss with retries or relax forwarding checks.
+    channel.settimeout(1.0 if mode == 'timeout' else 0.0)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--run-id", required=True)
@@ -158,6 +172,8 @@ def main(argv=None):
     parser.add_argument("--ifindex", type=int, required=True)
     parser.add_argument("--profile", choices=("mixed", "selected", "unselected"), required=True)
     parser.add_argument("--destination-mac", required=True)
+    parser.add_argument("--send-mode", choices=('timeout', 'nonblocking'), default='timeout')
+    parser.add_argument("--noise", action='store_true')
     args = parser.parse_args(argv)
     try:
         interface = inspect_target(args.run_id, args.side, args.ifindex)
@@ -165,13 +181,17 @@ def main(argv=None):
             source_mac = address.read(64).strip()
         frames = build_corpus(args.profile, source_mac, args.destination_mac)
         verify = lambda: inspect_target(args.run_id, args.side, args.ifindex)
+        noise = None
+        if args.noise:
+            from diagnostic_noise import snapshot
+            noise = snapshot
         with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as channel:
-            channel.settimeout(1.0)
+            configure_socket(channel, args.send_mode)
             channel.bind((interface, 0))
             verify()
-            result = run_windows(channel.send, frames, time.monotonic_ns, verify)
+            result = run_windows(channel.send, frames, time.monotonic_ns, verify, noise)
         result.update(run_id=args.run_id, side=args.side, ifindex=args.ifindex,
-                      profile=args.profile, corpus_frames=len(frames))
+                      profile=args.profile, corpus_frames=len(frames), send_mode=args.send_mode)
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
         return 0
     except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as error:

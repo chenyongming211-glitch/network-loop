@@ -7,6 +7,7 @@ import sys
 import socket
 
 PATH = Path(__file__).resolve().parents[1] / "diagnostic_traffic.py"
+sys.path.insert(0, str(PATH.parent))
 MODULE = None
 if PATH.is_file():
     SPEC = importlib.util.spec_from_file_location("diagnostic_traffic", PATH)
@@ -205,7 +206,8 @@ class DiagnosticTrafficTests(unittest.TestCase):
     def test_send_modes_use_real_socket_and_nonblocking_backpressure_fails_closed(self):
         configure = getattr(self.m, 'configure_socket', None)
         self.assertIsNotNone(configure, 'bounded socket-mode selection missing')
-        with socket.socketpair()[0] as channel:
+        channel, peer = socket.socketpair()
+        with channel, peer:
             configure(channel, 'timeout')
             self.assertEqual(channel.gettimeout(), 1.0)
             configure(channel, 'nonblocking')
