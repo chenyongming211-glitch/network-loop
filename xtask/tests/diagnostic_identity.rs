@@ -102,6 +102,10 @@ fn verifies_four_profile_declarations_without_granting_load_authority() {
             "l2d_full_xdp",
             "l2d_full_tc",
         ),
+        ("fp_hash", "l2-loop-diag-fp-hash.o", "l2d_hash_xdp", "l2d_hash_tc"),
+        ("fp_metadata", "l2-loop-diag-fp-metadata.o", "l2d_meta_xdp", "l2d_meta_tc"),
+        ("fp_clock", "l2-loop-diag-fp-clock.o", "l2d_clock_xdp", "l2d_clock_tc"),
+        ("fp_map", "l2-loop-diag-fp-map.o", "l2d_map_xdp", "l2d_map_tc"),
     ] {
         let fixture = Fixture::new();
         let mut manifest = fixture.manifest();
