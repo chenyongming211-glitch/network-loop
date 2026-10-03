@@ -249,5 +249,68 @@ class DiagnosticTrafficTests(unittest.TestCase):
         self.assertGreaterEqual(row.get('voluntary', -1), 0)
 
 
+class AlignedAccountingTests(unittest.TestCase):
+    def setUp(self):
+        try:
+            import diagnostic_accounting
+        except ImportError:
+            diagnostic_accounting = None
+        self.assertIsNotNone(diagnostic_accounting, 'aligned accounting missing')
+        self.m = diagnostic_accounting
+
+    def test_cpu_parser_selects_exact_cpu_and_never_double_counts_guest(self):
+        text = 'cpu 900 0 0 0 0 0 0 0 0 0\ncpu2 100 2 30 40 5 6 7 8 20 1\n'
+        ticks = self.m.cpu_ticks(text, 2)
+        self.assertEqual(ticks, [100, 2, 30, 40, 5, 6, 7, 8, 20, 1])
+        result = self.m.cpu_delta([0]*10, ticks)
+        self.assertEqual(result['total_ticks'], 198)
+        self.assertEqual(result['softirq_ticks'], 7)
+        for bad in [text.replace('cpu2', 'cpu3'), text+text,
+                    'cpu2 1 2', text.replace('100 2', '-1 2')]:
+            with self.subTest(text=bad), self.assertRaises(ValueError):
+                self.m.cpu_ticks(bad, 2)
+        with self.assertRaises(ValueError):
+            self.m.cpu_delta(ticks, [0]*10)
+
+    def test_perf_delta_preserves_multiplexing_and_unavailable_values(self):
+        good = self.m.perf_delta([10, 100, 100], [70, 300, 300])
+        self.assertEqual(good['value'], 60)
+        self.assertEqual(good['enabled_ns'], 200)
+        self.assertTrue(good['usable'])
+        partial = self.m.perf_delta([10, 100, 100], [70, 300, 200])
+        self.assertEqual(partial['coverage'], 0.5)
+        self.assertFalse(partial['usable'])
+        self.assertIsNone(self.m.perf_delta(None, None))
+        for end in [[9, 300, 300], [70, 99, 100], [70, 300, 301], None]:
+            with self.subTest(end=end), self.assertRaises(ValueError):
+                self.m.perf_delta([10, 100, 100], end)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Linux syscall boundary')
+    def test_counter_open_is_current_thread_only_without_sampling_or_inheritance(self):
+        import ctypes, struct
+        calls = []
+        def syscall(number, attr, pid, cpu, group, flags):
+            calls.append((number, ctypes.string_at(attr, 64), pid, cpu, group, flags))
+            return 17
+        self.assertEqual(self.m.open_counter(0, 1, syscall=syscall), 17)
+        number, attr, pid, cpu, group, flags = calls[0]
+        self.assertEqual((number, pid, cpu, group, flags), (298, 0, -1, -1, 8))
+        self.assertEqual(struct.unpack_from('=IIQQQQQ', attr), (0,64,1,0,0,3,0))
+
+    def test_aligned_delta_rejects_identity_and_boundary_disagreement(self):
+        before = dict(cpu=2, ticks=[0]*10, perf={'cycles':[10,100,100]},
+                      start_ns=100, end_ns=110, hz=100)
+        after = dict(cpu=2, ticks=[2,0,3,0,0,1,4,0,0,0],
+                     perf={'cycles':[70,300,300]}, start_ns=300, end_ns=310, hz=100)
+        result = self.m.aligned_delta(before, after)
+        self.assertEqual(result['cpu']['total_ticks'], 10)
+        self.assertEqual(result['cpu']['softirq_ticks'], 4)
+        self.assertEqual(result['perf']['cycles']['value'], 60)
+        self.assertEqual(result['boundary_read_spans_ns'], [10,10])
+        for change in [dict(cpu=3),dict(hz=1000),dict(start_ns=99),dict(perf={})]:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.m.aligned_delta(before, dict(after, **change))
+
+
 if __name__ == "__main__":
     unittest.main()
