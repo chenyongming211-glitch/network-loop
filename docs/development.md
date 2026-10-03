@@ -522,6 +522,15 @@ attribution remains open. Sibling activity was correlated but not uniquely causa
 All measured identities and LLDP state were restored with zero generated residue.
 See the [cache and memory report](cache-memory-investigation-2026-10-03.md).
 
+The subsequent 24-trial L1/frontend/execution experiment retained full coverage
+in all 32 counted directional windows. Load-associated waiting tracked CPI;
+frontend undersupply was not a consistent explanation across directions. Host
+pipeline/plain ratios were lower in all four blocks, so observer effects remain
+explicitly unresolved. The proposed next step separates user-mode and kernel-mode
+counting with matched controls, not speculative product changes. All measured
+state was restored with zero generated residue. See the
+[pipeline stall report](pipeline-stall-investigation-2026-10-03.md).
+
 These trials run no daemon/background sampler and are attribution experiments,
 not a replacement for end-to-end or physical-interface performance gates. The
 outer harness must enforce host coexistence, bounded traffic, before/after state

@@ -253,3 +253,11 @@ memory effects. Sibling-load correlations have counterexamples and do not prove
 SMT causality. All measured state was restored; product performance and admission
 claims remain unchanged. See the [cache and memory evidence](docs/cache-memory-investigation-2026-10-03.md).
 
+Another 24-trial L1/frontend/execution investigation found outstanding-load
+associated stalls at about 12–14% of cycles versus about 2.4–3.4% for L1-miss
+associated stalls. Two slow host windows also showed higher resource stalls and
+sibling activity, but frontend behavior differed by direction and observer effects
+remain unresolved. The next diagnostic is user/kernel attribution, not a product
+optimization claim. Measured state was restored; admission remains unchanged.
+See the [pipeline stall evidence](docs/pipeline-stall-investigation-2026-10-03.md).
+
