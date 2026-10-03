@@ -209,6 +209,15 @@ candidates were rejected for insufficient/negative measured benefit; the origina
 product hot path is restored. An independent real-kernel 192-key fingerprint
 regression test is retained. All three runs restored measured identity and cleaned
 up generated resources. No performance gain or new formal-gate pass is claimed;
-the next step is finer selected-only cost attribution and measurement-noise control.
+the subsequent step adds finer selected-only cost attribution and measurement-noise control.
 See the [candidate results and rejection decisions](docs/performance-diagnostics-2026-10-02.md#follow-up-selected-versus-unselected-fingerprint-cost).
+
+The selected-only follow-up now provides four acceptance-only cumulative profiles:
+hash, metadata, clock and fingerprint Map, with an identical private observer.
+All 25 fixed paired trials on ostack7 completed exact forwarding and cleanup.
+The repeated hash anchors showed up to 2.425% drift; all three adjacent-stage
+contrasts were unresolved, so no product optimization or performance gain is claimed.
+The next priority is bounding sender/shared-host scheduling variability before
+selecting an optimization. The original production-admission result is unchanged.
+See the [2026-10-03 stage results and safety evidence](docs/performance-diagnostics-2026-10-03.md).
 

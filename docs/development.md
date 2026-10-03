@@ -381,9 +381,14 @@ GitHub runs only the self-contained static/unit safety tests for this harness. C
 
 ## Offline layered diagnostic artifacts
 
-The build-tool-only diagnostic path is separate from the product bundle. Its four
+The build-tool-only diagnostic path is separate from the product bundle. Its original four
 profiles are `hooks_only`, `config_lookup`, `counters` and `fingerprints`. They use
-distinct two-program inventories and the existing six-Map ABI. No production CLI
+distinct two-program inventories and the existing six-Map ABI. Four additional
+selected-packet profiles are `fp_hash`, `fp_metadata`, `fp_clock` and `fp_map`.
+These cumulatively add hash/selection, metadata, kernel clock and the original
+fingerprint Map lookup/update/insert. All four add the same private unpinned
+`DIAG_RESULTS` per-CPU hash Map (u32 key, 64-byte value, capacity 2), preventing
+dead-code elimination without changing the production Map ABI. No production CLI
 flag is introduced; the diagnostic loader is a separate required-feature binary.
 Compilation and these integration tests
 run only on GitHub, never on the development PC or a test server.
@@ -395,7 +400,7 @@ cargo xtask verify-diagnostic-elf --object <NEW_DIR>/l2-loop-diag-hooks-only.o -
 ```
 
 The builder refuses an existing destination and uses `.artifacts/diagnostic-target`
-instead of the ordinary eBPF target directory. CI publishes four two-file profile
+instead of the ordinary eBPF target directory. CI publishes eight two-file profile
 directories under `l2-loop-layered-diagnostics-<commit>`, independently of the ordinary
 ten-file release bundle. Only completely built and offline-verified profile
 outputs are uploaded. An upload alone is not acceptance: a later runtime test or
@@ -405,7 +410,8 @@ intentionally rejects them.
 
 ELF inspection checks actual names/types, Map layout, fixed helper strata and entry
 return instructions. Offline Aya call resolution permits only the existing shared
-L2 parser for the two upper layers; it does not force a product inlining change.
+L2 parser for the original two upper layers and four selected-packet stages;
+it does not force a product inlining change.
 Helper lists are static call sites, not per-packet invocation counts or performance
 measurements. CI also compares full-profile entry and support-function instructions
 with the ordinary object, and mutates headers, helper calls, return actions, Map
@@ -420,7 +426,7 @@ evidence.
 ### Acceptance-only diagnostic loader
 
 `l2-loop-diagnostic` is built only with xtask's `diagnostic-runtime` feature. CI
-embeds its exact commit and four object SHA256 values and publishes it separately
+embeds its exact commit and eight object SHA256 values and publishes it separately
 as `l2-loop-diagnostic-runtime-<commit>`. A build without these bindings refuses
 loading. Neither the normal daemon nor the ten-file product bundle gains this
 capability. Obtain the executable and objects from the same complete successful
@@ -446,7 +452,8 @@ The exact bounded payload buffer is checked against the compiled SHA256 and
 offline ELF contract and is then passed directly to Aya. The existing declaration
 verifier separately validates the manifest. Fresh Maps have no pins; all profiles
 receive the same 16 initialized statistics keys and fixed interface config. An
-exclusive, private `diagnostic-lease.json` records program IDs/tag, six Map IDs,
+exclusive, private `diagnostic-lease.json` records program IDs/tag, all six (or seven
+for selected-packet stages) Map IDs,
 request, artifact identity and fixed TC slot before hook attachment.
 
 The loader emits a `ready` JSON line, waits for exactly `stop\n`, EOF, SIGTERM,
@@ -458,6 +465,22 @@ fails. SIGKILL/power loss can leave hooks and a lease: do not blindly delete the
 lease or replay it. Inspect current kernel identities and obtain scoped recovery
 approval. TC uses a fresh identity check followed by delete, not an atomic kernel
 compare-and-delete; exclusive control of the generated pair remains required.
+
+Selected-packet stages additionally return `stage_results`: per-direction nonzero
+per-CPU records `[hash, packed_l2, source_mac_protocol, destination_mac, now_ns,
+selected_packets, 0, 0]`. Direction 1 is XDP ingress and 2 is TC egress. `packed_l2`
+contains VLAN ID, EtherType, frame length, direction and VLAN depth at bit offsets
+0/16/32/48/56; the source word contains the six-byte little-endian MAC, protocol
+and subtype at offsets 0/48/56. Hash-only zeros metadata and time; metadata-only
+zeros time. These are synthetic acceptance records, not a new production output
+or privacy contract. Fixed volatile scalar stores keep the observer common.
+
+`scripts/diagnostic_pairs.py` fixes five alternating forward/reverse five-trial
+blocks with repeated hash anchors (25 trials). It rejects incomplete duration,
+wrong order, drops/errors and invalid counts. Its descriptive noise envelope is
+the largest absolute anchor drift, floored at 1%; every block must exceed that
+envelope in the same direction for a resolved contrast. No samples are discarded.
+This is not a confidence interval, exact helper timing, or deployment-gate evidence.
 
 These trials run no daemon/background sampler and are attribution experiments,
 not a replacement for end-to-end or physical-interface performance gates. The

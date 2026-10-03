@@ -26,8 +26,8 @@
 
 **Interfaces:** Four fixed profiles `fp_hash`, `fp_metadata`, `fp_clock`, `fp_map`; `schedule() -> list[list[str]]`; `summarize(blocks) -> dict` with exactly five scheduled blocks and duration-complete, intact forwarding records.
 
-- [ ] RED on GitHub: new profile declaration must succeed without granting load authority; schedule must equal the five explicit blocks; 0.9 ratios under 1% noise resolve lower throughput, 20% anchor drift forces unresolved, malformed/censored records raise ValueError.
-- [ ] GREEN: fixed enum/declarations, fail-closed input validation, retained ratios and same-stage anchors; no host commands in analysis module.
+- [x] RED on GitHub: new profile declaration must succeed without granting load authority; schedule must equal the five explicit blocks; 0.9 ratios under 1% noise resolve lower throughput, 20% anchor drift forces unresolved, malformed/censored records raise ValueError.
+- [x] GREEN: fixed enum/declarations, fail-closed input validation, retained ratios and same-stage anchors; no host commands in analysis module.
 
 ## Task 2: Real stage objects, loader and kernel evidence
 
@@ -35,10 +35,10 @@
 
 **Interfaces:** `fingerprint_stages::{xdp,tc}::<1..4>`; observer words `[hash, packed_l2, source_mac_protocol, destination_mac, now_ns, selected_packets, 0, 0]`. Word 1 packs VLAN/EtherType/length/direction/depth; source word packs MAC/protocol/subtype. Hash stage zeros metadata/time; metadata zeros time; clock/map retain kernel time. Stop report includes nonzero per-CPU observer records grouped by hook.
 
-- [ ] Extend actual ELF tests before implementation: exact seven-Map layout, profile cross-rejection, forbidden helper mutation, fixed pass verdict and ordinary-product rejection. Existing full-profile/ordinary instruction identity test remains mandatory.
-- [ ] Implement feature-gated stages; no unused calculations accepted as measurements. Map stage performs the same lookup/update/insert semantics as the original and records results after operation.
-- [ ] Kernel tests: independent FNV oracle checks selected hashes and packed metadata; selected totals exactly 192 per hook for the fixed fixture, unselected frames produce no observer records, only map stage creates the expected 192 fingerprint entries across both hooks. Existing foreign-TC/lease/digest/exit tests remain.
-- [ ] Full GitHub CI including MUSL; record exact eligible artifact identity before node use.
+- [x] Extend actual ELF tests before implementation: exact seven-Map layout, profile cross-rejection, forbidden helper mutation, fixed pass verdict and ordinary-product rejection. Existing full-profile/ordinary instruction identity test remains mandatory.
+- [x] Implement feature-gated stages; no unused calculations accepted as measurements. Map stage performs the same lookup/update/insert semantics as the original and records results after operation.
+- [x] Kernel tests: independent FNV oracle checks selected hashes and packed metadata; selected totals exactly 192 per hook for the fixed fixture, unselected frames produce no observer records, only map stage creates the expected 192 fingerprint entries across both hooks. Existing foreign-TC/lease/digest/exit tests remain.
+- [x] Full GitHub CI including MUSL; record exact eligible artifact identity before node use.
 
 ## Task 3: Bounded paired measurement and report
 
@@ -46,7 +46,20 @@
 
 **Interfaces:** Reuse verified generated-veth lifecycle and authorization-specific generated-port LLDP restoration. Each row supplies `profile`, actual packets, combined elapsed_ns, duration_complete, forwarding_intact and drop/error deltas to `summarize`.
 
-- [ ] Review the exact controller before execution; do not modify a running controller. Bind source/artifact hashes and selected counts. Pair same endpoints/corpus; preserve all 25 rows and all failures.
-- [ ] Run only after full CI GREEN. Stop on identity, forwarding, ownership or cleanup mismatch.
-- [ ] Report adjacent-stage ratios, same-stage noise envelope and unresolved findings honestly. Restore LLDP and measured network/BPF identities and verify zero generated residue.
-- [ ] Choose a later optimization only from resolved evidence; do not claim product gain or change production admission in this increment.
+- [x] Review the exact controller before execution; do not modify a running controller. Bind source/artifact hashes and selected counts. Pair same endpoints/corpus; preserve all 25 rows and all failures.
+- [x] Run only after full CI GREEN. Stop on identity, forwarding, ownership or cleanup mismatch.
+- [x] Report adjacent-stage ratios, same-stage noise envelope and unresolved findings honestly. Restore LLDP and measured network/BPF identities and verify zero generated residue.
+- [x] Choose a later optimization only from resolved evidence; do not claim product gain or change production admission in this increment.
+
+## Completion evidence
+
+Completed on `main` without local compilation or subagents. Code/artifact commit
+`aab228021e09bbaef61319c4d75d34d6f166e2e9` passed all five jobs in GitHub run
+`37084538550`. Authorized ostack7 run `5f31ff5d190d47a0a05f5b75b0bf6f8a`
+completed all 25 scheduled trials and exact cleanup. Noise envelope 2.42496%; all
+three contrasts unresolved, so no production optimization was selected. A preceding
+control-script failure and identity-checked cleanup recovery are retained in the
+[full report](../../performance-diagnostics-2026-10-03.md). Review was inline under
+the explicit no-subagent constraint. Ordinary hot-path changes are limited to a
+feature-gated diagnostic module declaration; the ordinary instruction-identity
+regression passed. Production admission remains unchanged.
