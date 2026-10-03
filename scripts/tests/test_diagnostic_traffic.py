@@ -311,6 +311,29 @@ class AlignedAccountingTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.m.aligned_delta(before, dict(after, **change))
 
+    def test_counter_set_preserves_unavailable_event_and_closes_owned_fds_once(self):
+        import struct
+        closed = []
+        opened = []
+        def opener(kind, config):
+            if (kind, config) == (0, 9):
+                raise OSError(95, 'unsupported')
+            opened.append((kind, config))
+            return 16+len(opened)
+        counters = self.m.PerfCounters(opener, lambda fd, size: struct.pack('=QQQ', fd, 30, 30), closed.append)
+        self.assertEqual(counters.snapshot()['cycles'], [18,30,30])
+        self.assertIsNone(counters.snapshot()['ref_cycles'])
+        self.assertEqual(counters.unavailable['ref_cycles'], 95)
+        counters.close(); counters.close()
+        self.assertEqual(sorted(closed), [17,18,19])
+
+    def test_short_counter_read_is_not_a_valid_zero(self):
+        counters = self.m.PerfCounters(lambda kind, config: 17, lambda fd, size: b'', lambda fd: None)
+        try:
+            with self.assertRaises(ValueError): counters.snapshot()
+        finally:
+            counters.close()
+
 
 if __name__ == "__main__":
     unittest.main()
