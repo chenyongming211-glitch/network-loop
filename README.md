@@ -246,3 +246,10 @@ Sibling-core load is a candidate, not a proven unique cause. All measured state
 was restored; no product speedup or admission change is claimed. See the
 [aligned runtime and execution-cost evidence](docs/aligned-accounting-investigation-2026-10-03.md).
 
+A subsequent 24-trial cache/memory investigation measured total execution stalls
+at about 25–28% of cycles, but L2/L3-miss-associated stalls below 0.62%/0.36% in
+the counted windows. This weakens a lower-level memory-wait explanation, not all
+memory effects. Sibling-load correlations have counterexamples and do not prove
+SMT causality. All measured state was restored; product performance and admission
+claims remain unchanged. See the [cache and memory evidence](docs/cache-memory-investigation-2026-10-03.md).
+

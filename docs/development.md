@@ -514,6 +514,14 @@ from off-CPU time and locating one slowdown mainly in cycles per instruction.
 Cache/SMT causality and small instrumentation effects remain unresolved. See the
 [aligned accounting report](aligned-accounting-investigation-2026-10-03.md).
 
+The following 24-trial cache/memory experiment used a disposable, model-bound
+launcher on the same frozen artifact, without changing the tracked helper or
+product CLI. All 32 counted directional windows had full coverage. L2/L3-miss
+stalls were small compared with total execution stalls; L1 and execution-resource
+attribution remains open. Sibling activity was correlated but not uniquely causal.
+All measured identities and LLDP state were restored with zero generated residue.
+See the [cache and memory report](cache-memory-investigation-2026-10-03.md).
+
 These trials run no daemon/background sampler and are attribution experiments,
 not a replacement for end-to-end or physical-interface performance gates. The
 outer harness must enforce host coexistence, bounded traffic, before/after state
