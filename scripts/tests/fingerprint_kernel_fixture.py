@@ -86,5 +86,9 @@ with socket.socket(socket.AF_PACKET,socket.SOCK_RAW) as channel:
  channel.settimeout(1)
  channel.bind((sys.argv[1],0))
  for frame,_ in frames(sys.argv[2],sys.argv[3]):
+  if len(sys.argv)>4 and sys.argv[4]=='unselected':
+   value=0xcbf29ce484222325
+   for byte in len(frame).to_bytes(2,'big')+frame[:60]: value=((value^byte)*0x100000001b3)&0xffffffffffffffff
+   if value&15==0: continue
   for _ in range(2): assert channel.send(frame)==len(frame)
 '''

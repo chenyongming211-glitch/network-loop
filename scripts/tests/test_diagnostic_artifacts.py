@@ -20,6 +20,10 @@ PROFILES = {
     "config_lookup": ("config-lookup", "l2d_config_xdp", "l2d_config_tc"),
     "counters": ("counters", "l2d_count_xdp", "l2d_count_tc"),
     "fingerprints": ("fingerprints", "l2d_full_xdp", "l2d_full_tc"),
+    "fp_hash": ("fp-hash", "l2d_hash_xdp", "l2d_hash_tc"),
+    "fp_metadata": ("fp-metadata", "l2d_meta_xdp", "l2d_meta_tc"),
+    "fp_clock": ("fp-clock", "l2d_clock_xdp", "l2d_clock_tc"),
+    "fp_map": ("fp-map", "l2d_map_xdp", "l2d_map_tc"),
 }
 
 
@@ -80,8 +84,11 @@ class DiagnosticArtifacts(unittest.TestCase):
                 report = json.loads(inspected.stdout)
                 print(f"verified {profile}: {inspected.stdout.strip()}", flush=True)
                 self.assertEqual(report["programs"], sorted([xdp, tc]))
-                self.assertEqual(report["maps"], ["FINGERPRINTS", "HOOK_STATS", "IFACE_CONFIG",
-                                                 "PROBE_REGISTRY", "PROBE_STATS", "RATE_POLICY"])
+                expected_maps = ["FINGERPRINTS", "HOOK_STATS", "IFACE_CONFIG",
+                                 "PROBE_REGISTRY", "PROBE_STATS", "RATE_POLICY"]
+                if profile.startswith("fp_"):
+                    expected_maps.insert(0, "DIAG_RESULTS")
+                self.assertEqual(report["maps"], expected_maps)
                 self.assertIs(report["load_authorized"], False)
                 self.assertIs(report["deployment_gate_evidence"], False)
                 self.assertIs(report["elf_inventory_verified"], True)
@@ -92,6 +99,11 @@ class DiagnosticArtifacts(unittest.TestCase):
                 wrong_map_layout = bytearray(original)
                 struct.pack_into("<I", wrong_map_layout, map_start + 8, 17)
                 mutations.append(wrong_map_layout)
+                if profile.startswith("fp_"):
+                    observer_start, _, _ = symbol_range(original, "DIAG_RESULTS")
+                    wrong_observer = bytearray(original)
+                    struct.pack_into("<I", wrong_observer, observer_start + 8, 8)
+                    mutations.append(wrong_observer)
                 _, _, support_name = symbol_range(original, "memcpy")
                 wrong_support = bytearray(original)
                 wrong_support[support_name:support_name + 6] = b"evilxx"

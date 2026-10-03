@@ -72,7 +72,7 @@ class DiagnosticRuntime(unittest.TestCase):
             ready = json.loads(line)
             self.assertEqual(ready["state"], "ready")
             self.assertFalse(ready["deployment_gate_evidence"])
-            self.assertEqual(len(ready["map_ids"]), 6)
+            self.assertEqual(len(ready["map_ids"]), 7 if profile.startswith("fp_") else 6)
             self.assertTrue((root / "diagnostic-lease.json").is_file())
             link = json.loads(command("ip", "-j", "-d", "link", "show", "dev", host))[0]
             self.assertIn("xdp", link)
@@ -91,19 +91,23 @@ class DiagnosticRuntime(unittest.TestCase):
                 link = json.loads(command("ip", "-j", "-d", "link", "show", "dev", host))[0]
                 self.assertNotIn("xdp", link)
                 return
-            fingerprint_case = stop == "fingerprint_contract"
+            stage_case = stop in ("stage_contract", "stage_unselected")
+            unselected = stop == "stage_unselected"
+            fingerprint_case = stop == "fingerprint_contract" or stage_case
+            expected = expected_fingerprints(a["ifindex"], a["address"], b["address"])
             if fingerprint_case:
                 command("ip", "link", "set", host, "up")
                 command("ip", "-n", ns, "link", "set", peer, "up")
                 fixture_path = str(Path(__file__).resolve().parent)
                 command("env", "PYTHONPATH=" + fixture_path, "python3", "-c", SENDER,
-                        host, a["address"], b["address"])
+                        host, a["address"], b["address"], "unselected" if unselected else "all")
                 command("ip", "netns", "exec", ns, "env", "PYTHONPATH=" + fixture_path,
-                        "python3", "-c", SENDER, peer, b["address"], a["address"])
+                        "python3", "-c", SENDER, peer, b["address"], a["address"],
+                        "unselected" if unselected else "all")
                 actual = read_fingerprints(ready["map_ids"]["FINGERPRINTS"])
-                expected = expected_fingerprints(a["ifindex"], a["address"], b["address"])
-                self.assertEqual(actual.keys(), expected.keys())
-                self.assertEqual(len(actual), 192)
+                writes_map = profile in ("fingerprints", "fp_map") and not unselected
+                self.assertEqual(actual.keys(), expected.keys() if writes_map else {}.keys())
+                self.assertEqual(len(actual), 192 if writes_map else 0)
                 for key, value in actual.items():
                     first, last = struct.unpack_from("<QQ", value)
                     self.assertGreater(first, 0)
@@ -140,9 +144,28 @@ class DiagnosticRuntime(unittest.TestCase):
             final = json.loads(stdout.strip())
             self.assertEqual(final["state"], "cleaned")
             self.assertEqual(final["stop_reason"], stop)
-            expected_packets = 3072 if fingerprint_case else 8 if stop == "stop" and profile in ("counters", "fingerprints") else 0
+            if stage_case:
+                self.assertEqual([row["direction"] for row in final["stage_results"]], [1, 2])
+                for row in final["stage_results"]:
+                    self.assertEqual(sum(record[5] for record in row["records"]), 0 if unselected else 192)
+                    valid = {}
+                    for key, value in expected.items():
+                        _, digest, _, vlan, ether, length, direction, depth, protocol, subtype = struct.unpack("<QQIHHHBBBB2x", key)
+                        if direction == row["direction"]:
+                            valid[digest] = [vlan | ether << 16 | length << 32 | direction << 48 | depth << 56,
+                                            int.from_bytes(value[16:22], "little") | protocol << 48 | subtype << 56,
+                                            int.from_bytes(value[22:28], "little")]
+                    for record in row["records"]:
+                        self.assertIn(record[0], valid)
+                        self.assertEqual(record[1:4], [0, 0, 0] if profile == "fp_hash" else valid[record[0]])
+                        if profile in ("fp_clock", "fp_map"):
+                            self.assertGreater(record[4], 0)
+                        else:
+                            self.assertEqual(record[4], 0)
+                        self.assertEqual(record[6:], [0, 0])
+            expected_packets = 2880 if unselected else 3072 if fingerprint_case else 8 if stop == "stop" and profile in ("counters", "fingerprints") else 0
             self.assertEqual([row["packets"] for row in final["counters"]], [expected_packets] * 2)
-            expected_bytes = 2140160 if fingerprint_case else expected_packets * 64
+            expected_bytes = 2006400 if unselected else 2140160 if fingerprint_case else expected_packets * 64
             self.assertEqual([row["bytes"] for row in final["counters"]], [expected_bytes] * 2)
             self.assertFalse((root / "diagnostic-lease.json").exists())
             link = json.loads(command("ip", "-j", "-d", "link", "show", "dev", host))[0]
@@ -170,6 +193,16 @@ class DiagnosticRuntime(unittest.TestCase):
 
     def test_actual_selected_fingerprints_preserve_keys_metadata_and_update_counts(self):
         self.exercise("fingerprints", "fingerprint_contract")
+
+    def test_stage_outputs_prove_hash_metadata_clock_and_exact_map_effects(self):
+        for profile in ("fp_hash", "fp_metadata", "fp_clock", "fp_map"):
+            with self.subTest(profile=profile):
+                self.exercise(profile, "stage_contract")
+
+    def test_unselected_packets_never_record_stage_outputs_or_fingerprints(self):
+        for profile in ("fp_hash", "fp_metadata", "fp_clock", "fp_map"):
+            with self.subTest(profile=profile):
+                self.exercise(profile, "stage_unselected")
 
     def test_deadline_rolls_back(self):
         self.exercise("counters", "deadline")

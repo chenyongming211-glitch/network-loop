@@ -86,6 +86,10 @@ fn actual_diagnostics_are_rejected_by_product_contract_and_full_path_is_identica
         ("config_lookup", "config-lookup"),
         ("counters", "counters"),
         ("fingerprints", "fingerprints"),
+        ("fp_hash", "fp-hash"),
+        ("fp_metadata", "fp-metadata"),
+        ("fp_clock", "fp-clock"),
+        ("fp_map", "fp-map"),
     ] {
         let bytes = fs::read(
             Path::new(&root)
