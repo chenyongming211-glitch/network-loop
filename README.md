@@ -257,7 +257,15 @@ Another 24-trial L1/frontend/execution investigation found outstanding-load
 associated stalls at about 12–14% of cycles versus about 2.4–3.4% for L1-miss
 associated stalls. Two slow host windows also showed higher resource stalls and
 sibling activity, but frontend behavior differed by direction and observer effects
-remain unresolved. The next diagnostic is user/kernel attribution, not a product
+remain unresolved. This motivated user/kernel attribution, not a product
 optimization claim. Measured state was restored; admission remains unchanged.
 See the [pipeline stall evidence](docs/pipeline-stall-investigation-2026-10-03.md).
+
+The following 24-trial user/kernel split found kernel-mode cycles at about
+62–67% of the measured domain sum, but repeat variation affected both domains.
+The largest slow peer window had about 39% of its extra cycles in user mode
+and 61% in kernel mode; kernel is not eBPF alone. Counting controls still show
+unresolved observer/noise effects. Measured state was restored; no product
+speedup or admission change is claimed. See the
+[domain counting evidence](docs/domain-counting-investigation-2026-10-03.md).
 

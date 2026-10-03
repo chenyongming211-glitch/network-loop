@@ -526,10 +526,19 @@ The subsequent 24-trial L1/frontend/execution experiment retained full coverage
 in all 32 counted directional windows. Load-associated waiting tracked CPI;
 frontend undersupply was not a consistent explanation across directions. Host
 pipeline/plain ratios were lower in all four blocks, so observer effects remain
-explicitly unresolved. The proposed next step separates user-mode and kernel-mode
+explicitly unresolved. This motivated separating user-mode and kernel-mode
 counting with matched controls, not speculative product changes. All measured
 state was restored with zero generated residue. See the
 [pipeline stall report](pipeline-stall-investigation-2026-10-03.md).
+
+The subsequent user/kernel experiment completed 24 fixed trials with full
+coverage in all 32 counted directional windows. A disposable launcher sets
+only hardware privilege exclusions; task-clock stays unfiltered. Both domains
+contribute to repeat variation, and kernel counts are not specific to eBPF.
+Counting-off and unfiltered controls are retained; no overhead or speedup claim
+is resolved. All measured state and LLDP state were restored with zero residue.
+The next comparison targets the known sender poll path before further product
+attribution. See the [domain counting report](domain-counting-investigation-2026-10-03.md).
 
 These trials run no daemon/background sampler and are attribution experiments,
 not a replacement for end-to-end or physical-interface performance gates. The
