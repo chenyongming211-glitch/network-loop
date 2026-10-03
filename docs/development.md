@@ -500,8 +500,19 @@ to new senders, validates original/effective/final masks, and retains all 20 fix
 natural/pinned trials. No permanent sender or product affinity option was added.
 CPU 29 pinning removed measured migrations but did not reduce repeat noise or
 resolve a throughput effect. Original network/eBPF and LLDP state were restored;
-the next measurement needs aligned runtime/interrupt accounting, not speculative
+that experiment motivated aligned runtime/interrupt accounting, not speculative
 product changes. See the [affinity evidence](sender-affinity-investigation-2026-10-03.md).
+
+`scripts/diagnostic_accounting.py` now provides acceptance-only CPU-tick parsing,
+strict counter deltas and a fixed current-thread-only counting API for Linux
+x86_64. It never samples, inherits, targets another PID, requests exclusive PMU access or
+changes global settings. Counter availability and enabled/running coverage are
+explicit, and owned descriptors are closed. There is no new product/sender CLI
+flag; the authorized task-local wrapper aligns reads at existing window boundaries.
+Twenty fixed pinned trials completed, distinguishing interrupt-accounting time
+from off-CPU time and locating one slowdown mainly in cycles per instruction.
+Cache/SMT causality and small instrumentation effects remain unresolved. See the
+[aligned accounting report](aligned-accounting-investigation-2026-10-03.md).
 
 These trials run no daemon/background sampler and are attribution experiments,
 not a replacement for end-to-end or physical-interface performance gates. The

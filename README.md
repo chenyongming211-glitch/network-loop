@@ -238,3 +238,11 @@ All measured state and LLDP state were restored with zero generated residue.
 Residual jitter remains unresolved; product code and production admission are
 unchanged. See the [affinity results and next diagnostic step](docs/sender-affinity-investigation-2026-10-03.md).
 
+A further 20-trial aligned-accounting experiment explains the large charged-CPU
+gap as interrupt accounting within measurement precision, not equivalent time
+off CPU. An observed 7.99% sender throughput decline instead coincided mainly
+with increased cycles per instruction at nearly unchanged runtime/frequency.
+Sibling-core load is a candidate, not a proven unique cause. All measured state
+was restored; no product speedup or admission change is claimed. See the
+[aligned runtime and execution-cost evidence](docs/aligned-accounting-investigation-2026-10-03.md).
+
